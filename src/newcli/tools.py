@@ -70,7 +70,9 @@ def _grep(args: dict) -> str:
     except re.error as e:
         return f"Error: invalid regex: {e}"
     results = []
-    for p in pathlib.Path(path).rglob(glob_pat.lstrip("**/").lstrip("*")):
+    # Extract the filename pattern (everything after last /)
+    pattern_part = glob_pat.rsplit("/", 1)[-1] if "/" in glob_pat else glob_pat
+    for p in pathlib.Path(path).rglob(pattern_part):
         if not p.is_file():
             continue
         try:

@@ -24,7 +24,10 @@ def run(
 
     allowed = set(ctx.allowed_tools) if ctx.allowed_tools is not None else None
 
-    for _ in range(ctx.config.max_retries + 1):
+    retries = 0
+    max_retries = ctx.config.max_retries
+
+    while True:
         ctx.messages = maybe_compact(ctx.messages, ctx.config, provider_fn=None)
 
         tools_schemas = [
@@ -42,7 +45,9 @@ def run(
                 assistant_msg = chunk
 
         if assistant_msg is None:
-            # Empty response — inject correction and retry
+            if retries >= max_retries:
+                break
+            retries += 1
             ctx.messages.append(Message(role="user", content="Your last response was empty. Please try again."))
             continue
 
@@ -55,19 +60,21 @@ def run(
         yield TurnDoneEvent(input_tokens=0, output_tokens=0)
 
         if not assistant_msg.tool_calls:
-            break   # no tools → conversation turn complete
+            break
 
         # Execute each tool call
         hallucinated = False
         for tc in assistant_msg.tool_calls:
             tool = registry.get(tc.name)
             if tool is None:
+                if retries >= max_retries:
+                    break
+                retries += 1
                 correction = f"You used unknown tool '{tc.name}'. Available: {[t.name for t in registry.all()]}."
                 ctx.messages.append(Message(role="user", content=correction))
                 hallucinated = True
                 break
 
-            # Permission check
             permitted = permission_check(
                 tool,
                 ctx.config.permission_mode,
@@ -89,7 +96,6 @@ def run(
                 ))
                 continue
 
-            # Run before-hooks, execute, run after-hooks
             tc = run_before(tc, ctx, hooks)
             yield ToolStartEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
             output = registry.execute(tc.name, tc.args)
@@ -105,8 +111,8 @@ def run(
             ))
 
         if hallucinated:
-            continue    # retry with correction message
-        # Loop back for next assistant turn (model processes tool results)
+            continue
+        # normal round: loop back for model to process tool results
 
     ctx.turn += 1
 
