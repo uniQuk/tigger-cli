@@ -11,13 +11,13 @@ def check(
     """Return True if *tool* is auto-approved under *mode*; False means ask."""
     if tool.read_only:
         return True
-    if mode == "accept-all":
+    if mode == "bypass":
         return True
-    if mode == "auto":
+    if mode == "allow":
         if tool.safe:
             return True
         if tool.name == "bash":
             cmd = args.get("command", "")
             return any(cmd.startswith(p) for p in bash_safe_prefixes)
         return False
-    return False    # manual: caller must prompt the user
+    return False    # ask: caller must prompt the user

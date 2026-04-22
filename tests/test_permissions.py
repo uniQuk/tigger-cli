@@ -9,37 +9,37 @@ def _tool(name="bash", read_only=False, safe=False):
 
 def test_read_only_always_permitted():
     t = _tool(read_only=True)
-    for mode in ("auto", "manual", "accept-all"):
+    for mode in ("allow", "ask", "bypass"):
         assert check(t, mode, {}, bash_safe_prefixes=[]) is True
 
 
-def test_accept_all_permits_everything():
+def test_bypass_permits_everything():
     t = _tool()
-    assert check(t, "accept-all", {}, bash_safe_prefixes=[]) is True
+    assert check(t, "bypass", {}, bash_safe_prefixes=[]) is True
 
 
-def test_safe_tool_auto_permitted():
+def test_safe_tool_allow_permitted():
     t = _tool(safe=True)
-    assert check(t, "auto", {}, bash_safe_prefixes=[]) is True
+    assert check(t, "allow", {}, bash_safe_prefixes=[]) is True
 
 
-def test_safe_tool_manual_not_permitted():
+def test_safe_tool_ask_not_permitted():
     t = _tool(safe=True)
-    assert check(t, "manual", {}, bash_safe_prefixes=[]) is False
+    assert check(t, "ask", {}, bash_safe_prefixes=[]) is False
 
 
-def test_bash_safe_prefix_auto():
+def test_bash_safe_prefix_allow():
     t = _tool(name="bash")
     prefixes = ["git log", "ls"]
-    assert check(t, "auto", {"command": "git log --oneline"}, bash_safe_prefixes=prefixes) is True
-    assert check(t, "auto", {"command": "rm -rf /"}, bash_safe_prefixes=prefixes) is False
+    assert check(t, "allow", {"command": "git log --oneline"}, bash_safe_prefixes=prefixes) is True
+    assert check(t, "allow", {"command": "rm -rf /"}, bash_safe_prefixes=prefixes) is False
 
 
-def test_unknown_tool_manual_denied():
+def test_unknown_tool_ask_denied():
     t = _tool(name="write")
-    assert check(t, "manual", {}, bash_safe_prefixes=[]) is False
+    assert check(t, "ask", {}, bash_safe_prefixes=[]) is False
 
 
-def test_unknown_tool_auto_denied():
+def test_unknown_tool_allow_denied():
     t = _tool(name="write")
-    assert check(t, "auto", {}, bash_safe_prefixes=[]) is False
+    assert check(t, "allow", {}, bash_safe_prefixes=[]) is False

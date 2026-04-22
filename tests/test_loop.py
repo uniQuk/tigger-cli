@@ -7,7 +7,7 @@ from newcli.tools import ToolRegistry, ToolDef
 from newcli.hooks import HookRegistry
 from newcli.loop import run, run_forked
 
-def _ctx(permission_mode="accept-all"):
+def _ctx(permission_mode="bypass"):
     cfg = Config(base_url="http://x", model="m", permission_mode=permission_mode)
     return RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
 

@@ -1,9 +1,12 @@
 from __future__ import annotations
 import json
 import pathlib
+import warnings
 from newcli.types import Config
 
-_VALID_PERMISSION_MODES = {"auto", "manual", "accept-all"}
+_PERM_RENAME: dict[str, str] = {"manual": "ask", "auto": "allow", "accept-all": "bypass"}
+_VALID_PERMISSION_MODES = {"ask", "allow", "bypass"}
+_VALID_MODES = {"ask", "plan"}
 
 
 def load_config(path: pathlib.Path) -> Config:
@@ -19,11 +22,23 @@ def load_config(path: pathlib.Path) -> Config:
     if "model" not in data:
         raise ValueError("config.json missing required field: model")
 
-    mode = data.get("permission_mode", "auto")
-    if mode not in _VALID_PERMISSION_MODES:
-        raise ValueError(
-            f"permission_mode must be one of {_VALID_PERMISSION_MODES}, got {mode!r}"
+    perm = data.get("permission_mode", "allow")
+    if perm in _PERM_RENAME:
+        new_perm = _PERM_RENAME[perm]
+        warnings.warn(
+            f"permission_mode {perm!r} is deprecated; use {new_perm!r} instead",
+            DeprecationWarning,
+            stacklevel=2,
         )
+        perm = new_perm
+    if perm not in _VALID_PERMISSION_MODES:
+        raise ValueError(
+            f"permission_mode must be one of {_VALID_PERMISSION_MODES}, got {perm!r}"
+        )
+
+    mode = data.get("mode", "ask")
+    if mode not in _VALID_MODES:
+        raise ValueError(f"mode must be one of {_VALID_MODES}, got {mode!r}")
 
     return Config(
         base_url=data["base_url"],
@@ -32,7 +47,8 @@ def load_config(path: pathlib.Path) -> Config:
         context_limit=data.get("context_limit", 8192),
         max_tokens=data.get("max_tokens", 2048),
         temperature=data.get("temperature", 0.7),
-        permission_mode=mode,
+        permission_mode=perm,
+        mode=mode,
         max_depth=data.get("max_depth", 4),
         max_retries=data.get("max_retries", 2),
         bash_safe_prefixes=data.get("bash_safe_prefixes", []),
