@@ -72,14 +72,12 @@ def render_event(event, ctx: RunContext, output_chars: list[int], text_buf: list
         _flush_text(text_buf)
         ui.console.print(f"\n[bold]⏺[/bold] [dim]{event.name}[/dim]({_fmt_args(event.args)})")
     elif isinstance(event, ToolEndEvent):
-        # One compact line: truncate to 80 chars, collapse newlines to " · "
-        out = event.output[:80].replace("\n", " · ").rstrip(" · ")
+        # Only surface errors and denials — successful tool calls stay quiet.
         if not event.permitted:
             ui.console.print(f"  [dim]⎿[/dim]  [yellow](denied)[/yellow]")
         elif event.error:
+            out = event.output[:120].replace("\n", " · ").rstrip(" · ")
             ui.console.print(f"  [dim]⎿[/dim]  [red]{out}[/red]")
-        else:
-            ui.console.print(f"  [dim]⎿[/dim]  [dim]{out}[/dim]")
     elif isinstance(event, PermissionEvent):
         event.granted = ui.ask_permission(event.name, event.args)
     elif isinstance(event, TurnDoneEvent):
@@ -130,17 +128,22 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         skills = load_skills(ai_dir / "skills.md")
     agents = load_agents(ai_dir / "agents.md")
 
-    # 9. System prompt + memory — instruct the model never to use emojis
+    # 9. System prompt + memory
+    # .ai/system.md overrides the built-in base prompt when present.
+    _system_md = ai_dir / "system.md"
+    if _system_md.exists():
+        _base_system = _system_md.read_text().strip()
+    else:
+        _base_system = (
+            "You are a helpful AI agent. "
+            "Never use emojis in your responses unless the user explicitly asks for them. "
+            "Use plain text, unicode symbols, or markdown formatting instead. "
+            "When given a multi-step task, continue working through all steps until the task "
+            "is fully complete — do not stop mid-task and wait for the user to say 'continue'."
+        )
     memory_lines = read_memory(ai_dir / "memory.md")
     memory_section = format_for_prompt(memory_lines)
-    system = (
-        "You are a helpful AI agent. "
-        "Never use emojis in your responses unless the user explicitly asks for them. "
-        "Use plain text, unicode symbols, or markdown formatting instead. "
-        "When given a multi-step task, continue working through all steps until the task "
-        "is fully complete — do not stop mid-task and wait for the user to say 'continue'.\n\n"
-        + memory_section
-    ).strip()
+    system = (_base_system + ("\n\n" + memory_section if memory_section else "")).strip()
 
     # 10. Context
     ctx = RunContext(config=config, messages=[], system_prompt=system, trust_level=trust_level)
@@ -190,6 +193,7 @@ def repl(result: StartupResult) -> None:
     try:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.history import FileHistory, InMemoryHistory
+        from prompt_toolkit.key_binding import KeyBindings
         from newcli.completer import NewcliCompleter
 
         history_path = pathlib.Path.home() / ".ai" / "history"
@@ -199,10 +203,26 @@ def repl(result: StartupResult) -> None:
         except OSError:
             _history = InMemoryHistory()
 
+        # Tab accepts the first/current completion rather than cycling.
+        _kb = KeyBindings()
+
+        @_kb.add("tab")
+        def _tab_accept(event):  # noqa: F811
+            buf = event.current_buffer
+            if buf.complete_state:
+                comp = buf.complete_state.current_completion
+                if comp is not None:
+                    buf.apply_completion(comp)
+                elif buf.complete_state.completions:
+                    buf.apply_completion(buf.complete_state.completions[0])
+            else:
+                buf.start_completion(select_first=False)
+
         _session: PromptSession = PromptSession(
             history=_history,
             completer=NewcliCompleter(commands, skills, hooks),
             complete_while_typing=True,
+            key_bindings=_kb,
         )
 
         def _get_input() -> str:
