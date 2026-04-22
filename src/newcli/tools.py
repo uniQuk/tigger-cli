@@ -1,8 +1,32 @@
 from __future__ import annotations
-import glob as _glob, subprocess, pathlib, urllib.request
+import glob as _glob
+import pathlib
+import re as _re
+import subprocess
+import urllib.parse as _urlparse
+import urllib.request
 from newcli.types import ToolDef
 
 _32KB = 32 * 1024
+
+# Prefixes that indicate private / link-local addresses (SSRF protection).
+_PRIVATE_PREFIXES = (
+    "127.", "10.", "192.168.", "169.254.",
+    "172.16.", "172.17.", "172.18.", "172.19.", "172.20.", "172.21.", "172.22.",
+    "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", "172.28.", "172.29.",
+    "172.30.", "172.31.",
+)
+
+
+def _safe_path(p: pathlib.Path) -> pathlib.Path | None:
+    """Resolve *p* and return it only if it lies within the current workspace."""
+    cwd = pathlib.Path.cwd().resolve()
+    try:
+        resolved = p.resolve()
+        resolved.relative_to(cwd)
+        return resolved
+    except ValueError:
+        return None
 
 
 class ToolRegistry:
@@ -40,7 +64,7 @@ class ToolRegistry:
         except Exception as exc:
             result = f"Error: {exc}"
         if len(result) > _32KB:
-            result = result[:_32KB] + f"\n[output truncated at 32KB]"
+            result = result[:_32KB] + "\n[output truncated at 32KB]"
         return result
 
 
@@ -48,9 +72,12 @@ class ToolRegistry:
 
 def _read(args: dict) -> str:
     p = pathlib.Path(args["path"])
-    if not p.exists():
-        return f"Error: file not found: {p}"
-    return p.read_text(errors="replace")
+    safe = _safe_path(p)
+    if safe is None:
+        return f"Error: access denied — path is outside the workspace: {args['path']}"
+    if not safe.exists():
+        return f"Error: file not found: {args['path']}"
+    return safe.read_text(errors="replace")
 
 
 def _glob_tool(args: dict) -> str:
@@ -61,18 +88,17 @@ def _glob_tool(args: dict) -> str:
 
 
 def _grep(args: dict) -> str:
-    import re
     pattern = args["pattern"]
     path = args.get("path", ".")
     glob_pat = args.get("glob", "**/*")
     try:
-        rx = re.compile(pattern)
-    except re.error as e:
+        rx = _re.compile(pattern)
+    except _re.error as e:
         return f"Error: invalid regex: {e}"
     results = []
-    # Extract the filename pattern (everything after last /)
-    pattern_part = glob_pat.rsplit("/", 1)[-1] if "/" in glob_pat else glob_pat
-    for p in pathlib.Path(path).rglob(pattern_part):
+    base = pathlib.Path(path)
+    # Use pathlib.glob() so patterns like src/**/*.py work correctly.
+    for p in base.glob(glob_pat):
         if not p.is_file():
             continue
         try:
@@ -86,24 +112,30 @@ def _grep(args: dict) -> str:
 
 def _write(args: dict) -> str:
     p = pathlib.Path(args["path"])
-    if p.exists():
+    safe = _safe_path(p)
+    if safe is None:
+        return f"Error: access denied — path is outside the workspace: {args['path']}"
+    if safe.exists():
         return "Error: file already exists. Use 'edit' to modify existing files."
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(args["content"])
-    return f"Written: {p}"
+    safe.parent.mkdir(parents=True, exist_ok=True)
+    safe.write_text(args["content"])
+    return f"Written: {args['path']}"
 
 
 def _edit(args: dict) -> str:
     p = pathlib.Path(args["path"])
-    if not p.exists():
-        return f"Error: file not found: {p}"
-    text = p.read_text()
+    safe = _safe_path(p)
+    if safe is None:
+        return f"Error: access denied — path is outside the workspace: {args['path']}"
+    if not safe.exists():
+        return f"Error: file not found: {args['path']}"
+    text = safe.read_text()
     old = args["old_string"]
     new = args["new_string"]
     if old not in text:
-        return f"Error: old_string not found in {p}"
-    p.write_text(text.replace(old, new, 1))
-    return f"Edited: {p}"
+        return f"Error: old_string not found in {args['path']}"
+    safe.write_text(text.replace(old, new, 1))
+    return f"Edited: {args['path']}"
 
 
 def _bash(args: dict) -> str:
@@ -115,11 +147,40 @@ def _bash(args: dict) -> str:
     return out or "(no output)"
 
 
+def _strip_html(html: str) -> str:
+    """Strip script/style blocks and HTML tags, decode common entities."""
+    html = _re.sub(
+        r"<(script|style)[^>]*>.*?</(script|style)>",
+        "",
+        html,
+        flags=_re.DOTALL | _re.IGNORECASE,
+    )
+    html = _re.sub(r"<[^>]+>", "", html)
+    html = (
+        html.replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", '"')
+            .replace("&#39;", "'")
+            .replace("&nbsp;", " ")
+    )
+    return _re.sub(r"\n{3,}", "\n\n", html).strip()
+
+
 def _web_fetch(args: dict) -> str:
     url = args["url"]
+    parsed = _urlparse.urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname in ("localhost", "::1") or any(hostname.startswith(p) for p in _PRIVATE_PREFIXES):
+        return "Error: access to private/local network addresses is not permitted."
     try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            return resp.read().decode("utf-8", errors="replace")
+        req = urllib.request.Request(url, headers={"User-Agent": "Tigger/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            raw = resp.read().decode("utf-8", errors="replace")
+        if "text/html" in content_type:
+            return _strip_html(raw)
+        return raw
     except Exception as exc:
         return f"Error: {exc}"
 
@@ -154,7 +215,7 @@ def register_all(registry: ToolRegistry) -> None:
             "properties": {
                 "pattern": {"type": "string"},
                 "path": {"type": "string"},
-                "glob": {"type": "string", "description": "File glob filter"},
+                "glob": {"type": "string", "description": "File glob filter (e.g. '**/*.py')"},
             },
             "required": ["pattern"],
         },
@@ -201,7 +262,7 @@ def register_all(registry: ToolRegistry) -> None:
     ))
     registry.register(ToolDef(
         name="web_fetch",
-        description="Fetch the contents of a URL.",
+        description="Fetch the text content of a URL. HTML is stripped to plain text.",
         parameters={
             "type": "object",
             "properties": {"url": {"type": "string"}},

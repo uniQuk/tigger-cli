@@ -2,16 +2,20 @@ from __future__ import annotations
 from typing import Callable
 from newcli.types import Message, Config, TextChunk
 
+# Cache encoder at module level — get_encoding() is expensive on first call.
+try:
+    import tiktoken as _tiktoken
+    _enc = _tiktoken.get_encoding("cl100k_base")
+except ImportError:
+    _enc = None
+
 
 def estimate_tokens(messages: list[Message]) -> int:
     """Token count via tiktoken (cl100k_base) if available, else chars/3.5."""
-    try:
-        import tiktoken
-        enc = tiktoken.get_encoding("cl100k_base")
-        return sum(len(enc.encode(m.content)) for m in messages)
-    except ImportError:
-        total = sum(len(m.content) for m in messages)
-        return int(total / 3.5)
+    if _enc is not None:
+        return sum(len(_enc.encode(m.content)) for m in messages)
+    total = sum(len(m.content) for m in messages)
+    return int(total / 3.5)
 
 
 def snip_old_results(messages: list[Message]) -> list[Message]:

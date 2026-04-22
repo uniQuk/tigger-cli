@@ -79,6 +79,11 @@ def connect_all(registry: ToolRegistry, path: pathlib.Path) -> None:
 
                 proc.stdout.readline()  # consume initialize response
 
+                # Send required `initialized` notification before any further requests.
+                notif = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
+                proc.stdin.write(notif.encode())
+                proc.stdin.flush()
+
                 list_req = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"
                 proc.stdin.write(list_req.encode())
                 proc.stdin.flush()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import pathlib
 import sys
+import time
 from newcli.config import load_config, find_config
 from newcli.types import RunContext, TrustLevel
 from newcli.tools import ToolRegistry, register_all
@@ -19,6 +20,16 @@ from newcli import ui
 from newcli.types import TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent
 
 
+@dataclasses.dataclass
+class StartupResult:
+    ctx: RunContext
+    commands: dict
+    skills: list
+    registry: object   # ToolRegistry
+    hooks: object      # HookRegistry
+    provider_fn: object  # Callable
+
+
 def _prompt(ctx: RunContext) -> str:
     used = estimate_tokens(ctx.messages)
     return (
@@ -27,27 +38,41 @@ def _prompt(ctx: RunContext) -> str:
     )
 
 
-def render_event(event, ctx: RunContext) -> None:
+def _fmt_args(args: dict) -> str:
+    if not args:
+        return ""
+    parts = []
+    for k, v in args.items():
+        sv = repr(v)
+        if len(sv) > 60:
+            sv = sv[:57] + "..."
+        parts.append(f"{k}={sv}")
+    return ", ".join(parts)
+
+
+def render_event(event, ctx: RunContext, output_chars: list[int]) -> None:
+    """Render one agent event to the terminal. ``output_chars`` is a 1-element
+    mutable list used to accumulate streaming character count."""
     if isinstance(event, TextChunk):
         print(event.content, end="", flush=True)
+        output_chars[0] += len(event.content)
     elif isinstance(event, ToolStartEvent):
-        ui.print_tool_start(event.name, event.args)
+        ui.console.print(f"\n[bold]⏺[/bold] [dim]{event.name}[/dim]({_fmt_args(event.args)})")
     elif isinstance(event, ToolEndEvent):
-        status = "denied" if not event.permitted else ("error" if event.error else "ok")
-        ui.print_tool_end(event.name, status, event.output)
+        out = event.output[:200].replace("\n", "\n       ")
+        if not event.permitted:
+            ui.console.print(f"  [dim]⎿[/dim]  [yellow](denied)[/yellow]")
+        elif event.error:
+            ui.console.print(f"  [dim]⎿[/dim]  [red]{out}[/red]")
+        else:
+            ui.console.print(f"  [dim]⎿[/dim]  [dim]{out}[/dim]")
     elif isinstance(event, PermissionEvent):
         event.granted = ui.ask_permission(event.name, event.args)
     elif isinstance(event, TurnDoneEvent):
         print()
 
 
-def _make_provider_fn(config):
-    def provider_fn(system, messages, tools, cfg):
-        return _provider.stream(system, messages, tools, cfg)
-    return provider_fn
-
-
-def startup(config_path: pathlib.Path | None = None):
+def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     # 1. Find and load config
     if config_path is None:
         config_path = find_config(pathlib.Path.cwd())
@@ -66,8 +91,6 @@ def startup(config_path: pathlib.Path | None = None):
         if choice == "always":
             _trust.write_trusted(cwd, pathlib.Path.home() / ".ai" / "trusted_paths.json")
             trust_level = TrustLevel.ALWAYS
-        elif choice == "session":
-            trust_level = TrustLevel.SESSION
         else:
             trust_level = TrustLevel.READONLY
 
@@ -88,10 +111,15 @@ def startup(config_path: pathlib.Path | None = None):
     skills = load_skills(ai_dir / "skills.md")
     agents = load_agents(ai_dir / "agents.md")
 
-    # 9. System prompt + memory
+    # 9. System prompt + memory — instruct the model never to use emojis
     memory_lines = read_memory(ai_dir / "memory.md")
     memory_section = format_for_prompt(memory_lines)
-    system = f"You are a helpful AI agent.\n\n{memory_section}".strip()
+    system = (
+        "You are a helpful AI agent. "
+        "Never use emojis in your responses unless the user explicitly asks for them. "
+        "Use plain text, unicode symbols, or markdown formatting instead.\n\n"
+        + memory_section
+    ).strip()
 
     # 10. Context
     ctx = RunContext(config=config, messages=[], system_prompt=system, trust_level=trust_level)
@@ -100,21 +128,33 @@ def startup(config_path: pathlib.Path | None = None):
     if trust_level == TrustLevel.READONLY:
         ctx.allowed_tools = [t.name for t in registry.all() if t.read_only]
 
-    provider_fn = _make_provider_fn(config)
-
     commands = load_builtin_commands(
         memory_path=ai_dir / "memory.md",
         skills=skills,
         agents=agents,
         registry=registry,
         hooks=hooks,
-        provider_fn=provider_fn,
+        provider_fn=_provider.stream,
     )
 
-    return ctx, commands, skills, registry, hooks, provider_fn
+    return StartupResult(
+        ctx=ctx,
+        commands=commands,
+        skills=skills,
+        registry=registry,
+        hooks=hooks,
+        provider_fn=_provider.stream,
+    )
 
 
-def repl(ctx: RunContext, commands: dict, skills: list, registry, hooks, provider_fn) -> None:
+def repl(result: StartupResult) -> None:
+    ctx = result.ctx
+    commands = result.commands
+    skills = result.skills
+    registry = result.registry
+    hooks = result.hooks
+    provider_fn = result.provider_fn
+
     while True:
         try:
             line = input(_prompt(ctx)).strip()
@@ -129,8 +169,8 @@ def repl(ctx: RunContext, commands: dict, skills: list, registry, hooks, provide
         if skill:
             if skill.context == "fork":
                 query = skill.render(line)
-                result = run_forked(query, skill, ctx, registry, hooks, provider_fn)
-                print(result)
+                text = run_forked(query, skill, ctx, registry, hooks, provider_fn)
+                print(text)
                 continue
             else:
                 line = skill.render(line)
@@ -144,14 +184,23 @@ def repl(ctx: RunContext, commands: dict, skills: list, registry, hooks, provide
                 ui.print_error(f"Unknown command: /{name}. Type /help for list.")
             continue
 
-        # Spinner wraps the wait for first event; stops as soon as first event arrives
+        # Run agent turn.
+        # The clock starts here so elapsed time is continuous across thinking + streaming.
+        turn_start = time.time()
+        output_chars = [0]  # mutable accumulator passed through render_event
         event_gen = run(line, ctx, registry, hooks, provider_fn=provider_fn)
-        with ui.Spinner():
+
+        # Spinner (with live elapsed-time counter) shows while waiting for first chunk.
+        with ui.Spinner(turn_start):
             first_event = next(event_gen, None)
+
         if first_event is not None:
-            render_event(first_event, ctx)
-        for event in event_gen:
-            render_event(event, ctx)
+            render_event(first_event, ctx, output_chars)
+            for event in event_gen:
+                render_event(event, ctx, output_chars)
+
+        elapsed = time.time() - turn_start
+        ui.print_turn_summary(output_chars[0] // 4, elapsed)
 
 
 def main() -> None:
@@ -161,14 +210,14 @@ def main() -> None:
     parser.add_argument("--permission", choices=["ask", "allow", "bypass"], dest="permission", default=None)
     parsed = parser.parse_args()
 
-    ctx, commands, skills, registry, hooks, provider_fn = startup()
+    result = startup()
 
     if parsed.mode is not None:
-        ctx.config = dataclasses.replace(ctx.config, mode=parsed.mode)
+        result.ctx.config = dataclasses.replace(result.ctx.config, mode=parsed.mode)
     if parsed.permission is not None:
-        ctx.config = dataclasses.replace(ctx.config, permission_mode=parsed.permission)
+        result.ctx.config = dataclasses.replace(result.ctx.config, permission_mode=parsed.permission)
 
-    repl(ctx, commands, skills, registry, hooks, provider_fn)
+    repl(result)
 
 
 if __name__ == "__main__":

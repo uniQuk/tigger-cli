@@ -1,5 +1,8 @@
 from __future__ import annotations
 import pathlib
+import random
+import threading
+import time
 from contextlib import contextmanager
 from rich.console import Console
 
@@ -13,7 +16,7 @@ SPINNER_MESSAGES = [
     "Sniffing out an answer...",
     "Padding softly through your files...",
     "I'm Feeling Lucky",
-    'Shipping awesomeness... ',
+    'Shipping awesomeness...',
     'Painting the serifs back on...',
     'Navigating the slime mold...',
     'Consulting the digital spirits...',
@@ -88,7 +91,6 @@ SPINNER_MESSAGES = [
     'Our hamsters are working as fast as they can...',
     'Giving Cloudy a pat on the head...',
     'Petting the cat...',
-    'Rickrolling my boss...',
     'Never gonna give you up, never gonna let you down...',
     'Slapping the bass...',
     'Tasting the snozberries...',
@@ -96,15 +98,8 @@ SPINNER_MESSAGES = [
     'Is this the real life? Is this just fantasy?...',
     "I've got a good feeling about this...",
     'Poking the bear...',
-    'Doing research on the latest memes...',
-    'Figuring out how to make this more witty...',
     'Hmmm... let me think...',
     'What do you call a fish with no eyes? A fsh...',
-    'Why did the computer go to therapy? It had too many bytes...',
-    "Why don't programmers like nature? It has too many bugs...",
-    'Why do programmers prefer dark mode? Because light attracts bugs...',
-    'Why did the developer go broke? Because they used up all their cache...',
-    "What can you do with a broken pencil? Nothing, it's pointless...",
     'Applying percussive maintenance...',
     'Searching for the correct USB orientation...',
     'Ensuring the magic smoke stays inside the wires...',
@@ -116,28 +111,11 @@ SPINNER_MESSAGES = [
     'My other process is a TARDIS...',
     'Communing with the machine spirit...',
     'Letting the thoughts marinate...',
-    'Just remembered where I put my keys...',
     'Pondering the orb...',
-    "I've seen things you people wouldn't believe... like a user who reads loading messages.",
     'Initiating thoughtful gaze...',
-    "What's a computer's favorite snack? Microchips.",
-    "Why do Java developers wear glasses? Because they don't C#.",
-    'Charging the laser... pew pew!',
-    'Dividing by zero... just kidding!',
-    'Looking for an adult superviso... I mean, processing.',
     'Making it go beep boop.',
     'Buffering... because even AIs need a moment.',
     'Entangling quantum particles for a faster response...',
-    'Polishing the chrome... on the algorithms.',
-    'Are you not entertained? (Working on it!)',
-    'Summoning the code gremlins... to help, of course.',
-    'Just waiting for the dial-up tone to finish...',
-    'Recalibrating the humor-o-meter.',
-    'My other loading screen is even funnier.',
-    "Pretty sure there's a cat walking on the keyboard somewhere...",
-    'Enhancing... Enhancing... Still loading.',
-    "It's not a bug, it's a feature... of this loading screen.",
-    'Have you tried turning it off and on again? (The loading screen, not me.)',
     'Constructing additional pylons...',
 ]
 
@@ -169,12 +147,22 @@ def print_status(model: str, used: int, limit: int, mode: str, permission: str) 
 
 
 def print_tool_start(name: str, args: dict) -> None:
-    console.print(f"\n[dim]▶ tool[/dim] [bold]{name}[/bold] {args}")
+    args_str = ", ".join(f"{k}={repr(v)[:40]}" for k, v in args.items()) if args else ""
+    console.print(f"\n[bold]⏺[/bold] [dim]{name}[/dim]({args_str})")
 
 
 def print_tool_end(name: str, status: str, output: str) -> None:
-    color = "red" if status == "error" else ("dim" if status == "denied" else "green")
-    console.print(f"[{color}]◀ {name} → {status}:[/{color}] {output[:120]}")
+    out = output[:200].replace("\n", "\n       ")
+    if status == "error":
+        console.print(f"  [dim]⎿[/dim]  [red]{out}[/red]")
+    elif status == "denied":
+        console.print(f"  [dim]⎿[/dim]  [yellow](denied)[/yellow]")
+    else:
+        console.print(f"  [dim]⎿[/dim]  [dim]{out}[/dim]")
+
+
+def print_turn_summary(tokens: int, elapsed: float) -> None:
+    console.print(f"[dim]· {tokens} tokens · {elapsed:.1f}s[/dim]")
 
 
 def print_error(msg: str) -> None:
@@ -197,23 +185,39 @@ def ask_permission(name: str, args: dict) -> bool:
 
 
 def ask_trust_prompt(cwd: pathlib.Path) -> str:
-    """Interactive trust prompt. Returns 'session', 'always', or 'deny'."""
-    console.print(f"\n[yellow bold]Workspace trust required:[/yellow bold] {cwd}")
-    console.print("  [bold][T][/bold] Trust this session")
-    console.print("  [bold][A][/bold] Always trust this directory")
-    console.print("  [bold][D][/bold] Deny (read-only mode)")
+    """Y/N workspace trust prompt. Returns 'always' (trust + persist) or 'deny' (read-only)."""
+    console.print(f"\n[yellow bold]Trust workspace:[/yellow bold] {cwd}")
     while True:
-        choice = input("Choice [T/A/D]: ").strip().lower()
-        if choice in ("t", ""):
-            return "session"
-        if choice == "a":
+        choice = input("  Continue? [Y/n] ").strip().lower()
+        if choice in ("y", ""):
             return "always"
-        if choice == "d":
+        if choice == "n":
             return "deny"
 
 
 @contextmanager
-def Spinner():
-    """Context manager that shows a Tigger-themed spinner while waiting for first response."""
-    with console.status(SPINNER_MESSAGES[0], spinner="dots"):
-        yield
+def Spinner(start: float):
+    """
+    Show an animated spinner with a live elapsed-time counter while the model
+    is thinking (before the first streaming chunk arrives).
+
+    ``start`` should be ``time.time()`` captured at the top of the turn so the
+    elapsed time is continuous across thinking + streaming phases.
+    """
+    msg = random.choice(SPINNER_MESSAGES)
+    stop_event = threading.Event()
+
+    with console.status("", spinner="dots") as status:
+        def _tick() -> None:
+            while not stop_event.is_set():
+                elapsed = time.time() - start
+                status.update(f"[dim]{msg} · {elapsed:.0f}s[/dim]")
+                stop_event.wait(0.1)
+
+        t = threading.Thread(target=_tick, daemon=True)
+        t.start()
+        try:
+            yield
+        finally:
+            stop_event.set()
+            t.join(timeout=0.5)
