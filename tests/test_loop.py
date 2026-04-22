@@ -87,3 +87,36 @@ def test_depth_cap_prevents_infinite_fork():
     skill = SkillDef(name="s", triggers=["/s"], tools=[], context="fork", body="do it")
     result = run_forked("do it", skill, ctx, _registry(), _hooks(), provider_fn=None)
     assert "depth" in result.lower()
+
+
+def test_plan_mode_injects_into_system_prompt():
+    """In plan mode, the provider receives a system prompt containing 'numbered plan'."""
+    calls: list[str] = []
+
+    def recording_provider(system, messages, tools, cfg):
+        calls.append(system)
+        yield TextChunk(content="1. Plan")
+        yield AssistantMessage(content="1. Plan", tool_calls=[])
+
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="plan")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
+    list(run("do something", ctx, _registry(), _hooks(), provider_fn=recording_provider))
+
+    assert len(calls) == 1
+    assert "numbered plan" in calls[0]
+    assert "You are helpful." in calls[0]
+
+
+def test_ask_mode_does_not_inject_plan_text():
+    calls: list[str] = []
+
+    def recording_provider(system, messages, tools, cfg):
+        calls.append(system)
+        yield TextChunk(content="done")
+        yield AssistantMessage(content="done", tool_calls=[])
+
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="ask")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
+    list(run("do something", ctx, _registry(), _hooks(), provider_fn=recording_provider))
+
+    assert "numbered plan" not in calls[0]

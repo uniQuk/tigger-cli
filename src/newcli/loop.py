@@ -35,7 +35,13 @@ def run(
             if allowed is None or s["function"]["name"] in allowed
         ]
 
-        stream = provider_fn(ctx.system_prompt, ctx.messages, tools_schemas, ctx.config)
+        system = ctx.system_prompt
+        if ctx.config.mode == "plan":
+            system += (
+                "\n\nBefore taking any action, write a numbered plan of the steps "
+                "you will take, then execute it."
+            )
+        stream = provider_fn(system, ctx.messages, tools_schemas, ctx.config)
         assistant_msg: AssistantMessage | None = None
 
         for chunk in stream:
