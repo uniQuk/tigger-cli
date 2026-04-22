@@ -28,7 +28,7 @@ def run(
     max_retries = ctx.config.max_retries
 
     while True:
-        ctx.messages = maybe_compact(ctx.messages, ctx.config, provider_fn=None)
+        ctx.messages = maybe_compact(ctx.messages, ctx.config, provider_fn)
 
         tools_schemas = [
             s for s in registry.schemas()

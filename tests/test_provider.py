@@ -32,3 +32,17 @@ def test_openai_tool_calls_malformed_json():
     raw = [{"id": "c1", "function": {"name": "read", "arguments": "{bad json"}}]
     records = openai_tool_calls_to_records(raw)
     assert records[0].args == {}
+
+
+def test_get_client_returns_same_instance_for_same_key():
+    from newcli.provider import _get_client
+    c1 = _get_client("http://localhost", "key1")
+    c2 = _get_client("http://localhost", "key1")
+    assert c1 is c2
+
+
+def test_get_client_different_keys_different_instances():
+    from newcli.provider import _get_client
+    c1 = _get_client("http://localhost", "key1")
+    c2 = _get_client("http://localhost", "key2")
+    assert c1 is not c2

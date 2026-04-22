@@ -4,6 +4,15 @@ from typing import Generator
 from openai import OpenAI
 from newcli.types import Config, Message, AssistantMessage, ToolCallRecord, TextChunk
 
+_client_cache: dict[tuple[str, str], OpenAI] = {}
+
+
+def _get_client(base_url: str, api_key: str) -> OpenAI:
+    key = (base_url, api_key)
+    if key not in _client_cache:
+        _client_cache[key] = OpenAI(base_url=base_url, api_key=api_key)
+    return _client_cache[key]
+
 
 def messages_to_openai(messages: list[Message]) -> list[dict]:
     """Convert neutral Message list to OpenAI wire format."""
@@ -58,7 +67,7 @@ def stream(
     config: Config,
 ) -> Generator[TextChunk | AssistantMessage, None, None]:
     """Stream a chat completion. Yields TextChunk during streaming, then AssistantMessage."""
-    client = OpenAI(base_url=config.base_url, api_key=config.api_key)
+    client = _get_client(config.base_url, config.api_key)
     openai_messages = [{"role": "system", "content": system}] + messages_to_openai(messages)
     kwargs: dict = dict(
         model=config.model,

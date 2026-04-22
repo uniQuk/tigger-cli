@@ -1,12 +1,17 @@
 from __future__ import annotations
 from typing import Callable
-from newcli.types import Message, Config
+from newcli.types import Message, Config, TextChunk
 
 
 def estimate_tokens(messages: list[Message]) -> int:
-    """Rough token estimate: total chars / 3.5."""
-    total = sum(len(m.content) for m in messages)
-    return int(total / 3.5)
+    """Token count via tiktoken (cl100k_base) if available, else chars/3.5."""
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding("cl100k_base")
+        return sum(len(enc.encode(m.content)) for m in messages)
+    except ImportError:
+        total = sum(len(m.content) for m in messages)
+        return int(total / 3.5)
 
 
 def snip_old_results(messages: list[Message]) -> list[Message]:
@@ -39,14 +44,22 @@ def summarize_old(
         return messages
     boundary = max(1, len(messages) * 3 // 4)
     old, recent = messages[:boundary], messages[boundary:]
-    summary_prompt = (
+    prompt = (
         "Summarize the following conversation history concisely. "
         "Preserve key facts, decisions, and file paths mentioned.\n\n"
         + "\n".join(f"{m.role}: {m.content[:500]}" for m in old)
     )
-    summary = provider_fn(summary_prompt)
-    summary_msg = Message(role="user", content=f"[Conversation summary]\n{summary}")
-    return [summary_msg] + recent
+    parts: list[str] = []
+    for chunk in provider_fn(
+        "You are a concise summarizer.",
+        [Message(role="user", content=prompt)],
+        [],
+        config,
+    ):
+        if isinstance(chunk, TextChunk):
+            parts.append(chunk.content)
+    summary = "".join(parts)
+    return [Message(role="user", content=f"[Conversation summary]\n{summary}")] + recent
 
 
 def maybe_compact(
