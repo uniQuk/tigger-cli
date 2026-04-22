@@ -17,11 +17,15 @@ class SkillDef:
     assets: pathlib.Path | None = None              # assets/ subdir path
 
     def render(self, user_input: str) -> str:
+        args = user_input
         for trigger in self.triggers:
             if user_input.startswith(trigger):
                 args = user_input[len(trigger):].strip()
-                return self.body.replace("$ARGUMENTS", args)
-        return self.body.replace("$ARGUMENTS", user_input)
+                break
+        if "$ARGUMENTS" in self.body:
+            return self.body.replace("$ARGUMENTS", args)
+        # No placeholder: append the user's request so the model has it
+        return (self.body + f"\n\n---\n{args}") if args else self.body
 
 
 @dataclass

@@ -32,11 +32,7 @@ class StartupResult:
 
 
 def _prompt(ctx: RunContext) -> str:
-    used = estimate_tokens(ctx.messages)
-    return (
-        f"[{ctx.config.model} · {used}/{ctx.config.context_limit} tokens"
-        f" · {ctx.config.mode}/{ctx.config.permission_mode}] > "
-    )
+    return "❯ "
 
 
 def _fmt_args(args: dict) -> str:
@@ -174,9 +170,10 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
 def _toolbar(ctx: RunContext) -> str:
     used = estimate_tokens(ctx.messages)
     return (
-        f" mode:{ctx.config.mode}"
+        f" {ctx.config.model}"
+        f"  mode:{ctx.config.mode}"
         f"  perm:{ctx.config.permission_mode}"
-        f"  tokens:{used}/{ctx.config.context_limit}"
+        f"  {used}/{ctx.config.context_limit} tok"
     )
 
 

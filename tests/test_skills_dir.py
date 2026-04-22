@@ -164,3 +164,29 @@ def test_render_no_references_unchanged(tmp_path):
     skills = load_skills_dir(tmp_path)
     rendered = skills[0].render("/my-skill hello")
     assert rendered == "Do the thing with hello."
+
+
+_NO_ARGS_PLACEHOLDER = textwrap.dedent("""\
+    ---
+    name: my-skill
+    ---
+    You are an expert. Follow these instructions carefully.
+""")
+
+
+def test_render_no_placeholder_appends_args(tmp_path):
+    # Skills without $ARGUMENTS get the user's request appended after ---
+    _make_skill(tmp_path, "my-skill", _NO_ARGS_PLACEHOLDER)
+    skills = load_skills_dir(tmp_path)
+    rendered = skills[0].render("/my-skill explain the loop")
+    assert "You are an expert" in rendered
+    assert "explain the loop" in rendered
+    assert "---" in rendered
+
+
+def test_render_no_placeholder_no_args_returns_body(tmp_path):
+    # If no args and no placeholder, just return the body unchanged
+    _make_skill(tmp_path, "my-skill", _NO_ARGS_PLACEHOLDER)
+    skills = load_skills_dir(tmp_path)
+    rendered = skills[0].render("/my-skill")
+    assert rendered == "You are an expert. Follow these instructions carefully."
