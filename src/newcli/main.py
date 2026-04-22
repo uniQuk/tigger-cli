@@ -17,7 +17,6 @@ from newcli.commands import load_builtin_commands
 from newcli import provider as _provider
 from newcli import trust as _trust
 from newcli import ui
-from newcli.completer import NewcliCompleter
 from newcli.types import TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent
 
 
@@ -174,6 +173,7 @@ def repl(result: StartupResult) -> None:
     try:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.history import FileHistory, InMemoryHistory
+        from newcli.completer import NewcliCompleter
 
         history_path = pathlib.Path.home() / ".ai" / "history"
         try:
