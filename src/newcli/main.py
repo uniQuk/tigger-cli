@@ -8,7 +8,7 @@ from newcli.config import load_config, find_config
 from newcli.types import RunContext, TrustLevel
 from newcli.tools import ToolRegistry, register_all
 from newcli.hooks import load_hooks
-from newcli.skills import load_skills, load_agents, match_skill
+from newcli.skills import load_skills, load_skills_dir, load_agents, match_skill
 from newcli.memory import read_memory, format_for_prompt
 from newcli.mcp import connect_all
 from newcli.compaction import estimate_tokens
@@ -17,6 +17,7 @@ from newcli.commands import load_builtin_commands
 from newcli import provider as _provider
 from newcli import trust as _trust
 from newcli import ui
+from newcli.completer import NewcliCompleter
 from newcli.types import TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent
 
 
@@ -107,8 +108,12 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     # 6. Hooks
     hooks = load_hooks(ai_dir / "hooks.py")
 
-    # 7-8. Skills + agents
-    skills = load_skills(ai_dir / "skills.md")
+    # 7-8. Skills + agents — prefer skills/ directory, fall back to skills.md
+    skills_dir = ai_dir / "skills"
+    if skills_dir.exists() and skills_dir.is_dir():
+        skills = load_skills_dir(skills_dir)
+    else:
+        skills = load_skills(ai_dir / "skills.md")
     agents = load_agents(ai_dir / "agents.md")
 
     # 9. System prompt + memory — instruct the model never to use emojis
@@ -147,6 +152,15 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     )
 
 
+def _toolbar(ctx: RunContext) -> str:
+    used = estimate_tokens(ctx.messages)
+    return (
+        f" mode:{ctx.config.mode}"
+        f"  perm:{ctx.config.permission_mode}"
+        f"  tokens:{used}/{ctx.config.context_limit}"
+    )
+
+
 def repl(result: StartupResult) -> None:
     ctx = result.ctx
     commands = result.commands
@@ -155,9 +169,37 @@ def repl(result: StartupResult) -> None:
     hooks = result.hooks
     provider_fn = result.provider_fn
 
+    # Set up prompt_toolkit session with history and tab completion.
+    # Falls back to plain input() if prompt_toolkit is unavailable.
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.history import FileHistory, InMemoryHistory
+
+        history_path = pathlib.Path.home() / ".ai" / "history"
+        try:
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            _history = FileHistory(str(history_path))
+        except OSError:
+            _history = InMemoryHistory()
+
+        _session: PromptSession = PromptSession(
+            history=_history,
+            completer=NewcliCompleter(commands, skills, hooks),
+            complete_while_typing=True,
+        )
+
+        def _get_input() -> str:
+            return _session.prompt(_prompt(ctx), bottom_toolbar=lambda: _toolbar(ctx))
+
+    except ImportError:
+        ui.print_info("prompt_toolkit not installed — history and completion unavailable.")
+
+        def _get_input() -> str:  # type: ignore[misc]
+            return input(_prompt(ctx))
+
     while True:
         try:
-            line = input(_prompt(ctx)).strip()
+            line = _get_input().strip()
         except (KeyboardInterrupt, EOFError):
             ui.print_info("\nBye.")
             break
