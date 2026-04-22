@@ -119,13 +119,16 @@ SPINNER_MESSAGES = [
     'Constructing additional pylons...',
 ]
 
-_LOGO = """\
-[bold yellow] ████████╗██╗  ██████╗  ██████╗ ███████╗██████╗ [/bold yellow]
-[bold yellow]    ██╔══╝██║ ██╔════╝ ██╔════╝ ██╔════╝██╔══██╗[/bold yellow]
-[bold yellow]    ██║   ██║ ██║  ███╗██║  ███╗█████╗  ██████╔╝[/bold yellow]
-[bold yellow]    ██║   ██║ ██║   ██║██║   ██║██╔══╝  ██╔══██╗[/bold yellow]
-[bold yellow]    ██║   ██║ ╚██████╔╝╚██████╔╝███████╗██║  ██║[/bold yellow]
-[bold yellow]    ╚═╝   ╚═╝  ╚═════╝  ╚═════╝ ╚══════╝╚═╝  ╚═╝[/bold yellow]
+_LOGO_LINES = [
+    " ████████╗█╗  ██████╗  ██████╗ ███████╗██████╗ ",
+    "    ██╔══╝█╗ ██╔════╝ ██╔════╝ ██╔════╝██╔══██╗",
+    "    ██║   █╗ █╗ ██║  ███╗██║  ███╗█████╗  ██████╔╝",
+    "    ██║   █╗ █╗ ██║   ██║██║   ██║██╔══╝  ██╔══██╗",
+    "    ██║   █╗ █╗ ╚██████╔╝╚██████╔╝███████╗██║  ██║",
+    "    ╚═╝   ╚═╝  ╚═════╝  ╚═════╝ ╚══════╝╚═╝  ╚═╝",
+]
+
+_LOGO_FOOTER = """\
 
       /\\_/\\      Tigger — AI Agent
      ( o.o )
@@ -133,8 +136,26 @@ _LOGO = """\
 """
 
 
+def _gradient_line(line: str, max_width: int) -> str:
+    """Render one logo line with an amber→orange-red left-to-right gradient."""
+    out = []
+    for col, ch in enumerate(line):
+        if ch == " ":
+            out.append(" ")
+        else:
+            t = col / max(max_width - 1, 1)
+            r = 255
+            g = int(179 + (69 - 179) * t)   # 179 (#b3) → 69 (#45)
+            b = 0
+            out.append(f"[#{r:02x}{g:02x}{b:02x}]{ch}[/]")
+    return "".join(out)
+
+
 def print_logo() -> None:
-    console.print(_LOGO)
+    max_width = max(len(line) for line in _LOGO_LINES)
+    for line in _LOGO_LINES:
+        console.print(_gradient_line(line, max_width), highlight=False)
+    console.print(_LOGO_FOOTER)
 
 
 def print_status(model: str, used: int, limit: int, mode: str, permission: str) -> None:

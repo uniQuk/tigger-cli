@@ -41,3 +41,34 @@ def test_ask_permission_returns_false_on_empty(monkeypatch):
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     monkeypatch.setattr("builtins.input", lambda _: "")
     assert ask_permission("write", {}) is False
+
+
+from newcli.ui import _gradient_line, _LOGO_LINES
+
+
+def test_gradient_line_spaces_pass_through():
+    result = _gradient_line("  ABC", 5)
+    assert result.startswith("  ")
+
+
+def test_gradient_line_non_spaces_get_color_markup():
+    result = _gradient_line("ABC", 3)
+    assert "[#" in result
+
+
+def test_gradient_line_leftmost_is_amber():
+    # t=0 → g=179=0xb3, so color is #ffb300
+    result = _gradient_line("X", 1)
+    assert "[#ffb300]" in result
+
+
+def test_gradient_line_rightmost_is_orange_red():
+    # t=1 → g=69=0x45, so color is #ff4500
+    # With max_width=2 and col=1: t = 1/(2-1) = 1.0
+    result = _gradient_line("AB", 2)
+    assert "[#ff4500]" in result
+
+
+def test_logo_lines_constant_non_empty():
+    assert len(_LOGO_LINES) == 6
+    assert all(isinstance(line, str) and len(line) > 0 for line in _LOGO_LINES)
