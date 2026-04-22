@@ -18,6 +18,7 @@ from newcli import provider as _provider
 from newcli import trust as _trust
 from newcli import ui
 from newcli.types import TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent
+from rich.markdown import Markdown
 
 
 @dataclasses.dataclass
@@ -50,16 +51,29 @@ def _fmt_args(args: dict) -> str:
     return ", ".join(parts)
 
 
-def render_event(event, ctx: RunContext, output_chars: list[int]) -> None:
-    """Render one agent event to the terminal. ``output_chars`` is a 1-element
-    mutable list used to accumulate streaming character count."""
+def _flush_text(text_buf: list[str]) -> None:
+    """Render accumulated model text as Rich Markdown and clear the buffer."""
+    if text_buf:
+        ui.console.print(Markdown("".join(text_buf)))
+        text_buf.clear()
+
+
+def render_event(event, ctx: RunContext, output_chars: list[int], text_buf: list[str]) -> None:
+    """Render one agent event to the terminal.
+
+    ``output_chars`` is a 1-element mutable list accumulating character count.
+    ``text_buf`` is a mutable list that collects TextChunk content; flushed as
+    Rich Markdown before tool events and at turn end.
+    """
     if isinstance(event, TextChunk):
-        print(event.content, end="", flush=True)
+        text_buf.append(event.content)
         output_chars[0] += len(event.content)
     elif isinstance(event, ToolStartEvent):
+        _flush_text(text_buf)
         ui.console.print(f"\n[bold]⏺[/bold] [dim]{event.name}[/dim]({_fmt_args(event.args)})")
     elif isinstance(event, ToolEndEvent):
-        out = event.output[:200].replace("\n", "\n       ")
+        # One compact line: truncate to 80 chars, collapse newlines to " · "
+        out = event.output[:80].replace("\n", " · ").rstrip(" · ")
         if not event.permitted:
             ui.console.print(f"  [dim]⎿[/dim]  [yellow](denied)[/yellow]")
         elif event.error:
@@ -69,6 +83,7 @@ def render_event(event, ctx: RunContext, output_chars: list[int]) -> None:
     elif isinstance(event, PermissionEvent):
         event.granted = ui.ask_permission(event.name, event.args)
     elif isinstance(event, TurnDoneEvent):
+        _flush_text(text_buf)
         print()
 
 
@@ -121,7 +136,9 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     system = (
         "You are a helpful AI agent. "
         "Never use emojis in your responses unless the user explicitly asks for them. "
-        "Use plain text, unicode symbols, or markdown formatting instead.\n\n"
+        "Use plain text, unicode symbols, or markdown formatting instead. "
+        "When given a multi-step task, continue working through all steps until the task "
+        "is fully complete — do not stop mid-task and wait for the user to say 'continue'.\n\n"
         + memory_section
     ).strip()
 
@@ -230,6 +247,7 @@ def repl(result: StartupResult) -> None:
         # The clock starts here so elapsed time is continuous across thinking + streaming.
         turn_start = time.time()
         output_chars = [0]  # mutable accumulator passed through render_event
+        text_buf: list[str] = []  # collects TextChunks; flushed as Rich Markdown
         event_gen = run(line, ctx, registry, hooks, provider_fn=provider_fn)
 
         # Spinner (with live elapsed-time counter) shows while waiting for first chunk.
@@ -237,9 +255,9 @@ def repl(result: StartupResult) -> None:
             first_event = next(event_gen, None)
 
         if first_event is not None:
-            render_event(first_event, ctx, output_chars)
+            render_event(first_event, ctx, output_chars, text_buf)
             for event in event_gen:
-                render_event(event, ctx, output_chars)
+                render_event(event, ctx, output_chars, text_buf)
 
         elapsed = time.time() - turn_start
         ui.print_turn_summary(output_chars[0] // 4, elapsed)
