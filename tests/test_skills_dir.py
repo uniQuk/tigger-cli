@@ -143,14 +143,17 @@ def test_load_skills_dir_nonexistent(tmp_path):
     assert load_skills_dir(tmp_path / "no-such-dir") == []
 
 
-def test_render_injects_references(tmp_path):
+def test_render_does_not_auto_inject_references(tmp_path):
+    # References are loaded into SkillDef.references but render() does NOT
+    # prepend them — they are available for intentional use by calling code.
     _make_skill(
         tmp_path, "my-skill", _BASIC,
         refs={"ref.md": "Important reference context"},
     )
     skills = load_skills_dir(tmp_path)
+    assert "Important reference context" in skills[0].references
     rendered = skills[0].render("/my-skill do this")
-    assert "Important reference context" in rendered
+    assert "Important reference context" not in rendered
     assert "Do the thing" in rendered
     assert "do this" in rendered
     assert "$ARGUMENTS" not in rendered

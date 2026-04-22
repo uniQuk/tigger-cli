@@ -13,17 +13,15 @@ class SkillDef:
     context: str                                    # "inline" | "fork"
     body: str                                       # prompt template
     folder: pathlib.Path | None = None              # source folder
-    references: list[str] = field(default_factory=list)  # injected at render time
+    references: list[str] = field(default_factory=list)  # available for custom use; not auto-injected
     assets: pathlib.Path | None = None              # assets/ subdir path
 
     def render(self, user_input: str) -> str:
-        ref_block = "\n\n".join(self.references)
-        base = f"{ref_block}\n\n{self.body}" if ref_block else self.body
         for trigger in self.triggers:
             if user_input.startswith(trigger):
                 args = user_input[len(trigger):].strip()
-                return base.replace("$ARGUMENTS", args)
-        return base.replace("$ARGUMENTS", user_input)
+                return self.body.replace("$ARGUMENTS", args)
+        return self.body.replace("$ARGUMENTS", user_input)
 
 
 @dataclass
