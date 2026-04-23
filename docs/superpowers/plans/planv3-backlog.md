@@ -24,6 +24,25 @@ Items identified during multi-provider design. These are not part of the current
 
 9. **Session resume** — `--continue` / `--resume` CLI flags to pick up a previous conversation. Needs conversation persistence (save messages to disk) and a session index.
 
+## Per-model configuration
+
+10. **Per-model sampling params and overrides** — Currently `temperature`, `max_tokens`, `context_limit` are global. Models should support per-model overrides with global values as fallback. The `models` field in a provider would accept either a simple list (`["qwen3", "llama"]`) or a dict with per-model config:
+    ```json
+    "models": {
+      "qwen3.6-35b-a3b": {
+        "context_limit": 128000,
+        "max_tokens": 8192,
+        "thinking": false
+      },
+      "llama-4-scout": {
+        "context_limit": 64000,
+        "temperature": 0.6,
+        "top_p": 0.9
+      }
+    }
+    ```
+    Resolution order: model-specific > global > hardcoded default. Empty object `{}` means use all defaults. New optional per-model fields: `temperature`, `max_tokens`, `context_limit`, `top_p`, `thinking`. Requires a `ModelConfig` dataclass, changes to `switch_model` to merge overrides, and `provider.stream()` to pass `thinking` param. Inspired by Qwen Code's `settings.json` `generationConfig`/`samplingParams` structure. Moderate complexity — touches types.py, config.py, provider.py.
+
 ## Additional skill dependencies (from prompts.ts)
 
 None identified. The Qwen prompts.ts is self-contained — all system prompt content is inline, no external skill file dependencies. The tool name references (`ToolNames.*`) are just string constants, not separate skill files.
