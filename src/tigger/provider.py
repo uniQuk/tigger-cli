@@ -7,10 +7,13 @@ from tigger.types import Config, Message, AssistantMessage, ToolCallRecord, Text
 _client_cache: dict[tuple[str, str], OpenAI] = {}
 
 
+_DEFAULT_TIMEOUT = 60  # seconds — covers slow first-token responses
+
+
 def _get_client(base_url: str, api_key: str) -> OpenAI:
     key = (base_url, api_key)
     if key not in _client_cache:
-        _client_cache[key] = OpenAI(base_url=base_url, api_key=api_key)
+        _client_cache[key] = OpenAI(base_url=base_url, api_key=api_key, timeout=_DEFAULT_TIMEOUT)
     return _client_cache[key]
 
 

@@ -1,10 +1,22 @@
 from __future__ import annotations
 import json
+import os
 import pathlib
 import urllib.parse
 import warnings
 from tigger.types import Config, ModelConfig, ProviderConfig
 from tigger._constants import CONFIG_DIR, home_config_dir
+
+def _resolve_api_key(raw: str) -> str:
+    """Resolve an API key value.  Supports ``env:VAR_NAME`` syntax to read from environment."""
+    if raw.startswith("env:"):
+        var_name = raw[4:]
+        val = os.environ.get(var_name)
+        if val is None:
+            raise ValueError(f"Environment variable {var_name!r} referenced by api_key is not set")
+        return val
+    return raw
+
 
 _PERM_RENAME: dict[str, str] = {"manual": "ask", "auto": "allow", "accept-all": "bypass"}
 _VALID_PERMISSION_MODES = {"ask", "allow", "bypass"}
@@ -98,7 +110,7 @@ def load_config(path: pathlib.Path) -> Config:
             providers[name] = ProviderConfig(
                 name=name,
                 base_url=prov_data["base_url"],
-                api_key=prov_data.get("api_key", "local"),
+                api_key=_resolve_api_key(prov_data.get("api_key", "local")),
                 models=models,
             )
         if not providers:
@@ -122,7 +134,7 @@ def load_config(path: pathlib.Path) -> Config:
         if isinstance(model_name, list):
             model_name = model_name[0]
         prov_name = derive_provider_name(data["base_url"])
-        api_key = data.get("api_key", "local")
+        api_key = _resolve_api_key(data.get("api_key", "local"))
         active_prov = ProviderConfig(
             name=prov_name,
             base_url=data["base_url"],

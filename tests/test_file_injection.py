@@ -7,7 +7,7 @@ def test_expand_single_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     f = tmp_path / "test.txt"
     f.write_text("hello world")
-    result = expand_file_refs(f"@{f}")
+    result = expand_file_refs("@test.txt")
     assert "hello world" in result
     assert "Contents of" in result
 
@@ -16,7 +16,7 @@ def test_expand_preserves_surrounding_text(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     f = tmp_path / "test.txt"
     f.write_text("content")
-    result = expand_file_refs(f"explain @{f} please")
+    result = expand_file_refs("explain @test.txt please")
     assert "explain" in result
     assert "please" in result
     assert "content" in result
@@ -33,7 +33,7 @@ def test_expand_large_file_truncated(tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(tmp_path)
     f = tmp_path / "big.txt"
     f.write_text("x" * 60000)
-    result = expand_file_refs(f"@{f}")
+    result = expand_file_refs("@big.txt")
     assert len(result) < 55000  # truncated
     out = capsys.readouterr().out
     assert "truncating" in out
@@ -46,10 +46,37 @@ def test_expand_at_alone_not_expanded():
 
 def test_expand_multiple_files(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    f1 = tmp_path / "a.txt"
-    f2 = tmp_path / "b.txt"
-    f1.write_text("aaa")
-    f2.write_text("bbb")
-    result = expand_file_refs(f"@{f1} and @{f2}")
+    (tmp_path / "a.txt").write_text("aaa")
+    (tmp_path / "b.txt").write_text("bbb")
+    result = expand_file_refs("@a.txt and @b.txt")
     assert "aaa" in result
     assert "bbb" in result
+
+
+def test_expand_rejects_absolute_path(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    f = tmp_path / "test.txt"
+    f.write_text("secret")
+    result = expand_file_refs(f"@{f}")
+    assert "secret" not in result
+    out = capsys.readouterr().out
+    assert "must be relative" in out
+
+
+def test_expand_rejects_home_path(capsys):
+    result = expand_file_refs("@~/.ssh/id_rsa")
+    assert "id_rsa" not in result or "@~/.ssh/id_rsa" == result
+    out = capsys.readouterr().out
+    assert "must be relative" in out
+
+
+def test_expand_rejects_parent_traversal(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    # Create a file outside workspace
+    parent_file = tmp_path.parent / "secret.txt"
+    try:
+        parent_file.write_text("leaked")
+        result = expand_file_refs("@../secret.txt")
+        assert "leaked" not in result
+    finally:
+        parent_file.unlink(missing_ok=True)

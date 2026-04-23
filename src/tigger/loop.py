@@ -112,7 +112,10 @@ def run(
             tc = run_before(tc, ctx, hooks)
             yield ToolStartEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
             output = registry.execute(tc.name, tc.args)
-            end_event = ToolEndEvent(call_id=tc.call_id, name=tc.name, output=output)
+            end_event = ToolEndEvent(
+                call_id=tc.call_id, name=tc.name, output=output,
+                error=output.startswith("Error:"),
+            )
             end_event = run_after(end_event, ctx, hooks)
             yield end_event
 
@@ -151,6 +154,7 @@ def run_forked(
         system_prompt=ctx.system_prompt,
         depth=ctx.depth + 1,
         allowed_tools=allowed,
+        trust_level=ctx.trust_level,
     )
 
     # Restrict registry to skill's tool list if specified

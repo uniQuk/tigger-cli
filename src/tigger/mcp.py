@@ -51,9 +51,28 @@ def _make_mcp_tool_func(server_name: str, tool_name: str, proc: subprocess.Popen
     return call
 
 
-def connect_all(registry: ToolRegistry, path: pathlib.Path) -> None:
-    """Connect to all MCP servers in *path* and register their tools. Blocking, 3s timeout."""
-    for cfg in load_mcp_config(path):
+def connect_all(registry: ToolRegistry, path: pathlib.Path, *, require_consent: bool = False) -> None:
+    """Connect to all MCP servers in *path* and register their tools. Blocking, 3s timeout.
+
+    When *require_consent* is True, the user is prompted before launching each
+    MCP server subprocess.  Set to False for trusted workspaces or tests.
+    """
+    configs = load_mcp_config(path)
+    if not configs:
+        return
+
+    if require_consent and configs:
+        names = [c.name for c in configs]
+        print(f"[mcp] Found MCP servers: {', '.join(names)}")
+        try:
+            answer = input("  Launch MCP servers? [y/N] ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            answer = "n"
+        if answer != "y":
+            print("[mcp] Skipped — MCP servers not launched.")
+            return
+
+    for cfg in configs:
         if cfg.transport == "stdio" and cfg.command:
             try:
                 proc = subprocess.Popen(

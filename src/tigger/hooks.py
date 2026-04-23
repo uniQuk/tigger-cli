@@ -49,13 +49,27 @@ def run_after(event: ToolEndEvent, ctx: RunContext, registry: HookRegistry) -> T
     return event
 
 
-def load_hooks(path: pathlib.Path) -> HookRegistry:
-    """Import *path* (causing @on_before/@on_after decorators to fire) and return the registry."""
+def load_hooks(path: pathlib.Path, *, require_consent: bool = True) -> HookRegistry:
+    """Import *path* (causing @on_before/@on_after decorators to fire) and return the registry.
+
+    When *require_consent* is True (default), the user is prompted before
+    executing hooks from a project directory.  Set to False in tests.
+    """
     global _REGISTRY
     _REGISTRY = HookRegistry()          # reset so previous loads don't accumulate
 
     if not path.exists():
         return _REGISTRY
+
+    if require_consent:
+        print(f"[hooks] Found hooks file: {path}")
+        try:
+            answer = input("  Load and execute project hooks? [y/N] ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            answer = "n"
+        if answer != "y":
+            print("[hooks] Skipped — hooks not loaded.")
+            return _REGISTRY
 
     spec = importlib.util.spec_from_file_location("_user_hooks", path)
     module = importlib.util.module_from_spec(spec)

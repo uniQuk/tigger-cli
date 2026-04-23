@@ -1,21 +1,15 @@
 from __future__ import annotations
 import glob as _glob
+import ipaddress as _ipaddress
 import pathlib
 import re as _re
+import socket as _socket
 import subprocess
 import urllib.parse as _urlparse
 import urllib.request
 from tigger.types import ToolDef
 
 _32KB = 32 * 1024
-
-# Prefixes that indicate private / link-local addresses (SSRF protection).
-_PRIVATE_PREFIXES = (
-    "127.", "10.", "192.168.", "169.254.",
-    "172.16.", "172.17.", "172.18.", "172.19.", "172.20.", "172.21.", "172.22.",
-    "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", "172.28.", "172.29.",
-    "172.30.", "172.31.",
-)
 
 
 def _safe_path(p: pathlib.Path) -> pathlib.Path | None:
@@ -83,8 +77,22 @@ def _read(args: dict) -> str:
 def _glob_tool(args: dict) -> str:
     pattern = args["pattern"]
     base = args.get("path", ".")
-    matches = _glob.glob(str(pathlib.Path(base) / pattern), recursive=True)
-    return "\n".join(sorted(matches)) or "(no matches)"
+    base_path = pathlib.Path(base)
+    # Validate base path is within workspace
+    safe_base = _safe_path(base_path)
+    if safe_base is None:
+        return f"Error: access denied — path is outside the workspace: {base}"
+    matches = _glob.glob(str(safe_base / pattern), recursive=True)
+    # Filter results to workspace-contained paths only
+    cwd = pathlib.Path.cwd().resolve()
+    safe_matches = []
+    for m in sorted(matches):
+        try:
+            pathlib.Path(m).resolve().relative_to(cwd)
+            safe_matches.append(m)
+        except ValueError:
+            pass
+    return "\n".join(safe_matches) or "(no matches)"
 
 
 def _grep(args: dict) -> str:
@@ -95,11 +103,21 @@ def _grep(args: dict) -> str:
         rx = _re.compile(pattern)
     except _re.error as e:
         return f"Error: invalid regex: {e}"
-    results = []
+    # Validate base path is within workspace
     base = pathlib.Path(path)
+    safe_base = _safe_path(base)
+    if safe_base is None:
+        return f"Error: access denied — path is outside the workspace: {path}"
+    cwd = pathlib.Path.cwd().resolve()
+    results = []
     # Use pathlib.glob() so patterns like src/**/*.py work correctly.
-    for p in base.glob(glob_pat):
+    for p in safe_base.glob(glob_pat):
         if not p.is_file():
+            continue
+        # Skip files outside workspace (e.g. from symlinks)
+        try:
+            p.resolve().relative_to(cwd)
+        except ValueError:
             continue
         try:
             for i, line in enumerate(p.read_text(errors="replace").splitlines(), 1):
@@ -167,11 +185,37 @@ def _strip_html(html: str) -> str:
     return _re.sub(r"\n{3,}", "\n\n", html).strip()
 
 
+def _is_private_or_local(hostname: str) -> bool:
+    """Return True if *hostname* resolves to a private, loopback, or link-local address."""
+    if not hostname:
+        return True
+    # Check well-known local hostnames first.
+    if hostname in ("localhost", "localhost.localdomain"):
+        return True
+    # Try parsing as IP directly (handles 0.0.0.0, ::1, 127.1, etc.)
+    try:
+        addr = _ipaddress.ip_address(hostname)
+        return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
+    except ValueError:
+        pass
+    # Resolve hostname and check all addresses.
+    try:
+        infos = _socket.getaddrinfo(hostname, None, type=_socket.SOCK_STREAM)
+        for family, _, _, _, sockaddr in infos:
+            ip_str = sockaddr[0]
+            addr = _ipaddress.ip_address(ip_str)
+            if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+                return True
+    except (_socket.gaierror, ValueError):
+        pass
+    return False
+
+
 def _web_fetch(args: dict) -> str:
     url = args["url"]
     parsed = _urlparse.urlparse(url)
     hostname = (parsed.hostname or "").lower()
-    if hostname in ("localhost", "::1") or any(hostname.startswith(p) for p in _PRIVATE_PREFIXES):
+    if _is_private_or_local(hostname):
         return "Error: access to private/local network addresses is not permitted."
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Tigger/1.0"})

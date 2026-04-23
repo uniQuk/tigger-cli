@@ -59,9 +59,9 @@ def test_load_hooks_from_file():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(src)
         p = pathlib.Path(f.name)
-    reg = load_hooks(p)
+    reg = load_hooks(p, require_consent=False)
     assert "read" in reg.before
 
 def test_load_hooks_missing_file_returns_empty():
-    reg = load_hooks(pathlib.Path("/no/such/hooks.py"))
+    reg = load_hooks(pathlib.Path("/no/such/hooks.py"), require_consent=False)
     assert reg.before == {} and reg.after == {}
