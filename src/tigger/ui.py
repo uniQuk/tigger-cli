@@ -3,6 +3,7 @@ import pathlib
 import random
 import threading
 import time
+from collections import deque
 from contextlib import contextmanager
 from rich.console import Console
 from rich.markdown import Markdown
@@ -22,6 +23,8 @@ _THEME = Theme({
 })
 
 console = Console(theme=_THEME)
+
+recent_tools: deque[str] = deque(maxlen=5)
 
 _LOGO_LINES = [
     " ████████╗██╗  ██████╗  ██████╗ ███████╗██████╗ ",
@@ -207,6 +210,7 @@ def render_event(event, ctx: RunContext, output_chars: list[int], text_buf: list
         output_chars[0] += len(event.content)
     elif isinstance(event, ToolStartEvent):
         _flush_text(text_buf)
+        recent_tools.append(event.name)
         console.print(f"\n[bold]⏺[/bold] [dim]{event.name}[/dim]({_fmt_args(event.args)})")
     elif isinstance(event, ToolEndEvent):
         # Only surface errors and denials — successful tool calls stay quiet.

@@ -19,6 +19,7 @@ from tigger import provider as _provider
 from tigger import trust as _trust
 from tigger import ui
 from tigger._constants import home_config_dir
+from tigger.sessions import save_message, load_session, list_sessions, new_session_id
 
 
 @dataclasses.dataclass
@@ -129,15 +130,19 @@ def _toolbar(ctx: RunContext) -> str:
     used = estimate_tokens(ctx.messages)
     limit = ctx.config.context_limit
     pct = (used / limit * 100) if limit else 0
+    tools_str = ""
+    if ui.recent_tools:
+        tools_str = f"  tools: {', '.join(ui.recent_tools)}"
     return (
         f" {ctx.config.model}"
         f"  mode:{ctx.config.mode}"
         f"  perm:{ctx.config.permission_mode}"
         f"  {pct:.1f}% context"
+        f"{tools_str}"
     )
 
 
-def repl(result: StartupResult) -> None:
+def repl(result: StartupResult, session_id: str | None = None, session_dir: pathlib.Path | None = None) -> None:
     ctx = result.ctx
     commands = result.commands
     skills = result.skills
@@ -145,10 +150,14 @@ def repl(result: StartupResult) -> None:
     hooks = result.hooks
     provider_fn = result.provider_fn
 
+    # Session tracking: how many messages existed before this REPL turn.
+    _saved_count = len(ctx.messages)
+
     # Set up prompt_toolkit session with history and tab completion.
     # Falls back to plain input() if prompt_toolkit is unavailable.
     try:
         from prompt_toolkit import PromptSession
+        from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.history import FileHistory, InMemoryHistory
         from prompt_toolkit.key_binding import KeyBindings
         from tigger.completer import TiggerCompleter
@@ -180,6 +189,7 @@ def repl(result: StartupResult) -> None:
             completer=TiggerCompleter(commands, skills),
             complete_while_typing=True,
             key_bindings=_kb,
+            placeholder=HTML('<style fg="#666666">Type your message or @path/to/file</style>'),
         )
 
         def _get_input() -> str:
@@ -249,12 +259,20 @@ def repl(result: StartupResult) -> None:
         elapsed = time.time() - turn_start
         ui.print_turn_summary(output_chars[0] // 4, elapsed)
 
+        # Persist new messages to the session file.
+        if session_id and session_dir:
+            for msg in ctx.messages[_saved_count:]:
+                save_message(session_dir, session_id, msg)
+            _saved_count = len(ctx.messages)
+
 
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(prog="tigger-code")
     parser.add_argument("--mode", choices=["ask", "plan"], default=None)
     parser.add_argument("--permission", choices=["ask", "allow", "bypass"], dest="permission", default=None)
+    parser.add_argument("-c", "--continue", dest="resume", action="store_true",
+                        help="Resume the most recent session")
     parsed = parser.parse_args()
 
     result = startup()
@@ -264,7 +282,24 @@ def main() -> None:
     if parsed.permission is not None:
         result.ctx.config = dataclasses.replace(result.ctx.config, permission_mode=parsed.permission)
 
-    repl(result)
+    # Session setup
+    session_dir = result.config_path.parent / "sessions"
+    session_id: str | None = None
+
+    if parsed.resume:
+        sessions = list_sessions(session_dir)
+        if sessions:
+            latest = sessions[0]
+            result.ctx.messages = load_session(latest.path)
+            session_id = latest.timestamp
+            ui.print_info(f"Resumed session {session_id} with {latest.message_count} messages")
+        else:
+            ui.print_info("No previous sessions found. Starting new session.")
+            session_id = new_session_id()
+    else:
+        session_id = new_session_id()
+
+    repl(result, session_id=session_id, session_dir=session_dir)
 
 
 if __name__ == "__main__":

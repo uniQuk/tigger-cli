@@ -108,3 +108,42 @@ def test_gradient_line_rightmost_is_orange_red():
 def test_logo_lines_constant_non_empty():
     assert len(_LOGO_LINES) == 6
     assert all(isinstance(line, str) and len(line) > 0 for line in _LOGO_LINES)
+
+
+# --- recent_tools tests ---
+
+from tigger.ui import recent_tools
+from tigger.types import ToolStartEvent, RunContext, Config, TrustLevel
+
+
+def _make_ctx():
+    cfg = Config(base_url="http://localhost:1234/v1", model="test", api_key="local")
+    return RunContext(config=cfg, messages=[], system_prompt="", trust_level=TrustLevel.ALWAYS)
+
+
+def test_recent_tools_populated_on_tool_start(monkeypatch):
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
+    ui_mod.recent_tools.clear()
+    event = ToolStartEvent(call_id="c1", name="bash", args={"command": "ls"})
+    ui_mod.render_event(event, _make_ctx(), [0], [])
+    assert "bash" in ui_mod.recent_tools
+
+
+def test_recent_tools_max_5():
+    recent_tools.clear()
+    for i in range(7):
+        recent_tools.append(f"tool{i}")
+    assert len(recent_tools) == 5
+    assert list(recent_tools) == ["tool2", "tool3", "tool4", "tool5", "tool6"]
+
+
+def test_recent_tools_shown_in_toolbar():
+    import tigger.ui as ui_mod
+    ui_mod.recent_tools.clear()
+    ui_mod.recent_tools.append("bash")
+    ui_mod.recent_tools.append("write")
+    from tigger.main import _toolbar
+    toolbar_text = _toolbar(_make_ctx())
+    assert "tools: bash, write" in toolbar_text
