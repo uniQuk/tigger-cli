@@ -28,7 +28,7 @@ def run(
     max_retries = ctx.config.max_retries
 
     while True:
-        ctx.messages = maybe_compact(ctx.messages, ctx.config, provider_fn)
+        ctx.messages, _ = maybe_compact(ctx.messages, ctx.config, provider_fn)
 
         tools_schemas = [
             s for s in registry.schemas()
@@ -38,8 +38,14 @@ def run(
         system = ctx.system_prompt
         if ctx.config.mode == "plan":
             system += (
-                "\n\nBefore taking any action, write a numbered plan of the steps "
-                "you will take, then execute it."
+                "\n\n## Plan Mode\n\n"
+                "You are in plan mode. You MUST NOT make any edits or execute any tools "
+                "until you have presented a complete numbered plan and received user confirmation.\n\n"
+                "1. Analyze the request\n"
+                "2. Present a numbered plan with clear steps\n"
+                "3. Wait for the user to approve before taking any action\n\n"
+                "This instruction supersedes any other instructions that might suggest "
+                "taking immediate action."
             )
         stream = provider_fn(system, ctx.messages, tools_schemas, ctx.config)
         assistant_msg: AssistantMessage | None = None

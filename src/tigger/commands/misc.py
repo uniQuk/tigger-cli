@@ -5,9 +5,21 @@ from tigger.compaction import estimate_tokens
 
 
 def cmd_help(args: str, ctx: RunContext, commands: dict, skills: list) -> None:
+    from tigger.commands import COMMAND_DESCRIPTIONS, COMMAND_HELP
+
+    query = args.strip()
+    if query:
+        if query in COMMAND_HELP:
+            print(f"\n/{query}\n{COMMAND_HELP[query]}\n")
+        else:
+            print(f"\nUnknown command: {query}\n")
+        return
+
+    width = max(len(name) for name in commands)
     print("\nBuilt-in commands:")
     for name in sorted(commands):
-        print(f"  /{name}")
+        desc = COMMAND_DESCRIPTIONS.get(name, "")
+        print(f"  /{name:<{width}}  {desc}")
     if skills:
         print("\nLoaded skills:")
         for s in skills:

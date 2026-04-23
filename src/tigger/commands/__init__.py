@@ -10,6 +10,33 @@ from tigger.commands import memory as mem_cmd
 from tigger.commands import provider as provider_cmd
 
 
+COMMAND_DESCRIPTIONS: dict[str, str] = {
+    "clear": "Clear message history",
+    "tokens": "Show token usage",
+    "model": "Switch model or provider",
+    "mode": "Switch mode (ask/plan)",
+    "permission": "Set permission mode",
+    "memory": "View, search, or delete memory entries",
+    "remember": "Save a note to memory",
+    "compact": "Compact conversation history",
+    "skills": "List loaded skills",
+    "agent": "Run or list agents",
+    "provider": "Manage providers",
+    "help": "Show this help",
+}
+
+COMMAND_HELP: dict[str, str] = {
+    "model": "Usage:\n  /model              — interactive picker\n  /model <name>       — switch by model name\n  /model prov/model   — switch by provider/model",
+    "mode": "Usage: /mode <ask|plan>\n  ask  — normal conversation\n  plan — write plan before executing",
+    "permission": "Usage: /permission <ask|allow|bypass>",
+    "memory": "Usage:\n  /memory             — list all entries\n  /memory search <q>  — search entries\n  /memory delete <n>  — delete entry by number\n  /memory clear       — delete all entries",
+    "compact": "Usage: /compact\n  Force compaction of conversation history.",
+    "agent": "Usage:\n  /agent             — list available agents\n  /agent <name> <q>  — run agent with query\n\nAgents are defined in .tigger/agents.md using YAML frontmatter:\n\n  ---\n  name: my-agent\n  tools: [read, glob, grep]\n  ---\n  System prompt for the agent.",
+    "provider": "Usage:\n  /provider           — list providers\n  /provider add       — add a new provider",
+    "help": "Usage: /help [command]\n  Show help for a specific command, or list all commands.",
+}
+
+
 def load_builtin_commands(
     memory_path: pathlib.Path,
     config_path: pathlib.Path,

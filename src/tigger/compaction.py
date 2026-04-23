@@ -1,6 +1,13 @@
 from __future__ import annotations
-from typing import Callable
+from typing import Callable, NamedTuple
 from tigger.types import Message, Config, TextChunk
+
+
+class CompactResult(NamedTuple):
+    snipped: int
+    summarized: int
+    tokens_before: int
+    tokens_after: int
 
 # Cache encoder at module level — get_encoding() is expensive on first call.
 try:
@@ -24,12 +31,16 @@ def _split_old_recent(messages: list[Message]) -> tuple[list[Message], list[Mess
     return messages[:boundary], messages[boundary:]
 
 
-def snip_old_results(messages: list[Message]) -> list[Message]:
-    """Layer 1: replace old tool results with short placeholder (no LLM call)."""
+def snip_old_results(messages: list[Message]) -> tuple[list[Message], int]:
+    """Layer 1: replace old tool results with short placeholder (no LLM call).
+
+    Returns (compacted_messages, snipped_count).
+    """
     if not messages:
-        return messages
+        return messages, 0
     old, recent = _split_old_recent(messages)
     compacted = []
+    snipped = 0
     for m in old:
         if m.role == "tool" and len(m.content) > 200:
             compacted.append(Message(
@@ -38,19 +49,23 @@ def snip_old_results(messages: list[Message]) -> list[Message]:
                 tool_call_id=m.tool_call_id,
                 name=m.name,
             ))
+            snipped += 1
         else:
             compacted.append(m)
-    return compacted + recent
+    return compacted + recent, snipped
 
 
 def summarize_old(
     messages: list[Message],
     config: Config,
     provider_fn: Callable,
-) -> list[Message]:
-    """Layer 2: LLM-summarize old portion of history (real API call)."""
+) -> tuple[list[Message], int]:
+    """Layer 2: LLM-summarize old portion of history (real API call).
+
+    Returns (compacted_messages, summarized_count).
+    """
     if not messages or provider_fn is None:
-        return messages
+        return messages, 0
     old, recent = _split_old_recent(messages)
     prompt = (
         "Summarize the following conversation history concisely. "
@@ -67,7 +82,7 @@ def summarize_old(
         if isinstance(chunk, TextChunk):
             parts.append(chunk.content)
     summary = "".join(parts)
-    return [Message(role="user", content=f"[Conversation summary]\n{summary}")] + recent
+    return [Message(role="user", content=f"[Conversation summary]\n{summary}")] + recent, len(old)
 
 
 def maybe_compact(
@@ -75,14 +90,27 @@ def maybe_compact(
     config: Config,
     provider_fn: Callable | None,
     force: bool = False,
-) -> list[Message]:
-    """Compact if above 70% of context_limit (or forced). Returns (possibly shorter) list."""
+) -> tuple[list[Message], CompactResult]:
+    """Compact if above 70% of context_limit (or forced).
+
+    Returns (possibly shorter message list, CompactResult).
+    """
+    tokens_before = estimate_tokens(messages)
     threshold = config.context_limit * 0.7
+    if not force and tokens_before < threshold:
+        return messages, CompactResult(snipped=0, summarized=0,
+                                       tokens_before=tokens_before,
+                                       tokens_after=tokens_before)
+    messages, snipped = snip_old_results(messages)
     if not force and estimate_tokens(messages) < threshold:
-        return messages
-    messages = snip_old_results(messages)
-    if not force and estimate_tokens(messages) < threshold:
-        return messages
+        tokens_after = estimate_tokens(messages)
+        return messages, CompactResult(snipped=snipped, summarized=0,
+                                       tokens_before=tokens_before,
+                                       tokens_after=tokens_after)
+    summarized = 0
     if provider_fn is not None:
-        messages = summarize_old(messages, config, provider_fn)
-    return messages
+        messages, summarized = summarize_old(messages, config, provider_fn)
+    tokens_after = estimate_tokens(messages)
+    return messages, CompactResult(snipped=snipped, summarized=summarized,
+                                   tokens_before=tokens_before,
+                                   tokens_after=tokens_after)

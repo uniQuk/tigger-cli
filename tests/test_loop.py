@@ -103,7 +103,9 @@ def test_plan_mode_injects_into_system_prompt():
     list(run("do something", ctx, _registry(), _hooks(), provider_fn=recording_provider))
 
     assert len(calls) == 1
-    assert "numbered plan" in calls[0]
+    assert "MUST NOT" in calls[0]
+    assert "confirmation" in calls[0]
+    assert "supersedes" in calls[0]
     assert "You are helpful." in calls[0]
 
 
@@ -119,4 +121,4 @@ def test_ask_mode_does_not_inject_plan_text():
     ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
     list(run("do something", ctx, _registry(), _hooks(), provider_fn=recording_provider))
 
-    assert "numbered plan" not in calls[0]
+    assert "MUST NOT" not in calls[0]
