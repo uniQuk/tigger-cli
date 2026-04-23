@@ -9,6 +9,7 @@ from rich.markdown import Markdown
 from rich.theme import Theme
 from tigger._spinners import SPINNER_MESSAGES
 from tigger.types import RunContext, TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent
+from tigger._constants import CONFIG_DIR, home_config_dir
 
 _THEME = Theme({
     "markdown.code": "bold #ffb300",
@@ -110,16 +111,16 @@ def run_setup_wizard(project_dir: pathlib.Path) -> tuple[pathlib.Path, dict]:
     base_url = input("  Base URL (e.g. http://localhost:1234/v1): ").strip()
     api_key = input("  API key (Enter for 'local'): ").strip() or "local"
     model = input("  Model name (e.g. qwen3, gpt-4o): ").strip()
-    location = input("  Save to [P]roject or [u]ser (~/.ai/)? [P/u]: ").strip().lower()
+    location = input(f"  Save to [P]roject or [u]ser (~/{CONFIG_DIR}/)? [P/u]: ").strip().lower()
 
     provider_name = derive_provider_name(base_url)
     prov = ProviderConfig(name=provider_name, base_url=base_url,
                           api_key=api_key, models=[model])
 
     if location == "u":
-        ai_dir = pathlib.Path.home() / ".ai"
+        ai_dir = home_config_dir()
     else:
-        ai_dir = project_dir / ".ai"
+        ai_dir = project_dir / CONFIG_DIR
 
     config = Config(
         base_url=base_url,

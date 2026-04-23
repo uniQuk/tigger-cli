@@ -4,6 +4,7 @@ import pathlib
 import urllib.parse
 import warnings
 from tigger.types import Config, ProviderConfig
+from tigger._constants import CONFIG_DIR, home_config_dir
 
 _PERM_RENAME: dict[str, str] = {"manual": "ask", "auto": "allow", "accept-all": "bypass"}
 _VALID_PERMISSION_MODES = {"ask", "allow", "bypass"}
@@ -125,14 +126,14 @@ def find_config(start: pathlib.Path) -> pathlib.Path | None:
     """Walk up from *start* looking for .ai/config.json, fallback to ~/.ai/."""
     current = start.resolve()
     while True:
-        candidate = current / ".ai" / "config.json"
+        candidate = current / CONFIG_DIR / "config.json"
         if candidate.exists():
             return candidate
         parent = current.parent
         if parent == current:
             break
         current = parent
-    global_cfg = pathlib.Path.home() / ".ai" / "config.json"
+    global_cfg = home_config_dir() / "config.json"
     return global_cfg if global_cfg.exists() else None
 
 

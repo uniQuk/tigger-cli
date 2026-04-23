@@ -21,7 +21,7 @@ def test_run_setup_wizard_creates_config(monkeypatch, tmp_path):
 
     config_path, config_data = ui_mod.run_setup_wizard(project_dir=tmp_path)
 
-    assert config_path == tmp_path / ".ai" / "config.json"
+    assert config_path == tmp_path / ".tigger" / "config.json"
     assert config_path.exists()
 
     data = json.loads(config_path.read_text())
@@ -51,7 +51,7 @@ def test_run_setup_wizard_user_location(monkeypatch, tmp_path):
 
     config_path, _ = ui_mod.run_setup_wizard(project_dir=tmp_path)
 
-    assert config_path == tmp_path / "fakehome" / ".ai" / "config.json"
+    assert config_path == tmp_path / "fakehome" / ".tigger" / "config.json"
     assert config_path.exists()
 
 

@@ -17,6 +17,7 @@ from tigger.commands import load_builtin_commands
 from tigger import provider as _provider
 from tigger import trust as _trust
 from tigger import ui
+from tigger._constants import home_config_dir
 
 
 @dataclasses.dataclass
@@ -46,7 +47,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     if trust_level is None:
         choice = ui.ask_trust_prompt(cwd)
         if choice == "always":
-            _trust.write_trusted(cwd, pathlib.Path.home() / ".ai" / "trusted_paths.json")
+            _trust.write_trusted(cwd, home_config_dir() / "trusted_paths.json")
             trust_level = TrustLevel.ALWAYS
         else:
             trust_level = TrustLevel.READONLY
@@ -150,7 +151,7 @@ def repl(result: StartupResult) -> None:
         from prompt_toolkit.key_binding import KeyBindings
         from tigger.completer import TiggerCompleter
 
-        history_path = pathlib.Path.home() / ".ai" / "history"
+        history_path = home_config_dir() / "history"
         try:
             history_path.parent.mkdir(parents=True, exist_ok=True)
             _history = FileHistory(str(history_path))

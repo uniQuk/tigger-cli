@@ -2,8 +2,9 @@ from __future__ import annotations
 import json
 import pathlib
 from tigger.types import TrustLevel
+from tigger._constants import home_config_dir
 
-_DEFAULT_TRUSTED_FILE = pathlib.Path.home() / ".ai" / "trusted_paths.json"
+_DEFAULT_TRUSTED_FILE = home_config_dir() / "trusted_paths.json"
 
 
 def is_trusted(cwd: pathlib.Path, trusted_file: pathlib.Path) -> bool:
