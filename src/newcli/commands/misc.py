@@ -28,12 +28,77 @@ def cmd_tokens(args: str, ctx: RunContext) -> None:
 
 
 def cmd_model(args: str, ctx: RunContext) -> None:
-    if not args.strip():
-        print(f"Current model: {ctx.config.model}")
+    from newcli.config import switch_model
+
+    providers = ctx.config.providers
+
+    # No providers configured — fall back to simple name-only switch
+    if not providers:
+        if not args.strip():
+            print(f"Current model: {ctx.config.model}")
+            return
+        ctx.config = dataclasses.replace(ctx.config, model=args.strip())
+        print(f"Model set to: {args.strip()}")
         return
-    new_model = args.strip()
-    ctx.config = dataclasses.replace(ctx.config, model=new_model)
-    print(f"Model set to: {new_model}")
+
+    # Direct switch: /model provider/model
+    if "/" in args.strip():
+        prov_name, model_name = args.strip().split("/", 1)
+        if prov_name not in providers:
+            print(f"Unknown provider: {prov_name}. Available: {', '.join(providers)}")
+            return
+        if model_name not in providers[prov_name].models:
+            print(f"Model {model_name!r} not found in provider {prov_name!r}. "
+                  f"Available: {', '.join(providers[prov_name].models)}")
+            return
+        ctx.config = switch_model(ctx.config, prov_name, model_name)
+        print(f"Switched to {prov_name}/{model_name}")
+        return
+
+    # Direct switch: /model <name> — search all providers
+    if args.strip():
+        target = args.strip()
+        matches = []
+        for pname, prov in providers.items():
+            if target in prov.models:
+                matches.append((pname, target))
+        if len(matches) == 1:
+            pname, mname = matches[0]
+            ctx.config = switch_model(ctx.config, pname, mname)
+            print(f"Switched to {pname}/{mname}")
+            return
+        if len(matches) > 1:
+            print(f"Model {target!r} found in multiple providers:")
+            for pname, _ in matches:
+                print(f"  {pname}/{target}")
+            print("Use provider/model syntax to disambiguate.")
+            return
+        print(f"Model {target!r} not found. Available models:")
+        for pname, prov in providers.items():
+            print(f"  {pname}: {', '.join(prov.models)}")
+        return
+
+    # No args — interactive picker
+    numbered: list[tuple[str, str]] = []  # (provider_name, model_name)
+    for pname, prov in providers.items():
+        print(f"\n  {pname}:")
+        for mname in prov.models:
+            numbered.append((pname, mname))
+            idx = len(numbered)
+            active = " (active)" if (pname == ctx.config.active_provider
+                                     and mname == ctx.config.active_model) else ""
+            print(f"    {idx}. {mname}{active}")
+
+    try:
+        choice = input(f"\nPick [1-{len(numbered)}]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        return
+    if not choice.isdigit() or int(choice) < 1 or int(choice) > len(numbered):
+        print("Cancelled.")
+        return
+    pname, mname = numbered[int(choice) - 1]
+    ctx.config = switch_model(ctx.config, pname, mname)
+    print(f"Switched to {pname}/{mname}")
 
 
 def cmd_mode(args: str, ctx: RunContext) -> None:
