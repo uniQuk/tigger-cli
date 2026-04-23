@@ -161,7 +161,6 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.styles import Style as PTStyle
         from tigger.completer import TiggerCompleter
-        import shutil
 
         history_path = home_config_dir() / "history"
         try:
@@ -185,44 +184,43 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             else:
                 buf.start_completion(select_first=False)
 
+        _PLACEHOLDER = "Type your message or @path/to/file"
+        _RULE = "\u2500" * len("\u276f " + _PLACEHOLDER)
+
         _pt_style = PTStyle.from_dict({
             "bottom-toolbar": "noreverse #888888",
         })
 
-        def _bottom_toolbar() -> FormattedText:
-            cols = shutil.get_terminal_size().columns
-            tb = _toolbar(ctx)
-            return FormattedText([("#666666", "\u2500" * cols + "\n"), ("", " " + tb)])
+        def _bottom_toolbar() -> str:
+            return " " + _toolbar(ctx)
 
         _session: PromptSession = PromptSession(
             history=_history,
             completer=TiggerCompleter(commands, skills),
             complete_while_typing=True,
             key_bindings=_kb,
-            placeholder=HTML('<style fg="#666666">Type your message or @path/to/file</style>'),
+            placeholder=HTML(f'<style fg="#666666">{_PLACEHOLDER}</style>'),
             style=_pt_style,
+            bottom_toolbar=_bottom_toolbar,
+            reserve_space_for_menu=4,
         )
 
-        _resize_patched = False
+        # Fix the buffer window to not extend height, closing the gap
+        # between prompt and bottom toolbar (Questionary pattern).
+        try:
+            _buf = _session.layout.container.get_children()[0].content.get_children()[1].content
+            _buf.dont_extend_height = True
+        except (IndexError, AttributeError):
+            pass
 
-        def _patch_resize() -> None:
-            nonlocal _resize_patched
-            if _resize_patched:
-                return
-            _resize_patched = True
-            app = _session.app
-            # Disable prompt_toolkit's broken non-fullscreen resize handler.
-            # Its erase() uses stale cursor positions after terminal reflow,
-            # causing prompt duplication. With a no-op, the prompt stays put
-            # during resize and redraws correctly on the next keystroke.
-            app._on_resize = lambda: None
+        # Disable prompt_toolkit's broken non-fullscreen resize handler
+        # (upstream bug #1933). Set BEFORE prompt() so attach_winch_signal_handler
+        # captures our no-op instead of the original method.
+        _session.app._on_resize = lambda: None
 
         def _get_input() -> str:
-            cols = shutil.get_terminal_size().columns
-            ui.console.print(f"[dim]{'\u2500' * cols}[/dim]")
-            return _session.prompt(
-                "\u276f ", bottom_toolbar=_bottom_toolbar, pre_run=_patch_resize,
-            )
+            ui.console.print(f"[dim]{_RULE}[/dim]")
+            return _session.prompt("\u276f ")
 
     except ImportError:
         ui.print_info("prompt_toolkit not installed — history and completion unavailable.")
