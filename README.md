@@ -1,4 +1,4 @@
-# newcli
+# tigger-code
 
 A minimal, clean AI agent CLI. One folder. One settings file. No repository required.
 
@@ -36,13 +36,20 @@ cd dev-north7-cli
 pip install -e .
 ```
 
+Or use the Makefile:
+
+```bash
+make install      # pip install -e .
+make dev          # pip install -e ".[dev]"
+```
+
 ---
 
 ## Configuration
 
-The CLI discovers `.ai/` by walking up from the current working directory, then falls back to `~/.ai/` for global defaults. Both directories are merged — project `.ai/` overrides global `~/.ai/`.
+The CLI discovers `.tigger/` by walking up from the current working directory, then falls back to `~/.tigger/` for global defaults. Both directories are merged — project `.tigger/` overrides global `~/.tigger/`.
 
-Create `.ai/config.json` in your project or home directory:
+Create `.tigger/config.json` in your project or home directory:
 
 ```json
 {
@@ -52,7 +59,7 @@ Create `.ai/config.json` in your project or home directory:
   "context_limit": 8192,
   "max_tokens": 2048,
   "temperature": 0.7,
-  "permission_mode": "auto",
+  "permission_mode": "allow",
   "max_depth": 4,
   "max_retries": 2,
   "bash_safe_prefixes": ["ls", "git log", "git diff", "cat", "grep", "find", "echo"]
@@ -67,7 +74,7 @@ Create `.ai/config.json` in your project or home directory:
 | `context_limit` | Max context window tokens | `8192` |
 | `max_tokens` | Max tokens per response | `2048` |
 | `temperature` | Sampling temperature | `0.7` |
-| `permission_mode` | `auto` \| `manual` \| `accept-all` | `"auto"` |
+| `permission_mode` | `ask` \| `allow` \| `bypass` | `"allow"` |
 | `max_depth` | Max sub-agent recursion depth | `4` |
 | `max_retries` | Retries on provider error | `2` |
 | `bash_safe_prefixes` | Commands that don't require permission | `[]` |
@@ -78,7 +85,7 @@ Create `.ai/config.json` in your project or home directory:
 
 ```
 my-project/
-└── .ai/
+└── .tigger/
     ├── config.json     ← model endpoint, permissions, limits
     ├── skills.md       ← skill definitions (YAML frontmatter blocks)
     ├── agents.md       ← sub-agent type definitions
@@ -92,14 +99,10 @@ my-project/
 ## Usage
 
 ```bash
-newcli
+tigger-code
 ```
 
-The REPL shows a status line with the current model and token usage:
-
-```
-[qwen2.5 · 142/8192 tokens] >
-```
+The REPL shows a status line with the current model and token usage.
 
 ### Slash commands
 
@@ -115,7 +118,7 @@ The REPL shows a status line with the current model and token usage:
 
 ## Skills
 
-Define skills in `.ai/skills.md` using YAML frontmatter blocks:
+Define skills in `.tigger/skills.md` using YAML frontmatter blocks:
 
 ```markdown
 ---
@@ -133,7 +136,7 @@ A skill with `context: fork` runs in an isolated sub-agent and returns only the 
 
 ## Hooks
 
-Drop a `hooks.py` in `.ai/` to intercept the agent loop as middleware:
+Drop a `hooks.py` in `.tigger/` to intercept the agent loop as middleware:
 
 ```python
 def before_turn(ctx, messages):
@@ -150,19 +153,20 @@ def after_turn(ctx, event):
 ## Source layout
 
 ```
-src/newcli/
-├── main.py         ← entry point + REPL            (~150 lines)
-├── loop.py         ← agent loop generator           (~200 lines)
-├── types.py        ← all dataclasses + events       (~100 lines)
-├── config.py       ← config loader + validation     (~80 lines)
-├── provider.py     ← OpenAI-compat streaming client (~150 lines)
-├── tools.py        ← tool implementations + registry (~300 lines)
-├── permissions.py  ← permission gating              (~60 lines)
-├── compaction.py   ← context window management      (~120 lines)
-├── skills.py       ← skill/agent markdown loader    (~100 lines)
-├── hooks.py        ← hook middleware system         (~80 lines)
-├── memory.py       ← memory read/write              (~60 lines)
-└── mcp.py          ← MCP client                     (~150 lines)
+src/tigger/
+├── _constants.py   ← app identity + config paths       (~20 lines)
+├── main.py         ← entry point + REPL                (~250 lines)
+├── loop.py         ← agent loop generator               (~170 lines)
+├── types.py        ← all dataclasses + events           (~115 lines)
+├── config.py       ← config loader + validation         (~165 lines)
+├── provider.py     ← OpenAI-compat streaming client     (~110 lines)
+├── tools.py        ← tool implementations + registry    (~270 lines)
+├── permissions.py  ← permission gating                  (~25 lines)
+├── compaction.py   ← context window management          (~90 lines)
+├── skills.py       ← skill/agent markdown loader        (~160 lines)
+├── hooks.py        ← hook middleware system              (~70 lines)
+├── memory.py       ← memory read/write                  (~20 lines)
+└── mcp.py          ← MCP client                         (~100 lines)
 ```
 
 ---
@@ -170,7 +174,9 @@ src/newcli/
 ## Running tests
 
 ```bash
-pytest
+make test         # or: python -m pytest tests/ -q
+make test-v       # verbose
+make lint         # ruff check + format check
 ```
 
 ---
