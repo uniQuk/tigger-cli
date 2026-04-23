@@ -40,7 +40,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     if config_path is None:
         config_path, _ = ui.run_setup_wizard(project_dir=pathlib.Path.cwd())
 
-    ai_dir = config_path.parent
+    tigger_dir = config_path.parent
     config = load_config(config_path)
 
     # 2. Workspace trust check
@@ -63,26 +63,26 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
 
     # 4. Tool registry
     registry = ToolRegistry()
-    memory_path = ai_dir / "memory.md"
+    memory_path = tigger_dir / "memory.md"
     register_all(registry, memory_path=memory_path)
 
     # 5. MCP
-    connect_all(registry, ai_dir / "mcp.json")
+    connect_all(registry, tigger_dir / "mcp.json")
 
     # 6. Hooks
-    hooks = load_hooks(ai_dir / "hooks.py")
+    hooks = load_hooks(tigger_dir / "hooks.py")
 
     # 7-8. Skills + agents — prefer skills/ directory, fall back to skills.md
-    skills_dir = ai_dir / "skills"
+    skills_dir = tigger_dir / "skills"
     if skills_dir.exists() and skills_dir.is_dir():
         skills = load_skills_dir(skills_dir)
     else:
-        skills = load_skills(ai_dir / "skills.md")
-    agents = load_agents(ai_dir / "agents.md")
+        skills = load_skills(tigger_dir / "skills.md")
+    agents = load_agents(tigger_dir / "agents.md")
 
     # 9. System prompt + memory
-    # .ai/system.md overrides the built-in base prompt when present.
-    _system_md = ai_dir / "system.md"
+    # .tigger/system.md overrides the built-in base prompt when present.
+    _system_md = tigger_dir / "system.md"
     if _system_md.exists():
         _base_system = _system_md.read_text().strip()
     else:
@@ -93,7 +93,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
             "When given a multi-step task, continue working through all steps until the task "
             "is fully complete — do not stop mid-task and wait for the user to say 'continue'."
         )
-    memory_lines = read_memory(ai_dir / "memory.md")
+    memory_lines = read_memory(tigger_dir / "memory.md")
     memory_section = format_for_prompt(memory_lines)
     system = (_base_system + ("\n\n" + memory_section if memory_section else "")).strip()
 
@@ -105,7 +105,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         ctx.allowed_tools = [t.name for t in registry.all() if t.read_only]
 
     commands = load_builtin_commands(
-        memory_path=ai_dir / "memory.md",
+        memory_path=tigger_dir / "memory.md",
         config_path=config_path,
         skills=skills,
         agents=agents,

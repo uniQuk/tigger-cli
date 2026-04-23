@@ -161,9 +161,9 @@ def run_setup_wizard(project_dir: pathlib.Path) -> tuple[pathlib.Path, dict]:
                           api_key=api_key, models=[model])
 
     if location == "u":
-        ai_dir = home_config_dir()
+        tigger_dir = home_config_dir()
     else:
-        ai_dir = project_dir / CONFIG_DIR
+        tigger_dir = project_dir / CONFIG_DIR
 
     config = Config(
         base_url=base_url,
@@ -172,7 +172,7 @@ def run_setup_wizard(project_dir: pathlib.Path) -> tuple[pathlib.Path, dict]:
         providers={provider_name: prov},
         active_provider=provider_name,
     )
-    config_path = ai_dir / "config.json"
+    config_path = tigger_dir / "config.json"
     write_config(config_path, config)
 
     console.print(f"\n  [green]Config saved to {config_path}[/green]\n")

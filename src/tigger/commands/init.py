@@ -42,14 +42,14 @@ This is an example skill. Replace this with your skill content.
 
 
 def cmd_init(args: str, ctx: RunContext) -> None:
-    ai_dir = pathlib.Path.cwd() / CONFIG_DIR
-    ai_dir.mkdir(exist_ok=True)
+    tigger_dir = pathlib.Path.cwd() / CONFIG_DIR
+    tigger_dir.mkdir(exist_ok=True)
 
     created = []
     skipped = []
 
     for name, content in _TEMPLATES.items():
-        path = ai_dir / name
+        path = tigger_dir / name
         if path.exists():
             skipped.append(name)
         else:
@@ -57,7 +57,7 @@ def cmd_init(args: str, ctx: RunContext) -> None:
             created.append(name)
 
     for dirname, files in _DIR_TEMPLATES.items():
-        dirpath = ai_dir / dirname
+        dirpath = tigger_dir / dirname
         dirpath.mkdir(exist_ok=True)
         for name, content in files.items():
             path = dirpath / name

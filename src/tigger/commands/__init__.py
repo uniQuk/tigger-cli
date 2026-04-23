@@ -65,7 +65,7 @@ def load_builtin_commands(
         "skills":     partial(skills_cmd.cmd_skills, skills=skills),
         "agent":      partial(agent_cmd.cmd_agent, agents=agents, registry=registry, hooks=hooks, provider_fn=provider_fn),
         "provider":   partial(provider_cmd.cmd_provider, config_path=config_path),
-        "summary":    partial(summary_cmd.cmd_summary, ai_dir=memory_path.parent, provider_fn=provider_fn),
+        "summary":    partial(summary_cmd.cmd_summary, tigger_dir=memory_path.parent, provider_fn=provider_fn),
         "init":       init_cmd.cmd_init,
     }
     d["help"] = partial(misc.cmd_help, commands=d, skills=skills)

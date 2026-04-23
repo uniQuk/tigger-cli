@@ -4,7 +4,7 @@ import pathlib
 from tigger.types import RunContext, Message, TextChunk
 
 
-def cmd_summary(args: str, ctx: RunContext, ai_dir: pathlib.Path, provider_fn) -> None:
+def cmd_summary(args: str, ctx: RunContext, tigger_dir: pathlib.Path, provider_fn) -> None:
     if not ctx.messages:
         print("No conversation to summarize.")
         return
@@ -30,7 +30,7 @@ def cmd_summary(args: str, ctx: RunContext, ai_dir: pathlib.Path, provider_fn) -
             parts.append(chunk.content)
     summary = "".join(parts)
 
-    summaries_dir = ai_dir / "summaries"
+    summaries_dir = tigger_dir / "summaries"
     summaries_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
     out_path = summaries_dir / f"{timestamp}.md"

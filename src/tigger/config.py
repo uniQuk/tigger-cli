@@ -151,7 +151,7 @@ def load_config(path: pathlib.Path) -> Config:
 
 
 def find_config(start: pathlib.Path) -> pathlib.Path | None:
-    """Walk up from *start* looking for .ai/config.json, fallback to ~/.ai/."""
+    """Walk up from *start* looking for .tigger/config.json, fallback to ~/.tigger/."""
     current = start.resolve()
     while True:
         candidate = current / CONFIG_DIR / "config.json"
