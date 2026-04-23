@@ -128,6 +128,42 @@ def ask_permission(name: str, args: dict) -> bool:
     return answer == "y"
 
 
+def run_setup_wizard(project_dir: pathlib.Path) -> tuple[pathlib.Path, dict]:
+    """Interactive first-run setup. Returns (config_path, config_data)."""
+    from newcli.config import derive_provider_name, write_config
+    from newcli.types import Config, ProviderConfig
+
+    console.print("\n[bold]No config found.[/bold] Let's set up your first provider.\n")
+
+    base_url = input("  Base URL (e.g. http://localhost:1234/v1): ").strip()
+    api_key = input("  API key (Enter for 'local'): ").strip() or "local"
+    model = input("  Model name (e.g. qwen3, gpt-4o): ").strip()
+    location = input("  Save to [P]roject or [u]ser (~/.ai/)? [P/u]: ").strip().lower()
+
+    provider_name = derive_provider_name(base_url)
+    prov = ProviderConfig(name=provider_name, base_url=base_url,
+                          api_key=api_key, models=[model])
+
+    if location == "u":
+        ai_dir = pathlib.Path.home() / ".ai"
+    else:
+        ai_dir = project_dir / ".ai"
+
+    config = Config(
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+        providers={provider_name: prov},
+        active_provider=provider_name,
+        active_model=model,
+    )
+    config_path = ai_dir / "config.json"
+    write_config(config_path, config)
+
+    console.print(f"\n  [green]Config saved to {config_path}[/green]\n")
+    return config_path, {}
+
+
 def ask_trust_prompt(cwd: pathlib.Path) -> str:
     """Y/N workspace trust prompt. Returns 'always' (trust + persist) or 'deny' (read-only)."""
     console.print(f"\n[yellow bold]Trust workspace:[/yellow bold] {cwd}")

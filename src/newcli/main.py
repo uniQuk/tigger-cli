@@ -38,8 +38,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     if config_path is None:
         config_path = find_config(pathlib.Path.cwd())
     if config_path is None:
-        ui.print_error("no .ai/config.json found. Create one in your project or ~/.ai/")
-        sys.exit(1)
+        config_path, _ = ui.run_setup_wizard(project_dir=pathlib.Path.cwd())
 
     ai_dir = config_path.parent
     config = load_config(config_path)
