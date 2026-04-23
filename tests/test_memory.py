@@ -1,5 +1,5 @@
 import pathlib, tempfile, datetime
-from newcli.memory import read_memory, append_memory, format_for_prompt
+from tigger.memory import read_memory, append_memory, format_for_prompt
 
 def _tmp() -> pathlib.Path:
     f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False)

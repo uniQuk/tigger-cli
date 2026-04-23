@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json, pathlib, subprocess, threading
 from dataclasses import dataclass
-from newcli.tools import ToolRegistry, ToolDef
+from tigger.tools import ToolRegistry, ToolDef
 
 _CONNECT_TIMEOUT = 3.0
 

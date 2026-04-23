@@ -1,9 +1,9 @@
 from __future__ import annotations
 import dataclasses
-from newcli.types import RunContext
-from newcli.skills import AgentDef
-from newcli.tools import ToolRegistry
-from newcli.hooks import HookRegistry
+from tigger.types import RunContext
+from tigger.skills import AgentDef
+from tigger.tools import ToolRegistry
+from tigger.hooks import HookRegistry
 
 
 def cmd_agent(
@@ -40,7 +40,7 @@ def cmd_agent(
 
     # Build sub-registry restricted to agent's tool list
     if agent.tools:
-        from newcli.tools import ToolRegistry as _TR
+        from tigger.tools import ToolRegistry as _TR
         sub_registry = _TR()
         for name in agent.tools:
             t = registry.get(name)
@@ -49,8 +49,8 @@ def cmd_agent(
     else:
         sub_registry = registry
 
-    from newcli.loop import run
-    from newcli.types import TextChunk
+    from tigger.loop import run
+    from tigger.types import TextChunk
     result_parts = []
     for event in run(query, agent_ctx, sub_registry, hooks, provider_fn=provider_fn):
         if isinstance(event, TextChunk):

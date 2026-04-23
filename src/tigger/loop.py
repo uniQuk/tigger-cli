@@ -1,13 +1,13 @@
 from __future__ import annotations
 from typing import Callable, Generator
-from newcli.types import (
+from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, AssistantMessage,
     TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent,
 )
-from newcli.tools import ToolRegistry
-from newcli.hooks import HookRegistry, run_before, run_after
-from newcli.permissions import check as permission_check
-from newcli.compaction import maybe_compact
+from tigger.tools import ToolRegistry
+from tigger.hooks import HookRegistry, run_before, run_after
+from tigger.permissions import check as permission_check
+from tigger.compaction import maybe_compact
 
 Event = TextChunk | ToolStartEvent | ToolEndEvent | PermissionEvent | TurnDoneEvent
 
@@ -146,7 +146,7 @@ def run_forked(
 
     # Restrict registry to skill's tool list if specified
     if allowed:
-        from newcli.tools import ToolRegistry as _TR
+        from tigger.tools import ToolRegistry as _TR
         sub_registry = _TR()
         for name in allowed:
             t = registry.get(name)

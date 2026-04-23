@@ -3,8 +3,8 @@ import tempfile
 import pathlib
 import warnings
 import pytest
-from newcli.config import load_config, derive_provider_name, switch_model, write_config
-from newcli.types import Config, ProviderConfig
+from tigger.config import load_config, derive_provider_name, switch_model, write_config
+from tigger.types import Config, ProviderConfig
 
 
 def _write(data: dict) -> pathlib.Path:
@@ -108,10 +108,10 @@ def test_switch_model_changes_active():
     pc1 = ProviderConfig(name="a", base_url="http://a/v1", api_key="ka", models=["m1"])
     pc2 = ProviderConfig(name="b", base_url="http://b/v1", api_key="kb", models=["m2", "m3"])
     cfg = Config(base_url="http://a/v1", model="m1", api_key="ka",
-                 providers={"a": pc1, "b": pc2}, active_provider="a", active_model="m1")
+                 providers={"a": pc1, "b": pc2}, active_provider="a")
     new = switch_model(cfg, "b", "m3")
     assert new.active_provider == "b"
-    assert new.active_model == "m3"
+    assert new.model == "m3"
     assert new.base_url == "http://b/v1"
     assert new.model == "m3"
     assert new.api_key == "kb"
@@ -120,7 +120,7 @@ def test_switch_model_changes_active():
 def test_switch_model_preserves_other_fields():
     pc = ProviderConfig(name="a", base_url="http://a/v1", api_key="k", models=["m"])
     cfg = Config(base_url="http://a/v1", model="m", api_key="k",
-                 providers={"a": pc}, active_provider="a", active_model="m",
+                 providers={"a": pc}, active_provider="a",
                  context_limit=64000, temperature=0.5)
     new = switch_model(cfg, "a", "m")
     assert new.context_limit == 64000
@@ -135,7 +135,7 @@ def test_load_old_format_creates_provider():
     cfg = load_config(p)
     assert len(cfg.providers) == 1
     assert cfg.active_provider == "192.168.2.122"
-    assert cfg.active_model == "qwen3"
+    assert cfg.model == "qwen3"
     assert cfg.base_url == "http://192.168.2.122:1234/v1"
     assert cfg.model == "qwen3"
     assert cfg.api_key == "sk-test"
@@ -164,7 +164,7 @@ def test_load_new_format():
     cfg = load_config(p)
     assert len(cfg.providers) == 2
     assert cfg.active_provider == "local"
-    assert cfg.active_model == "qwen3"
+    assert cfg.model == "qwen3"
     assert cfg.base_url == "http://localhost:1234/v1"
     assert cfg.api_key == "local"
     assert cfg.providers["cloud"].models == ["gpt-4o"]
@@ -183,7 +183,7 @@ def test_load_new_format_defaults_to_first_provider():
     p = _write(data)
     cfg = load_config(p)
     assert cfg.active_provider == "only"
-    assert cfg.active_model == "m1"
+    assert cfg.model == "m1"
 
 
 # --- write_config tests ---
@@ -191,19 +191,19 @@ def test_load_new_format_defaults_to_first_provider():
 def test_write_config_round_trips(tmp_path):
     pc = ProviderConfig(name="loc", base_url="http://x/v1", api_key="k", models=["m1", "m2"])
     cfg = Config(base_url="http://x/v1", model="m1", api_key="k",
-                 providers={"loc": pc}, active_provider="loc", active_model="m1")
+                 providers={"loc": pc}, active_provider="loc")
     out = tmp_path / "config.json"
     write_config(out, cfg)
     reloaded = load_config(out)
     assert reloaded.active_provider == "loc"
-    assert reloaded.active_model == "m1"
+    assert reloaded.model == "m1"
     assert reloaded.providers["loc"].models == ["m1", "m2"]
 
 
 def test_write_config_creates_parent_dirs(tmp_path):
     pc = ProviderConfig(name="x", base_url="http://x/v1", api_key="k", models=["m"])
     cfg = Config(base_url="http://x/v1", model="m", api_key="k",
-                 providers={"x": pc}, active_provider="x", active_model="m")
+                 providers={"x": pc}, active_provider="x")
     out = tmp_path / "sub" / "dir" / "config.json"
     write_config(out, cfg)
     assert out.exists()

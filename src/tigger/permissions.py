@@ -1,5 +1,5 @@
 from __future__ import annotations
-from newcli.types import ToolDef
+from tigger.types import ToolDef
 
 
 def check(

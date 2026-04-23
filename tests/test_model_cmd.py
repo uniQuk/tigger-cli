@@ -1,7 +1,7 @@
 import dataclasses
 import pytest
-from newcli.types import Config, RunContext, ProviderConfig
-from newcli.commands.misc import cmd_model
+from tigger.types import Config, RunContext, ProviderConfig
+from tigger.commands.misc import cmd_model
 
 
 def _cfg():
@@ -12,7 +12,7 @@ def _cfg():
     return Config(
         base_url="http://localhost/v1", model="qwen3", api_key="local",
         providers={"local": pc1, "cloud": pc2},
-        active_provider="local", active_model="qwen3",
+        active_provider="local",
     )
 
 

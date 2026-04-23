@@ -1,11 +1,11 @@
 from __future__ import annotations
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
-from newcli.skills import SkillDef
+from tigger.skills import SkillDef
 
 
-class NewcliCompleter(Completer):
-    """Inline completion for newcli REPL. Only activates when input starts with '/'."""
+class TiggerCompleter(Completer):
+    """Inline completion for tigger REPL. Only activates when input starts with '/'."""
 
     def __init__(
         self,

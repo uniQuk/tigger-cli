@@ -1,7 +1,7 @@
 from __future__ import annotations
 import dataclasses
-from newcli.types import RunContext
-from newcli.compaction import estimate_tokens
+from tigger.types import RunContext
+from tigger.compaction import estimate_tokens
 
 
 def cmd_help(args: str, ctx: RunContext, commands: dict, skills: list) -> None:
@@ -28,7 +28,7 @@ def cmd_tokens(args: str, ctx: RunContext) -> None:
 
 
 def cmd_model(args: str, ctx: RunContext) -> None:
-    from newcli.config import switch_model
+    from tigger.config import switch_model
 
     providers = ctx.config.providers
 

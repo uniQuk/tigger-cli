@@ -2,7 +2,7 @@ from __future__ import annotations
 import importlib.util, pathlib
 from dataclasses import dataclass, field
 from typing import Callable
-from newcli.types import ToolCallRecord, ToolEndEvent, RunContext
+from tigger.types import ToolCallRecord, ToolEndEvent, RunContext
 
 BeforeFn = Callable[[ToolCallRecord, RunContext], ToolCallRecord]
 AfterFn  = Callable[[ToolEndEvent,   RunContext], ToolEndEvent]

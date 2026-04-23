@@ -1,10 +1,10 @@
-from newcli.types import ToolDef
-from newcli.permissions import check
+from tigger.types import ToolDef
+from tigger.permissions import check
 
 
-def _tool(name="bash", read_only=False, safe=False):
+def _tool(name="bash", read_only=False):
     return ToolDef(name=name, description="", parameters={},
-                   func=lambda a: "", read_only=read_only, safe=safe)
+                   func=lambda a: "", read_only=read_only)
 
 
 def test_read_only_always_permitted():
@@ -16,16 +16,6 @@ def test_read_only_always_permitted():
 def test_bypass_permits_everything():
     t = _tool()
     assert check(t, "bypass", {}, bash_safe_prefixes=[]) is True
-
-
-def test_safe_tool_allow_permitted():
-    t = _tool(safe=True)
-    assert check(t, "allow", {}, bash_safe_prefixes=[]) is True
-
-
-def test_safe_tool_ask_not_permitted():
-    t = _tool(safe=True)
-    assert check(t, "ask", {}, bash_safe_prefixes=[]) is False
 
 
 def test_bash_safe_prefix_allow():

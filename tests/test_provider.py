@@ -1,5 +1,5 @@
-from newcli.types import Message, ToolCallRecord
-from newcli.provider import messages_to_openai, openai_tool_calls_to_records
+from tigger.types import Message, ToolCallRecord
+from tigger.provider import messages_to_openai, openai_tool_calls_to_records
 
 def test_messages_to_openai_user():
     msgs = [Message(role="user", content="hello")]
@@ -35,14 +35,14 @@ def test_openai_tool_calls_malformed_json():
 
 
 def test_get_client_returns_same_instance_for_same_key():
-    from newcli.provider import _get_client
+    from tigger.provider import _get_client
     c1 = _get_client("http://localhost", "key1")
     c2 = _get_client("http://localhost", "key1")
     assert c1 is c2
 
 
 def test_get_client_different_keys_different_instances():
-    from newcli.provider import _get_client
+    from tigger.provider import _get_client
     c1 = _get_client("http://localhost", "key1")
     c2 = _get_client("http://localhost", "key2")
     assert c1 is not c2

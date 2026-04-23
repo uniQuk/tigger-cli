@@ -1,6 +1,6 @@
 from io import StringIO
 from rich.console import Console
-from newcli.ui import SPINNER_MESSAGES, print_status, ask_permission
+from tigger.ui import SPINNER_MESSAGES, ask_permission
 
 
 def test_spinner_messages_non_empty():
@@ -8,19 +8,8 @@ def test_spinner_messages_non_empty():
     assert all(isinstance(m, str) for m in SPINNER_MESSAGES)
 
 
-def test_print_status_contains_model_and_tokens(monkeypatch):
-    import newcli.ui as ui_mod
-    buf = StringIO()
-    monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
-    print_status(model="qwen3", used=100, limit=8192, mode="ask", permission="allow")
-    out = buf.getvalue()
-    assert "qwen3" in out
-    assert "100" in out
-    assert "8192" in out
-
-
 def test_ask_permission_returns_true_on_y(monkeypatch):
-    import newcli.ui as ui_mod
+    import tigger.ui as ui_mod
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     monkeypatch.setattr("builtins.input", lambda _: "y")
@@ -28,7 +17,7 @@ def test_ask_permission_returns_true_on_y(monkeypatch):
 
 
 def test_ask_permission_returns_false_on_n(monkeypatch):
-    import newcli.ui as ui_mod
+    import tigger.ui as ui_mod
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     monkeypatch.setattr("builtins.input", lambda _: "n")
@@ -36,14 +25,14 @@ def test_ask_permission_returns_false_on_n(monkeypatch):
 
 
 def test_ask_permission_returns_false_on_empty(monkeypatch):
-    import newcli.ui as ui_mod
+    import tigger.ui as ui_mod
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     monkeypatch.setattr("builtins.input", lambda _: "")
     assert ask_permission("write", {}) is False
 
 
-from newcli.ui import format_duration
+from tigger.ui import format_duration
 
 
 def test_format_duration_short():
@@ -71,7 +60,7 @@ def test_format_duration_zero():
 
 
 def test_print_startup_info_contains_model(monkeypatch):
-    import newcli.ui as ui_mod
+    import tigger.ui as ui_mod
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     ui_mod.print_startup_info(provider="lmstudio", model="qwen3", cwd="/home/user/project")
@@ -82,7 +71,7 @@ def test_print_startup_info_contains_model(monkeypatch):
 
 
 def test_print_startup_info_contains_model_hint(monkeypatch):
-    import newcli.ui as ui_mod
+    import tigger.ui as ui_mod
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     ui_mod.print_startup_info(provider="x", model="m", cwd="/tmp")
@@ -90,7 +79,7 @@ def test_print_startup_info_contains_model_hint(monkeypatch):
     assert "/model" in out
 
 
-from newcli.ui import _gradient_line, _LOGO_LINES
+from tigger.ui import _gradient_line, _LOGO_LINES
 
 
 def test_gradient_line_spaces_pass_through():

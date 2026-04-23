@@ -1,5 +1,5 @@
 import dataclasses
-from newcli.types import (
+from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, ToolDef,
     TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent,
     TurnDoneEvent, AssistantMessage, TrustLevel, ProviderConfig,
@@ -54,14 +54,13 @@ def test_assistant_message():
     assert a.content == "hi"
 
 def test_trust_level_enum():
-    assert TrustLevel.SESSION == "session"
     assert TrustLevel.ALWAYS == "always"
     assert TrustLevel.READONLY == "readonly"
 
 def test_run_context_has_trust_level():
     cfg = Config(base_url="http://x", model="m")
     ctx = RunContext(config=cfg, messages=[], system_prompt="s")
-    assert ctx.trust_level == TrustLevel.SESSION
+    assert ctx.trust_level == TrustLevel.READONLY
 
 def test_config_mode_defaults_to_ask():
     cfg = Config(base_url="http://x", model="m")
@@ -91,14 +90,14 @@ def test_provider_config_is_frozen():
 def test_config_has_providers_field():
     pc = ProviderConfig(name="loc", base_url="http://x/v1", api_key="local", models=["m"])
     cfg = Config(base_url="http://x/v1", model="m", providers={"loc": pc},
-                 active_provider="loc", active_model="m")
+                 active_provider="loc")
     assert cfg.providers["loc"].base_url == "http://x/v1"
     assert cfg.active_provider == "loc"
-    assert cfg.active_model == "m"
+    assert cfg.model == "m"
 
 
 def test_config_providers_default_empty():
     cfg = Config(base_url="http://x", model="m")
     assert cfg.providers == {}
     assert cfg.active_provider == ""
-    assert cfg.active_model == ""
+    assert cfg.model == "m"

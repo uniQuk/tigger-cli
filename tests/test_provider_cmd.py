@@ -1,8 +1,8 @@
 import json
 import pathlib
 import pytest
-from newcli.types import Config, RunContext, ProviderConfig
-from newcli.commands.provider import cmd_provider
+from tigger.types import Config, RunContext, ProviderConfig
+from tigger.commands.provider import cmd_provider
 
 
 def _cfg():
@@ -10,7 +10,7 @@ def _cfg():
                         api_key="local", models=["qwen3"])
     return Config(
         base_url="http://localhost/v1", model="qwen3", api_key="local",
-        providers={"local": pc}, active_provider="local", active_model="qwen3",
+        providers={"local": pc}, active_provider="local",
     )
 
 
@@ -26,7 +26,7 @@ def test_provider_no_args_shows_usage(capsys):
 
 
 def test_provider_add_new(monkeypatch, tmp_path, capsys):
-    from newcli.config import write_config
+    from tigger.config import write_config
     config_path = tmp_path / "config.json"
     ctx = _ctx()
     write_config(config_path, ctx.config)
@@ -50,7 +50,7 @@ def test_provider_add_new(monkeypatch, tmp_path, capsys):
 
 
 def test_provider_add_model_to_existing(monkeypatch, tmp_path, capsys):
-    from newcli.config import write_config
+    from tigger.config import write_config
     config_path = tmp_path / "config.json"
     ctx = _ctx()
     write_config(config_path, ctx.config)
@@ -69,7 +69,7 @@ def test_provider_add_model_to_existing(monkeypatch, tmp_path, capsys):
 
 
 def test_provider_add_switch_yes(monkeypatch, tmp_path, capsys):
-    from newcli.config import write_config
+    from tigger.config import write_config
     config_path = tmp_path / "config.json"
     ctx = _ctx()
     write_config(config_path, ctx.config)

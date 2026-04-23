@@ -1,6 +1,6 @@
 import pathlib, tempfile, textwrap
-from newcli.types import ToolCallRecord, ToolEndEvent, Config, RunContext
-from newcli.hooks import HookRegistry, run_before, run_after, load_hooks
+from tigger.types import ToolCallRecord, ToolEndEvent, Config, RunContext
+from tigger.hooks import HookRegistry, run_before, run_after, load_hooks
 
 def _ctx():
     cfg = Config(base_url="http://x", model="m")
@@ -51,7 +51,7 @@ def test_multiple_hooks_chain():
 
 def test_load_hooks_from_file():
     src = textwrap.dedent("""
-        from newcli.hooks import on_before
+        from tigger.hooks import on_before
         @on_before("read")
         def my_hook(call, ctx):
             return call

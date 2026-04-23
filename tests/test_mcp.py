@@ -1,6 +1,6 @@
 import json, pathlib, tempfile
-from newcli.mcp import load_mcp_config, McpServerConfig
-from newcli.tools import ToolRegistry
+from tigger.mcp import load_mcp_config, McpServerConfig
+from tigger.tools import ToolRegistry
 
 MCP_JSON = {
     "servers": {

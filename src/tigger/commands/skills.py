@@ -1,5 +1,5 @@
 from __future__ import annotations
-from newcli.types import RunContext
+from tigger.types import RunContext
 
 
 def cmd_skills(args: str, ctx: RunContext, skills: list) -> None:

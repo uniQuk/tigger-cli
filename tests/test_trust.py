@@ -1,8 +1,8 @@
 import json
 import pathlib
 import pytest
-from newcli.types import TrustLevel
-from newcli.trust import is_trusted, write_trusted, check_trust
+from tigger.types import TrustLevel
+from tigger.trust import is_trusted, write_trusted, check_trust
 
 
 def test_is_trusted_returns_false_when_file_missing(tmp_path):

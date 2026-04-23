@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json
 import pathlib
-from newcli.types import TrustLevel
+from tigger.types import TrustLevel
 
 _DEFAULT_TRUSTED_FILE = pathlib.Path.home() / ".ai" / "trusted_paths.json"
 

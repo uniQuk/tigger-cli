@@ -1,6 +1,6 @@
 from __future__ import annotations
-from newcli.types import RunContext
-from newcli.compaction import maybe_compact, estimate_tokens
+from tigger.types import RunContext
+from tigger.compaction import maybe_compact, estimate_tokens
 
 
 def cmd_compact(args: str, ctx: RunContext, provider_fn) -> None:

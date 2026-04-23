@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Callable
-from newcli.types import Message, Config, TextChunk
+from tigger.types import Message, Config, TextChunk
 
 # Cache encoder at module level — get_encoding() is expensive on first call.
 try:

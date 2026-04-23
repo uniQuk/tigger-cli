@@ -1,11 +1,11 @@
 from unittest.mock import patch, MagicMock
-from newcli.types import (
+from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, AssistantMessage,
     TextChunk, ToolStartEvent, ToolEndEvent, TurnDoneEvent,
 )
-from newcli.tools import ToolRegistry, ToolDef
-from newcli.hooks import HookRegistry
-from newcli.loop import run, run_forked
+from tigger.tools import ToolRegistry, ToolDef
+from tigger.hooks import HookRegistry
+from tigger.loop import run, run_forked
 
 def _ctx(permission_mode="bypass"):
     cfg = Config(base_url="http://x", model="m", permission_mode=permission_mode)
@@ -75,13 +75,13 @@ def test_run_forked_depth_incremented():
         yield TextChunk(content="ok")
         yield AssistantMessage(content="ok", tool_calls=[])
 
-    from newcli.skills import SkillDef
+    from tigger.skills import SkillDef
     skill = SkillDef(name="s", triggers=["/s"], tools=[], context="fork", body="do it")
     run_forked("do it", skill, ctx, _registry(), _hooks(), provider_fn=capture_provider)
     assert ctx.depth == 0           # original unchanged
 
 def test_depth_cap_prevents_infinite_fork():
-    from newcli.skills import SkillDef
+    from tigger.skills import SkillDef
     cfg = Config(base_url="http://x", model="m", max_depth=1)
     ctx = RunContext(config=cfg, messages=[], system_prompt="", depth=1)
     skill = SkillDef(name="s", triggers=["/s"], tools=[], context="fork", body="do it")

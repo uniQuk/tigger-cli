@@ -4,7 +4,7 @@ import pytest
 
 
 def test_run_setup_wizard_creates_config(monkeypatch, tmp_path):
-    import newcli.ui as ui_mod
+    import tigger.ui as ui_mod
     from io import StringIO
     from rich.console import Console
 
@@ -33,7 +33,7 @@ def test_run_setup_wizard_creates_config(monkeypatch, tmp_path):
 
 
 def test_run_setup_wizard_user_location(monkeypatch, tmp_path):
-    import newcli.ui as ui_mod
+    import tigger.ui as ui_mod
     from io import StringIO
     from rich.console import Console
 
@@ -56,7 +56,7 @@ def test_run_setup_wizard_user_location(monkeypatch, tmp_path):
 
 
 def test_run_setup_wizard_empty_api_key_defaults_to_local(monkeypatch, tmp_path):
-    import newcli.ui as ui_mod
+    import tigger.ui as ui_mod
     from io import StringIO
     from rich.console import Console
 

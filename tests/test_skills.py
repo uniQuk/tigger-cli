@@ -1,5 +1,5 @@
 import textwrap, pathlib, tempfile
-from newcli.skills import load_skills, load_agents, match_skill, SkillDef, AgentDef
+from tigger.skills import load_skills, load_agents, match_skill, SkillDef, AgentDef
 
 SKILLS_MD = textwrap.dedent("""
     ---

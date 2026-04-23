@@ -1,6 +1,6 @@
 import pytest
-from newcli.types import Config, Message
-from newcli.compaction import estimate_tokens, snip_old_results, maybe_compact
+from tigger.types import Config, Message
+from tigger.compaction import estimate_tokens, snip_old_results, maybe_compact
 
 def _cfg(**kw):
     return Config(base_url="http://x", model="m", **kw)
@@ -67,12 +67,12 @@ def test_estimate_tokens_fallback_when_tiktoken_missing(monkeypatch):
 
 
 def test_summarize_old_calls_provider_with_correct_signature():
-    from newcli.compaction import summarize_old
+    from tigger.compaction import summarize_old
     call_args: list = []
 
     def fake_provider(system, messages, tools, cfg):
         call_args.extend([system, messages, tools, cfg])
-        from newcli.types import TextChunk
+        from tigger.types import TextChunk
         yield TextChunk(content="summary text")
 
     cfg = _cfg()

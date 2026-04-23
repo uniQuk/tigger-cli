@@ -1,7 +1,7 @@
 import pathlib
 import pytest
-from newcli.tools import ToolRegistry, register_all
-from newcli.types import ToolDef
+from tigger.tools import ToolRegistry, register_all
+from tigger.types import ToolDef
 
 
 def _stub(name="ping", read_only=True):

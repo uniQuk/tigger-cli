@@ -1,22 +1,22 @@
-# src/newcli/main.py
+# src/tigger/main.py
 from __future__ import annotations
 import dataclasses
 import pathlib
 import sys
 import time
-from newcli.config import load_config, find_config, derive_provider_name
-from newcli.types import RunContext, TrustLevel
-from newcli.tools import ToolRegistry, register_all
-from newcli.hooks import HookRegistry, load_hooks
-from newcli.skills import load_skills, load_skills_dir, load_agents, match_skill
-from newcli.memory import read_memory, format_for_prompt
-from newcli.mcp import connect_all
-from newcli.compaction import estimate_tokens
-from newcli.loop import run, run_forked
-from newcli.commands import load_builtin_commands
-from newcli import provider as _provider
-from newcli import trust as _trust
-from newcli import ui
+from tigger.config import load_config, find_config, derive_provider_name
+from tigger.types import RunContext, TrustLevel
+from tigger.tools import ToolRegistry, register_all
+from tigger.hooks import HookRegistry, load_hooks
+from tigger.skills import load_skills, load_skills_dir, load_agents, match_skill
+from tigger.memory import read_memory, format_for_prompt
+from tigger.mcp import connect_all
+from tigger.compaction import estimate_tokens
+from tigger.loop import run, run_forked
+from tigger.commands import load_builtin_commands
+from tigger import provider as _provider
+from tigger import trust as _trust
+from tigger import ui
 
 
 @dataclasses.dataclass
@@ -148,7 +148,7 @@ def repl(result: StartupResult) -> None:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.history import FileHistory, InMemoryHistory
         from prompt_toolkit.key_binding import KeyBindings
-        from newcli.completer import NewcliCompleter
+        from tigger.completer import TiggerCompleter
 
         history_path = pathlib.Path.home() / ".ai" / "history"
         try:
@@ -174,7 +174,7 @@ def repl(result: StartupResult) -> None:
 
         _session: PromptSession = PromptSession(
             history=_history,
-            completer=NewcliCompleter(commands, skills),
+            completer=TiggerCompleter(commands, skills),
             complete_while_typing=True,
             key_bindings=_kb,
         )
@@ -239,7 +239,7 @@ def repl(result: StartupResult) -> None:
 
 def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser(prog="newcli")
+    parser = argparse.ArgumentParser(prog="tigger-code")
     parser.add_argument("--mode", choices=["ask", "plan"], default=None)
     parser.add_argument("--permission", choices=["ask", "allow", "bypass"], dest="permission", default=None)
     parsed = parser.parse_args()

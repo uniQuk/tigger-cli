@@ -5,7 +5,7 @@ import re as _re
 import subprocess
 import urllib.parse as _urlparse
 import urllib.request
-from newcli.types import ToolDef
+from tigger.types import ToolDef
 
 _32KB = 32 * 1024
 

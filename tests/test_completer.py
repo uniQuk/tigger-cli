@@ -1,20 +1,19 @@
-from newcli.completer import NewcliCompleter
-from newcli.skills import SkillDef
-from newcli.hooks import HookRegistry
+from tigger.completer import TiggerCompleter
+from tigger.skills import SkillDef
 from prompt_toolkit.document import Document
 
 
-def _completer(extra_skills: list[SkillDef] | None = None) -> NewcliCompleter:
+def _completer(extra_skills: list[SkillDef] | None = None) -> TiggerCompleter:
     commands = {"clear": None, "tokens": None, "help": None, "mode": None, "permission": None}
     skills = [
         SkillDef(name="how", triggers=["/how"], tools=[], context="inline", body=""),
     ]
     if extra_skills:
         skills.extend(extra_skills)
-    return NewcliCompleter(commands, skills, HookRegistry())
+    return TiggerCompleter(commands, skills)
 
 
-def _completions(completer: NewcliCompleter, text: str) -> list[str]:
+def _completions(completer: TiggerCompleter, text: str) -> list[str]:
     doc = Document(text, cursor_position=len(text))
     return [c.text for c in completer.get_completions(doc, None)]
 

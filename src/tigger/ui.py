@@ -7,8 +7,8 @@ from contextlib import contextmanager
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.theme import Theme
-from newcli._spinners import SPINNER_MESSAGES
-from newcli.types import RunContext, TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent
+from tigger._spinners import SPINNER_MESSAGES
+from tigger.types import RunContext, TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent
 
 _THEME = Theme({
     "markdown.code": "bold #ffb300",
@@ -102,8 +102,8 @@ def ask_permission(name: str, args: dict) -> bool:
 
 def run_setup_wizard(project_dir: pathlib.Path) -> tuple[pathlib.Path, dict]:
     """Interactive first-run setup. Returns (config_path, config_data)."""
-    from newcli.config import derive_provider_name, write_config
-    from newcli.types import Config, ProviderConfig
+    from tigger.config import derive_provider_name, write_config
+    from tigger.types import Config, ProviderConfig
 
     console.print("\n[bold]No config found.[/bold] Let's set up your first provider.\n")
 

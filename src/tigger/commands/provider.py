@@ -2,8 +2,8 @@ from __future__ import annotations
 import dataclasses
 import pathlib
 import re
-from newcli.types import RunContext, ProviderConfig
-from newcli.config import switch_model, write_config
+from tigger.types import RunContext, ProviderConfig
+from tigger.config import switch_model, write_config
 
 
 def cmd_provider(args: str, ctx: RunContext, config_path: pathlib.Path) -> None:

@@ -3,7 +3,7 @@ import json
 import pathlib
 import urllib.parse
 import warnings
-from newcli.types import Config, ProviderConfig
+from tigger.types import Config, ProviderConfig
 
 _PERM_RENAME: dict[str, str] = {"manual": "ask", "auto": "allow", "accept-all": "bypass"}
 _VALID_PERMISSION_MODES = {"ask", "allow", "bypass"}

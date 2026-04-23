@@ -1,13 +1,13 @@
 from __future__ import annotations
 import pathlib
 from functools import partial
-from newcli.types import RunContext
-from newcli.tools import ToolRegistry
-from newcli.hooks import HookRegistry
-from newcli.skills import AgentDef, SkillDef
-from newcli.commands import misc, agent as agent_cmd, compact as compact_cmd, skills as skills_cmd
-from newcli.commands import memory as mem_cmd
-from newcli.commands import provider as provider_cmd
+from tigger.types import RunContext
+from tigger.tools import ToolRegistry
+from tigger.hooks import HookRegistry
+from tigger.skills import AgentDef, SkillDef
+from tigger.commands import misc, agent as agent_cmd, compact as compact_cmd, skills as skills_cmd
+from tigger.commands import memory as mem_cmd
+from tigger.commands import provider as provider_cmd
 
 
 def load_builtin_commands(
