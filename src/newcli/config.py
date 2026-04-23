@@ -87,19 +87,24 @@ def load_config(path: pathlib.Path) -> Config:
         # Old flat format — backward compat migration
         if "base_url" not in data:
             raise ValueError("config.json missing required field: base_url")
-        if "model" not in data:
+        # Accept both "model" and "models" (common typo)
+        model_name = data.get("model") or data.get("models")
+        if not model_name:
             raise ValueError("config.json missing required field: model")
+        # If "models" was a list, take the first entry
+        if isinstance(model_name, list):
+            model_name = model_name[0]
         prov_name = derive_provider_name(data["base_url"])
         api_key = data.get("api_key", "local")
         active_prov = ProviderConfig(
             name=prov_name,
             base_url=data["base_url"],
             api_key=api_key,
-            models=[data["model"]],
+            models=[model_name],
         )
         providers = {prov_name: active_prov}
         active_provider = prov_name
-        active_model = data["model"]
+        active_model = model_name
 
     return Config(
         base_url=active_prov.base_url,
