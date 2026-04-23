@@ -10,11 +10,27 @@ class TrustLevel(str, Enum):
 
 
 @dataclass(frozen=True)
+class ModelConfig:
+    """Per-model sampling overrides. None means use global default."""
+    temperature: float | None = None
+    max_tokens: int | None = None
+    context_limit: int | None = None
+    top_p: float | None = None
+    thinking: bool | None = None
+
+
+@dataclass(frozen=True)
 class ProviderConfig:
     name: str
     base_url: str
     api_key: str
-    models: list[str] = field(default_factory=list)
+    models: list[str] | dict[str, ModelConfig] = field(default_factory=list)
+
+    @property
+    def model_names(self) -> list[str]:
+        if isinstance(self.models, dict):
+            return list(self.models.keys())
+        return self.models
 
 
 @dataclass(frozen=True)

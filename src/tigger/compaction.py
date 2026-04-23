@@ -68,13 +68,23 @@ def summarize_old(
         return messages, 0
     old, recent = _split_old_recent(messages)
     prompt = (
-        "Summarize the following conversation history concisely. "
-        "Preserve key facts, decisions, and file paths mentioned.\n\n"
-        + "\n".join(f"{m.role}: {m.content[:500]}" for m in old)
+        "Summarize the following conversation into a structured snapshot. "
+        "Use the XML format below. Be concise but preserve actionable details.\n\n"
+        "<conversation>\n"
+        + "\n".join(f"<message role=\"{m.role}\">{m.content}</message>" for m in old)
+        + "\n</conversation>\n\n"
+        "Respond with:\n"
+        "<state_snapshot>\n"
+        "  <overall_goal>What the user is trying to accomplish</overall_goal>\n"
+        "  <key_knowledge>Important facts, decisions, file paths discovered</key_knowledge>\n"
+        "  <file_system_state>Files created, modified, or referenced</file_system_state>\n"
+        "  <recent_actions>What was done recently and their results</recent_actions>\n"
+        "  <current_plan>Next steps or pending work</current_plan>\n"
+        "</state_snapshot>"
     )
     parts: list[str] = []
     for chunk in provider_fn(
-        "You are a concise summarizer.",
+        "You are a precise conversation summarizer. Output only the requested XML structure.",
         [Message(role="user", content=prompt)],
         [],
         config,

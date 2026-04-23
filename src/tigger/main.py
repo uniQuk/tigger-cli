@@ -14,6 +14,7 @@ from tigger.mcp import connect_all
 from tigger.compaction import estimate_tokens
 from tigger.loop import run, run_forked
 from tigger.commands import load_builtin_commands
+from tigger.input_processing import expand_file_refs
 from tigger import provider as _provider
 from tigger import trust as _trust
 from tigger import ui
@@ -62,7 +63,8 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
 
     # 4. Tool registry
     registry = ToolRegistry()
-    register_all(registry)
+    memory_path = ai_dir / "memory.md"
+    register_all(registry, memory_path=memory_path)
 
     # 5. MCP
     connect_all(registry, ai_dir / "mcp.json")
@@ -221,6 +223,9 @@ def repl(result: StartupResult) -> None:
             else:
                 ui.print_error(f"Unknown command: /{name}. Type /help for list.")
             continue
+
+        # Expand @file references before sending to agent.
+        line = expand_file_refs(line)
 
         # Run agent turn.
         turn_start = time.time()

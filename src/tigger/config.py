@@ -3,7 +3,7 @@ import json
 import pathlib
 import urllib.parse
 import warnings
-from tigger.types import Config, ProviderConfig
+from tigger.types import Config, ModelConfig, ProviderConfig
 from tigger._constants import CONFIG_DIR, home_config_dir
 
 _PERM_RENAME: dict[str, str] = {"manual": "ask", "auto": "allow", "accept-all": "bypass"}
@@ -27,12 +27,22 @@ def switch_model(config: Config, provider_name: str, model_name: str) -> Config:
     """Return a new Config with the active provider and model switched."""
     import dataclasses
     provider = config.providers[provider_name]
+    overrides = {}
+    if isinstance(provider.models, dict) and model_name in provider.models:
+        mcfg = provider.models[model_name]
+        if mcfg.temperature is not None:
+            overrides["temperature"] = mcfg.temperature
+        if mcfg.max_tokens is not None:
+            overrides["max_tokens"] = mcfg.max_tokens
+        if mcfg.context_limit is not None:
+            overrides["context_limit"] = mcfg.context_limit
     return dataclasses.replace(
         config,
         active_provider=provider_name,
         model=model_name,
         base_url=provider.base_url,
         api_key=provider.api_key,
+        **overrides,
     )
 
 
@@ -67,22 +77,40 @@ def load_config(path: pathlib.Path) -> Config:
         # New multi-provider format
         providers = {}
         for name, prov_data in data["providers"].items():
+            raw_models = prov_data.get("models", [])
+            if isinstance(raw_models, list):
+                models = raw_models
+            elif isinstance(raw_models, dict):
+                models = {}
+                for mname, mcfg in raw_models.items():
+                    if isinstance(mcfg, dict):
+                        models[mname] = ModelConfig(
+                            temperature=mcfg.get("temperature"),
+                            max_tokens=mcfg.get("max_tokens"),
+                            context_limit=mcfg.get("context_limit"),
+                            top_p=mcfg.get("top_p"),
+                            thinking=mcfg.get("thinking"),
+                        )
+                    else:
+                        models[mname] = ModelConfig()
+            else:
+                models = []
             providers[name] = ProviderConfig(
                 name=name,
                 base_url=prov_data["base_url"],
                 api_key=prov_data.get("api_key", "local"),
-                models=prov_data.get("models", []),
+                models=models,
             )
         if not providers:
             raise ValueError("config.json 'providers' is empty")
         active_provider = data.get("default_provider", next(iter(providers)))
         if active_provider not in providers:
             raise ValueError(f"default_provider {active_provider!r} not found in providers")
-        prov_models = providers[active_provider].models
-        if not prov_models and "default_model" not in data:
+        prov_model_names = providers[active_provider].model_names
+        if not prov_model_names and "default_model" not in data:
             raise ValueError(f"provider {active_provider!r} has no models and no default_model set")
         dm = data.get("default_model")
-        active_model = prov_models[0] if dm is None else dm
+        active_model = prov_model_names[0] if dm is None else dm
         active_prov = providers[active_provider]
     else:
         # Old flat format — backward compat migration
@@ -145,8 +173,19 @@ def write_config(path: pathlib.Path, config: Config) -> None:
         providers_data[name] = {
             "base_url": prov.base_url,
             "api_key": prov.api_key,
-            "models": prov.models,
         }
+        if isinstance(prov.models, dict):
+            models_data = {}
+            for mname, mcfg in prov.models.items():
+                cfg_dict = {}
+                for f in ("temperature", "max_tokens", "context_limit", "top_p", "thinking"):
+                    val = getattr(mcfg, f)
+                    if val is not None:
+                        cfg_dict[f] = val
+                models_data[mname] = cfg_dict
+            providers_data[name]["models"] = models_data
+        else:
+            providers_data[name]["models"] = prov.models
     data = {
         "default_provider": config.active_provider,
         "default_model": config.model,

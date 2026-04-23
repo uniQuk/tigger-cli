@@ -185,7 +185,7 @@ def _web_fetch(args: dict) -> str:
         return f"Error: {exc}"
 
 
-def register_all(registry: ToolRegistry) -> None:
+def register_all(registry: ToolRegistry, *, memory_path: pathlib.Path | None = None) -> None:
     registry.register(ToolDef(
         name="read",
         description="Read the contents of a file.",
@@ -270,3 +270,25 @@ def register_all(registry: ToolRegistry) -> None:
         func=_web_fetch,
         read_only=True,
     ))
+
+    if memory_path is not None:
+        def _remember(args: dict) -> str:
+            note = args.get("note", "").strip()
+            if not note:
+                return "Error: note cannot be empty"
+            from tigger.memory import append_memory
+            append_memory(memory_path, note)
+            return f"Remembered: {note}"
+
+        registry.register(ToolDef(
+            name="remember",
+            description="Save a fact or decision to persistent memory. Use this to remember important context for future conversations.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "note": {"type": "string", "description": "The fact or decision to remember"},
+                },
+                "required": ["note"],
+            },
+            func=_remember,
+        ))

@@ -30,10 +30,15 @@ def _provider_add(ctx: RunContext, config_path: pathlib.Path) -> None:
             print("Cancelled — no model name given.")
             return
         prov = ctx.config.providers[name]
-        if model in prov.models:
+        if model in prov.model_names:
             print(f"Model {model!r} already exists in provider {name!r}.")
             return
-        new_models = list(prov.models) + [model]
+        if isinstance(prov.models, dict):
+            new_models = dict(prov.models)
+            from tigger.types import ModelConfig
+            new_models[model] = ModelConfig()
+        else:
+            new_models = list(prov.models) + [model]
         new_prov = dataclasses.replace(prov, models=new_models)
         new_providers = dict(ctx.config.providers)
         new_providers[name] = new_prov

@@ -3,6 +3,7 @@ from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, ToolDef,
     TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent,
     TurnDoneEvent, AssistantMessage, TrustLevel, ProviderConfig,
+    ModelConfig,
 )
 
 def test_config_frozen():
@@ -101,3 +102,36 @@ def test_config_providers_default_empty():
     assert cfg.providers == {}
     assert cfg.active_provider == ""
     assert cfg.model == "m"
+
+
+# --- ModelConfig tests ---
+
+def test_model_config_defaults():
+    mc = ModelConfig()
+    assert mc.temperature is None
+    assert mc.max_tokens is None
+    assert mc.context_limit is None
+    assert mc.top_p is None
+    assert mc.thinking is None
+
+
+def test_model_config_with_values():
+    mc = ModelConfig(temperature=0.3, max_tokens=4096, context_limit=32000,
+                     top_p=0.9, thinking=True)
+    assert mc.temperature == 0.3
+    assert mc.max_tokens == 4096
+    assert mc.context_limit == 32000
+    assert mc.top_p == 0.9
+    assert mc.thinking is True
+
+
+def test_provider_config_model_names_list():
+    pc = ProviderConfig(name="x", base_url="http://x", api_key="k",
+                        models=["m1", "m2"])
+    assert pc.model_names == ["m1", "m2"]
+
+
+def test_provider_config_model_names_dict():
+    pc = ProviderConfig(name="x", base_url="http://x", api_key="k",
+                        models={"m1": ModelConfig(), "m2": ModelConfig(temperature=0.5)})
+    assert pc.model_names == ["m1", "m2"]

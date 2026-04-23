@@ -4,7 +4,7 @@ import pathlib
 import warnings
 import pytest
 from tigger.config import load_config, derive_provider_name, switch_model, write_config
-from tigger.types import Config, ProviderConfig
+from tigger.types import Config, ModelConfig, ProviderConfig
 
 
 def _write(data: dict) -> pathlib.Path:
@@ -207,3 +207,91 @@ def test_write_config_creates_parent_dirs(tmp_path):
     out = tmp_path / "sub" / "dir" / "config.json"
     write_config(out, cfg)
     assert out.exists()
+
+
+# --- Per-model config (dict-style models) tests ---
+
+def test_load_config_dict_models():
+    data = {
+        "providers": {
+            "local": {
+                "base_url": "http://localhost/v1",
+                "api_key": "local",
+                "models": {
+                    "qwen3": {"temperature": 0.3, "max_tokens": 4096},
+                    "llama": {}
+                }
+            }
+        }
+    }
+    p = _write(data)
+    cfg = load_config(p)
+    prov = cfg.providers["local"]
+    assert isinstance(prov.models, dict)
+    assert prov.model_names == ["qwen3", "llama"]
+    assert prov.models["qwen3"].temperature == 0.3
+    assert prov.models["qwen3"].max_tokens == 4096
+    assert prov.models["llama"].temperature is None
+
+
+def test_load_config_list_models_still_works():
+    data = {
+        "providers": {
+            "local": {
+                "base_url": "http://localhost/v1",
+                "api_key": "local",
+                "models": ["qwen3", "llama"]
+            }
+        }
+    }
+    p = _write(data)
+    cfg = load_config(p)
+    prov = cfg.providers["local"]
+    assert isinstance(prov.models, list)
+    assert prov.models == ["qwen3", "llama"]
+
+
+def test_switch_model_merges_overrides():
+    models = {
+        "hot": ModelConfig(temperature=1.0, max_tokens=8192, context_limit=64000),
+        "cold": ModelConfig(temperature=0.1),
+    }
+    pc = ProviderConfig(name="p", base_url="http://x/v1", api_key="k", models=models)
+    cfg = Config(base_url="http://x/v1", model="hot", api_key="k",
+                 providers={"p": pc}, active_provider="p",
+                 temperature=0.7, max_tokens=2048, context_limit=8192)
+    new = switch_model(cfg, "p", "hot")
+    assert new.temperature == 1.0
+    assert new.max_tokens == 8192
+    assert new.context_limit == 64000
+
+
+def test_switch_model_no_override_uses_global():
+    models = {"m1": ModelConfig(temperature=0.9)}
+    pc = ProviderConfig(name="p", base_url="http://x/v1", api_key="k", models=models)
+    cfg = Config(base_url="http://x/v1", model="m1", api_key="k",
+                 providers={"p": pc}, active_provider="p",
+                 temperature=0.7, max_tokens=2048)
+    # Switch to a model not in the dict — should keep globals
+    new = switch_model(cfg, "p", "m_unknown")
+    assert new.temperature == 0.7
+    assert new.max_tokens == 2048
+
+
+def test_write_config_preserves_dict_models(tmp_path):
+    models = {
+        "qwen3": ModelConfig(temperature=0.3, context_limit=32000),
+        "llama": ModelConfig(),
+    }
+    pc = ProviderConfig(name="loc", base_url="http://x/v1", api_key="k", models=models)
+    cfg = Config(base_url="http://x/v1", model="qwen3", api_key="k",
+                 providers={"loc": pc}, active_provider="loc")
+    out = tmp_path / "config.json"
+    write_config(out, cfg)
+    reloaded = load_config(out)
+    prov = reloaded.providers["loc"]
+    assert isinstance(prov.models, dict)
+    assert prov.model_names == ["qwen3", "llama"]
+    assert prov.models["qwen3"].temperature == 0.3
+    assert prov.models["qwen3"].context_limit == 32000
+    assert prov.models["llama"].temperature is None

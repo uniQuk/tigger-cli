@@ -59,9 +59,9 @@ def cmd_model(args: str, ctx: RunContext) -> None:
         if prov_name not in providers:
             print(f"Unknown provider: {prov_name}. Available: {', '.join(providers)}")
             return
-        if model_name not in providers[prov_name].models:
+        if model_name not in providers[prov_name].model_names:
             print(f"Model {model_name!r} not found in provider {prov_name!r}. "
-                  f"Available: {', '.join(providers[prov_name].models)}")
+                  f"Available: {', '.join(providers[prov_name].model_names)}")
             return
         ctx.config = switch_model(ctx.config, prov_name, model_name)
         print(f"Switched to {prov_name}/{model_name}")
@@ -72,7 +72,7 @@ def cmd_model(args: str, ctx: RunContext) -> None:
         target = args.strip()
         matches = []
         for pname, prov in providers.items():
-            if target in prov.models:
+            if target in prov.model_names:
                 matches.append((pname, target))
         if len(matches) == 1:
             pname, mname = matches[0]
@@ -87,14 +87,14 @@ def cmd_model(args: str, ctx: RunContext) -> None:
             return
         print(f"Model {target!r} not found. Available models:")
         for pname, prov in providers.items():
-            print(f"  {pname}: {', '.join(prov.models)}")
+            print(f"  {pname}: {', '.join(prov.model_names)}")
         return
 
     # No args — interactive picker
     numbered: list[tuple[str, str]] = []  # (provider_name, model_name)
     for pname, prov in providers.items():
         print(f"\n  {pname}:")
-        for mname in prov.models:
+        for mname in prov.model_names:
             numbered.append((pname, mname))
             idx = len(numbered)
             active = " (active)" if (pname == ctx.config.active_provider

@@ -1,4 +1,6 @@
 from __future__ import annotations
+import pathlib
+import re
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 from tigger.skills import SkillDef
@@ -24,14 +26,36 @@ class TiggerCompleter(Completer):
 
     def get_completions(self, document: Document, complete_event):
         text = document.text_before_cursor
-        if not text.startswith("/"):
+
+        # Slash command completion
+        if text.startswith("/"):
+            fragment = text[1:].lower()  # strip leading /
+            seen: set[str] = set()
+            for candidate in self._candidates:
+                if fragment in candidate.lower() and candidate not in seen:
+                    seen.add(candidate)
+                    yield Completion(
+                        "/" + candidate,
+                        start_position=-len(text),
+                    )
             return
-        fragment = text[1:].lower()  # strip leading /
-        seen: set[str] = set()
-        for candidate in self._candidates:
-            if fragment in candidate.lower() and candidate not in seen:
-                seen.add(candidate)
-                yield Completion(
-                    "/" + candidate,
-                    start_position=-len(text),
-                )
+
+        # @file path completion
+        at_match = re.search(r"@(\S*)$", text)
+        if at_match:
+            partial = at_match.group(1)
+            base = pathlib.Path(partial) if partial else pathlib.Path(".")
+            parent = base.parent if partial and not partial.endswith("/") else base
+            prefix = base.name if partial and not partial.endswith("/") else ""
+            try:
+                for p in parent.iterdir():
+                    name = p.name
+                    if name.startswith(prefix):
+                        suffix = "/" if p.is_dir() else ""
+                        completion = str(parent / name) + suffix
+                        yield Completion(
+                            "@" + completion,
+                            start_position=-(len(partial) + 1),  # +1 for @
+                        )
+            except OSError:
+                pass

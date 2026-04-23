@@ -111,6 +111,60 @@ def test_summarize_old_calls_provider_with_correct_signature():
     assert "summary text" in result[0].content
     assert summarized == 6  # 75% of 8 = 6 old messages
 
+    # Verify structured XML prompt
+    prompt_content = call_args[1][0].content
+    assert "<conversation>" in prompt_content
+    assert "<state_snapshot>" in prompt_content
+    assert "precise conversation summarizer" in call_args[0]
+
+
+def test_summarize_old_does_not_truncate_long_messages():
+    from tigger.compaction import summarize_old
+
+    captured_prompt: list[str] = []
+
+    def fake_provider(system, messages, tools, cfg):
+        captured_prompt.append(messages[0].content)
+        from tigger.types import TextChunk
+        yield TextChunk(content="summary")
+
+    cfg = _cfg()
+    long_content = "x" * 700
+    msgs = [_msg("user", long_content)] + [_msg("user", f"msg{i}") for i in range(7)]
+    summarize_old(msgs, cfg, fake_provider)
+
+    # Full 700-char content should appear in the prompt, not truncated to 500
+    assert long_content in captured_prompt[0]
+
+
+def test_summarize_old_uses_structured_prompt():
+    from tigger.compaction import summarize_old
+
+    captured: dict = {}
+
+    def fake_provider(system, messages, tools, cfg):
+        captured["system"] = system
+        captured["prompt"] = messages[0].content
+        from tigger.types import TextChunk
+        yield TextChunk(content="summary")
+
+    cfg = _cfg()
+    msgs = [_msg("user", f"msg{i}") for i in range(8)]
+    summarize_old(msgs, cfg, fake_provider)
+
+    prompt = captured["prompt"]
+    assert "<conversation>" in prompt
+    assert "</conversation>" in prompt
+    assert '<message role="user">' in prompt
+    assert "</message>" in prompt
+    assert "<state_snapshot>" in prompt
+    assert "<overall_goal>" in prompt
+    assert "<key_knowledge>" in prompt
+    assert "<file_system_state>" in prompt
+    assert "<recent_actions>" in prompt
+    assert "<current_plan>" in prompt
+    assert "</state_snapshot>" in prompt
+
 
 def test_maybe_compact_with_summarize():
     from tigger.types import TextChunk

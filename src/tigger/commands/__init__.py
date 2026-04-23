@@ -8,6 +8,8 @@ from tigger.skills import AgentDef, SkillDef
 from tigger.commands import misc, agent as agent_cmd, compact as compact_cmd, skills as skills_cmd
 from tigger.commands import memory as mem_cmd
 from tigger.commands import provider as provider_cmd
+from tigger.commands import summary as summary_cmd
+from tigger.commands import init as init_cmd
 
 
 COMMAND_DESCRIPTIONS: dict[str, str] = {
@@ -22,6 +24,8 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
     "skills": "List loaded skills",
     "agent": "Run or list agents",
     "provider": "Manage providers",
+    "summary": "Save session summary to markdown",
+    "init": "Scaffold project files in .tigger/",
     "help": "Show this help",
 }
 
@@ -33,6 +37,8 @@ COMMAND_HELP: dict[str, str] = {
     "compact": "Usage: /compact\n  Force compaction of conversation history.",
     "agent": "Usage:\n  /agent             — list available agents\n  /agent <name> <q>  — run agent with query\n\nAgents are defined in .tigger/agents.md using YAML frontmatter:\n\n  ---\n  name: my-agent\n  tools: [read, glob, grep]\n  ---\n  System prompt for the agent.",
     "provider": "Usage:\n  /provider           — list providers\n  /provider add       — add a new provider",
+    "summary": "Usage: /summary\n  Save a structured summary of the current session to .tigger/summaries/.",
+    "init": "Usage: /init\n  Create template files in .tigger/: agents.md, system.md, hooks.py, skills/.\n  Existing files are never overwritten.",
     "help": "Usage: /help [command]\n  Show help for a specific command, or list all commands.",
 }
 
@@ -59,6 +65,8 @@ def load_builtin_commands(
         "skills":     partial(skills_cmd.cmd_skills, skills=skills),
         "agent":      partial(agent_cmd.cmd_agent, agents=agents, registry=registry, hooks=hooks, provider_fn=provider_fn),
         "provider":   partial(provider_cmd.cmd_provider, config_path=config_path),
+        "summary":    partial(summary_cmd.cmd_summary, ai_dir=memory_path.parent, provider_fn=provider_fn),
+        "init":       init_cmd.cmd_init,
     }
     d["help"] = partial(misc.cmd_help, commands=d, skills=skills)
     return d

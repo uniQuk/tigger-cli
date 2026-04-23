@@ -125,3 +125,35 @@ def test_edit_tool_replaces_text(monkeypatch, tmp_path):
     register_all(r)
     r.execute("edit", {"path": str(p), "old_string": "bar", "new_string": "QUX"})
     assert p.read_text() == "foo QUX baz"
+
+
+# ── Remember tool ───────────────────────────────────────────────────────
+
+def test_remember_tool_appends_to_memory(tmp_path):
+    memory_path = tmp_path / "memory.md"
+    registry = ToolRegistry()
+    register_all(registry, memory_path=memory_path)
+
+    tool = registry.get("remember")
+    assert tool is not None
+
+    result = tool.func({"note": "user prefers tabs"})
+    assert "Remembered" in result
+    assert memory_path.exists()
+    assert "user prefers tabs" in memory_path.read_text()
+
+
+def test_remember_tool_empty_note():
+    registry = ToolRegistry()
+    register_all(registry, memory_path=pathlib.Path("/tmp/test_mem.md"))
+
+    tool = registry.get("remember")
+    result = tool.func({"note": ""})
+    assert "Error" in result
+
+
+def test_remember_tool_not_registered_without_path():
+    registry = ToolRegistry()
+    register_all(registry)
+
+    assert registry.get("remember") is None
