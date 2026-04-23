@@ -78,7 +78,10 @@ def load_config(path: pathlib.Path) -> Config:
         active_provider = data.get("default_provider", next(iter(providers)))
         if active_provider not in providers:
             raise ValueError(f"default_provider {active_provider!r} not found in providers")
-        active_model = data.get("default_model", providers[active_provider].models[0])
+        prov_models = providers[active_provider].models
+        if not prov_models and "default_model" not in data:
+            raise ValueError(f"provider {active_provider!r} has no models and no default_model set")
+        active_model = data.get("default_model") or prov_models[0]
         active_prov = providers[active_provider]
     else:
         # Old flat format — backward compat migration
@@ -154,5 +157,6 @@ def write_config(path: pathlib.Path, config: Config) -> None:
         "max_depth": config.max_depth,
         "max_retries": config.max_retries,
         "bash_safe_prefixes": config.bash_safe_prefixes,
+        "prefer_text_tools": config.prefer_text_tools,
     }
     path.write_text(json.dumps(data, indent=2) + "\n")
