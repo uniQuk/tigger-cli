@@ -70,6 +70,26 @@ def test_format_duration_zero():
     assert format_duration(0.0) == "0.0s"
 
 
+def test_print_startup_info_contains_model(monkeypatch):
+    import newcli.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
+    ui_mod.print_startup_info(provider="lmstudio", model="qwen3", cwd="/home/user/project")
+    out = buf.getvalue()
+    assert "qwen3" in out
+    assert "lmstudio" in out
+    assert "/home/user/project" in out
+
+
+def test_print_startup_info_contains_model_hint(monkeypatch):
+    import newcli.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
+    ui_mod.print_startup_info(provider="x", model="m", cwd="/tmp")
+    out = buf.getvalue()
+    assert "/model" in out
+
+
 from newcli.ui import _gradient_line, _LOGO_LINES
 
 

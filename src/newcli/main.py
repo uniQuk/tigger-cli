@@ -4,7 +4,7 @@ import dataclasses
 import pathlib
 import sys
 import time
-from newcli.config import load_config, find_config
+from newcli.config import load_config, find_config, derive_provider_name
 from newcli.types import RunContext, TrustLevel
 from newcli.tools import ToolRegistry, register_all
 from newcli.hooks import load_hooks
@@ -57,6 +57,11 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
 
     # 3. Logo
     ui.print_logo()
+    ui.print_startup_info(
+        provider=config.active_provider or derive_provider_name(config.base_url),
+        model=config.model,
+        cwd=str(cwd),
+    )
 
     # 4. Tool registry
     registry = ToolRegistry()
@@ -222,7 +227,7 @@ def repl(result: StartupResult) -> None:
         event_gen = run(line, ctx, registry, hooks, provider_fn=provider_fn)
 
         # Spinner (with live elapsed-time counter) shows while waiting for first chunk.
-        with ui.Spinner(turn_start):
+        with ui.Spinner(turn_start, token_counter=output_chars):
             first_event = next(event_gen, None)
 
         if first_event is not None:

@@ -35,7 +35,7 @@ _LOGO_FOOTER = """\
 
       /\\_/\\      Tigger — AI Agent
      ( o.o )
-      > ^ <      [dim]a minimal, clean CLI[/dim]
+      > ^ <
 """
 
 
@@ -52,6 +52,13 @@ def _gradient_line(line: str, max_width: int) -> str:
             b = 0
             out.append(f"[#{r:02x}{g:02x}{b:02x}]{ch}[/]")
     return "".join(out)
+
+
+def print_startup_info(provider: str, model: str, cwd: str) -> None:
+    """Print provider/model info and cwd below the logo."""
+    console.print(f"      [bold]{provider}[/bold] | [bold cyan]{model}[/bold cyan] [dim](/model to change)[/dim]")
+    console.print(f"      [dim]{cwd}[/dim]")
+    console.print()
 
 
 def print_logo() -> None:
@@ -133,13 +140,10 @@ def ask_trust_prompt(cwd: pathlib.Path) -> str:
 
 
 @contextmanager
-def Spinner(start: float):
+def Spinner(start: float, token_counter: list[int] | None = None):
     """
     Show an animated spinner with a live elapsed-time counter while the model
-    is thinking (before the first streaming chunk arrives).
-
-    ``start`` should be ``time.time()`` captured at the top of the turn so the
-    elapsed time is continuous across thinking + streaming phases.
+    is thinking. Optionally shows streaming token count.
     """
     msg = random.choice(SPINNER_MESSAGES)
     stop_event = threading.Event()
@@ -148,7 +152,11 @@ def Spinner(start: float):
         def _tick() -> None:
             while not stop_event.is_set():
                 elapsed = time.time() - start
-                status.update(f"[dim]{msg} · {elapsed:.0f}s[/dim]")
+                parts = [msg, f"{elapsed:.0f}s"]
+                if token_counter and token_counter[0] > 0:
+                    tok = token_counter[0] // 4
+                    parts.append(f"↓ {tok} tokens")
+                status.update(f"[dim]{' · '.join(parts)}[/dim]")
                 stop_event.wait(0.1)
 
         t = threading.Thread(target=_tick, daemon=True)
