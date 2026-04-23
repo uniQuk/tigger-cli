@@ -27,6 +27,7 @@ class StartupResult:
     registry: object   # ToolRegistry
     hooks: object      # HookRegistry
     provider_fn: object  # Callable
+    config_path: pathlib.Path
 
 
 def _prompt(ctx: RunContext) -> str:
@@ -106,6 +107,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
 
     commands = load_builtin_commands(
         memory_path=ai_dir / "memory.md",
+        config_path=config_path,
         skills=skills,
         agents=agents,
         registry=registry,
@@ -120,6 +122,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         registry=registry,
         hooks=hooks,
         provider_fn=_provider.stream,
+        config_path=config_path,
     )
 
 

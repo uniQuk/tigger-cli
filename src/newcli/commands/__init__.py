@@ -6,10 +6,12 @@ from newcli.hooks import HookRegistry
 from newcli.skills import AgentDef, SkillDef
 from newcli.commands import misc, agent as agent_cmd, compact as compact_cmd, skills as skills_cmd
 from newcli.commands import memory as mem_cmd
+from newcli.commands import provider as provider_cmd
 
 
 def load_builtin_commands(
     memory_path: pathlib.Path,
+    config_path: pathlib.Path,
     skills: list[SkillDef],
     agents: list[AgentDef],
     registry: ToolRegistry,
@@ -29,6 +31,7 @@ def load_builtin_commands(
         "compact":    lambda args, ctx: compact_cmd.cmd_compact(args, ctx, provider_fn),
         "skills":     lambda args, ctx: skills_cmd.cmd_skills(args, ctx, skills),
         "agent":      lambda args, ctx: agent_cmd.cmd_agent(args, ctx, agents, registry, hooks, provider_fn),
+        "provider":   lambda args, ctx: provider_cmd.cmd_provider(args, ctx, config_path),
     })
     d["help"] = lambda args, ctx: misc.cmd_help(args, ctx, commands=d, skills=skills)
     return d
