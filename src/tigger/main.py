@@ -54,9 +54,8 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         else:
             trust_level = TrustLevel.READONLY
 
-    # 3. Logo
-    ui.print_logo()
-    ui.print_startup_info(
+    # 3. Logo + startup info (side-by-side when terminal is wide enough)
+    ui.print_logo(
         provider=config.active_provider or derive_provider_name(config.base_url),
         model=config.model,
         cwd=str(cwd),
@@ -157,10 +156,12 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
     # Falls back to plain input() if prompt_toolkit is unavailable.
     try:
         from prompt_toolkit import PromptSession
-        from prompt_toolkit.formatted_text import HTML
+        from prompt_toolkit.formatted_text import HTML, FormattedText
         from prompt_toolkit.history import FileHistory, InMemoryHistory
         from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.styles import Style as PTStyle
         from tigger.completer import TiggerCompleter
+        import shutil
 
         history_path = home_config_dir() / "history"
         try:
@@ -184,22 +185,52 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             else:
                 buf.start_completion(select_first=False)
 
+        _pt_style = PTStyle.from_dict({
+            "bottom-toolbar": "noreverse #888888",
+        })
+
+        def _bottom_toolbar() -> FormattedText:
+            cols = shutil.get_terminal_size().columns
+            tb = _toolbar(ctx)
+            return FormattedText([("#666666", "\u2500" * cols + "\n"), ("", " " + tb)])
+
         _session: PromptSession = PromptSession(
             history=_history,
             completer=TiggerCompleter(commands, skills),
             complete_while_typing=True,
             key_bindings=_kb,
             placeholder=HTML('<style fg="#666666">Type your message or @path/to/file</style>'),
+            style=_pt_style,
         )
 
+        _resize_patched = False
+
+        def _patch_resize() -> None:
+            nonlocal _resize_patched
+            if _resize_patched:
+                return
+            _resize_patched = True
+            app = _session.app
+            # Disable prompt_toolkit's broken non-fullscreen resize handler.
+            # Its erase() uses stale cursor positions after terminal reflow,
+            # causing prompt duplication. With a no-op, the prompt stays put
+            # during resize and redraws correctly on the next keystroke.
+            app._on_resize = lambda: None
+
         def _get_input() -> str:
-            return _session.prompt("❯ ", bottom_toolbar=lambda: _toolbar(ctx))
+            cols = shutil.get_terminal_size().columns
+            ui.console.print(f"[dim]{'\u2500' * cols}[/dim]")
+            return _session.prompt(
+                "\u276f ", bottom_toolbar=_bottom_toolbar, pre_run=_patch_resize,
+            )
 
     except ImportError:
         ui.print_info("prompt_toolkit not installed — history and completion unavailable.")
 
         def _get_input() -> str:  # type: ignore[misc]
-            return input("❯ ")
+            cols = ui.console.width or 80
+            print("\033[90m" + "\u2500" * cols + "\033[0m")
+            return input("\u276f ")
 
     while True:
         try:

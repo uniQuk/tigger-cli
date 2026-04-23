@@ -155,7 +155,7 @@ from tigger.ui import _extract_preview
 
 
 def test_extract_preview_read():
-    assert _extract_preview("read", {"file_path": "/foo/bar/baz.py"}) == "baz.py"
+    assert _extract_preview("read", {"path": "/foo/bar/baz.py"}) == "baz.py"
 
 
 def test_extract_preview_grep():
@@ -245,7 +245,7 @@ def test_render_event_buffers_tools_flushes_on_text(monkeypatch):
     _tool_buffer.clear()
     ctx = _make_ctx()
 
-    ui_mod.render_event(ToolStartEvent("c1", "read", {"file_path": "/a/b.py"}), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c1", "read", {"path": "/a/b.py"}), ctx, [0], [])
     ui_mod.render_event(ToolEndEvent("c1", "read", "ok"), ctx, [0], [])
     # No output yet — buffered.
     mid = buf.getvalue()
@@ -282,7 +282,7 @@ def test_render_event_batches_multiple_reads(monkeypatch):
     ctx = _make_ctx()
 
     for i, name in enumerate(["a.py", "b.py", "c.py"]):
-        ui_mod.render_event(ToolStartEvent(f"c{i}", "read", {"file_path": f"/x/{name}"}), ctx, [0], [])
+        ui_mod.render_event(ToolStartEvent(f"c{i}", "read", {"path": f"/x/{name}"}), ctx, [0], [])
         ui_mod.render_event(ToolEndEvent(f"c{i}", "read", "ok"), ctx, [0], [])
 
     ui_mod.render_event(ToolStartEvent("c3", "grep", {"pattern": "foo"}), ctx, [0], [])
@@ -358,7 +358,7 @@ def test_render_event_recent_tools_still_updated(monkeypatch):
     ui_mod.recent_tools.clear()
     ctx = _make_ctx()
 
-    ui_mod.render_event(ToolStartEvent("c1", "read", {"file_path": "/a.py"}), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c1", "read", {"path": "/a.py"}), ctx, [0], [])
     assert "read" in ui_mod.recent_tools
 
 
@@ -424,7 +424,7 @@ def test_tool_start_shows_counter(monkeypatch):
     ui_mod._stop_activity()
     ctx = _make_ctx()
 
-    ui_mod.render_event(ToolStartEvent("c1", "read", {"file_path": "/a.py"}), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c1", "read", {"path": "/a.py"}), ctx, [0], [])
     assert ui_mod._activity_status is not None
     ui_mod.render_event(ToolStartEvent("c2", "read", {"file_path": "/b.py"}), ctx, [0], [])
     assert ui_mod._activity_status is not None

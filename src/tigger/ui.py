@@ -68,12 +68,11 @@ _LOGO_LINES = [
     "    ╚═╝   ╚═╝  ╚═════╝  ╚═════╝ ╚══════╝╚═╝  ╚═╝",
 ]
 
-_LOGO_FOOTER = """\
-
-      /\\_/\\      Tigger — AI Agent
-     ( o.o )
-      > ^ <
-"""
+_CAT_LINES = [
+    r" /\_/\ ",
+    r"( o.o )",
+    r" > ^ < ",
+]
 
 
 def _gradient_line(line: str, max_width: int) -> str:
@@ -98,11 +97,19 @@ def print_startup_info(provider: str, model: str, cwd: str) -> None:
     console.print()
 
 
-def print_logo() -> None:
-    max_width = max(len(line) for line in _LOGO_LINES)
+def print_logo(provider: str | None = None, model: str | None = None, cwd: str | None = None) -> None:
+    """Print the logo with cat and startup info below."""
+    logo_width = max(len(line) for line in _LOGO_LINES)
     for line in _LOGO_LINES:
-        console.print(_gradient_line(line, max_width), highlight=False)
-    console.print(_LOGO_FOOTER)
+        console.print(_gradient_line(line, logo_width), highlight=False)
+    console.print()
+    for cl in _CAT_LINES:
+        console.print(f"      {cl}")
+    console.print(f"      [bold]Tigger — AI Agent[/bold]")
+    if provider is not None and model is not None and cwd is not None:
+        print_startup_info(provider, model, cwd)
+    else:
+        console.print()
 
 
 def format_duration(seconds: float) -> str:
@@ -214,8 +221,8 @@ def Spinner(start: float, token_counter: list[int] | None = None):
 
 def _extract_preview(name: str, args: dict) -> str:
     """Return a concise human-readable preview string for a tool call."""
-    if name == "read" and "file_path" in args:
-        return pathlib.PurePosixPath(args["file_path"]).name
+    if name == "read" and "path" in args:
+        return pathlib.PurePosixPath(args["path"]).name
     if name == "glob" and "pattern" in args:
         return args["pattern"]
     if name == "grep" and "pattern" in args:
