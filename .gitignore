@@ -5,3 +5,4 @@ dist/
 .venv/
 *.egg
 .ai/
+z_no_upload/
