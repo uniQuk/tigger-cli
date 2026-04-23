@@ -3,13 +3,14 @@ from typing import Callable, Generator
 from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, AssistantMessage,
     TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent,
+    ThinkingEvent,
 )
 from tigger.tools import ToolRegistry
 from tigger.hooks import HookRegistry, run_before, run_after
 from tigger.permissions import check as permission_check
 from tigger.compaction import maybe_compact
 
-Event = TextChunk | ToolStartEvent | ToolEndEvent | PermissionEvent | TurnDoneEvent
+Event = TextChunk | ToolStartEvent | ToolEndEvent | PermissionEvent | TurnDoneEvent | ThinkingEvent
 
 
 def run(
@@ -123,8 +124,10 @@ def run(
             ))
 
         if hallucinated:
+            yield ThinkingEvent()
             continue
         # normal round: loop back for model to process tool results
+        yield ThinkingEvent()
 
     ctx.turn += 1
 

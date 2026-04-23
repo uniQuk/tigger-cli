@@ -128,3 +128,9 @@ class PermissionEvent:
 class TurnDoneEvent:
     input_tokens: int
     output_tokens: int
+
+
+@dataclass
+class ThinkingEvent:
+    """Yielded before a subsequent model call so the UI can show a spinner."""
+    pass
