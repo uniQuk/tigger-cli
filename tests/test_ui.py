@@ -43,6 +43,33 @@ def test_ask_permission_returns_false_on_empty(monkeypatch):
     assert ask_permission("write", {}) is False
 
 
+from newcli.ui import format_duration
+
+
+def test_format_duration_short():
+    assert format_duration(2.3) == "2.3s"
+
+
+def test_format_duration_under_minute():
+    assert format_duration(45.1) == "45.1s"
+
+
+def test_format_duration_minutes():
+    assert format_duration(696.2) == "11m 36s"
+
+
+def test_format_duration_exact_minute():
+    assert format_duration(60.0) == "1m 0s"
+
+
+def test_format_duration_hour():
+    assert format_duration(3720.0) == "1h 2m"
+
+
+def test_format_duration_zero():
+    assert format_duration(0.0) == "0.0s"
+
+
 from newcli.ui import _gradient_line, _LOGO_LINES
 
 

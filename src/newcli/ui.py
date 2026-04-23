@@ -6,10 +6,21 @@ import time
 from contextlib import contextmanager
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.theme import Theme
 from newcli._spinners import SPINNER_MESSAGES
 from newcli.types import RunContext, TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent
 
-console = Console()
+_THEME = Theme({
+    "markdown.code": "bold #ffb300",
+    "markdown.code_block": "#ff8c00",
+    "markdown.h1": "bold #ffb300",
+    "markdown.h2": "bold #ff8c00",
+    "markdown.h3": "bold #ff6600",
+    "markdown.strong": "bold #ffb300",
+    "markdown.emph": "italic #ff8c00",
+})
+
+console = Console(theme=_THEME)
 
 _LOGO_LINES = [
     " ████████╗██╗  ██████╗  ██████╗ ███████╗██████╗ ",
@@ -74,8 +85,21 @@ def print_tool_end(name: str, status: str, output: str) -> None:
         console.print(f"  [dim]⎿[/dim]  [dim]{out}[/dim]")
 
 
+def format_duration(seconds: float) -> str:
+    """Format seconds into human-friendly duration: 2.3s, 11m 36s, 1h 2m."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    if seconds < 3600:
+        m = int(seconds) // 60
+        s = int(seconds) % 60
+        return f"{m}m {s}s"
+    h = int(seconds) // 3600
+    m = (int(seconds) % 3600) // 60
+    return f"{h}h {m}m"
+
+
 def print_turn_summary(tokens: int, elapsed: float) -> None:
-    console.print(f"[dim]· {tokens} tokens · {elapsed:.1f}s[/dim]")
+    console.print(f"[dim]· {tokens} tokens · {format_duration(elapsed)}[/dim]")
 
 
 def print_error(msg: str) -> None:

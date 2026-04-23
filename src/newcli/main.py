@@ -121,11 +121,13 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
 
 def _toolbar(ctx: RunContext) -> str:
     used = estimate_tokens(ctx.messages)
+    limit = ctx.config.context_limit
+    pct = (used / limit * 100) if limit else 0
     return (
         f" {ctx.config.model}"
         f"  mode:{ctx.config.mode}"
         f"  perm:{ctx.config.permission_mode}"
-        f"  {used}/{ctx.config.context_limit} tok"
+        f"  {pct:.1f}% context"
     )
 
 
