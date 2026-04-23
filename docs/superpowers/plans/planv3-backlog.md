@@ -3,7 +3,7 @@
 Items identified during multi-provider design. These are not part of the current implementation plan but are worth doing in future iterations.
 
 ## From Qwen Code CLI prompts.ts analysis
-
+/Volumes/Kingston2TB/Dev/ai-tools/dev-north7-cli/z_no_upload/prompts.ts
 1. **Structured compression prompt** — Adopt XML `<state_snapshot>` format for context compaction (overall_goal, key_knowledge, file_system_state, recent_actions, current_plan) instead of the current loose "summarize this" approach. Qwen's `getCompressionPrompt()` uses scratchpad reasoning + structured XML output. Would significantly improve compaction quality.
 
 2. **Project summary export** — `/summary` command to save session summary to markdown. Qwen's `getProjectSummaryPrompt()` generates Overall Goal, Key Knowledge, Recent Actions, Current Plan sections. Could save to `.ai/summaries/`.
@@ -42,6 +42,39 @@ Items identified during multi-provider design. These are not part of the current
     }
     ```
     Resolution order: model-specific > global > hardcoded default. Empty object `{}` means use all defaults. New optional per-model fields: `temperature`, `max_tokens`, `context_limit`, `top_p`, `thinking`. Requires a `ModelConfig` dataclass, changes to `switch_model` to merge overrides, and `provider.stream()` to pass `thinking` param. Inspired by Qwen Code's `settings.json` `generationConfig`/`samplingParams` structure. Moderate complexity — touches types.py, config.py, provider.py.
+
+## Compaction UX
+
+11. **Spinner during `/compact`** — When compaction hits layer 2 (LLM summarization), there's no visual feedback while the API call runs. `cmd_compact` should show a spinner (reuse `ui.Spinner`) during the `maybe_compact` call so the user knows it's working. Currently silent — feels broken even when working correctly.
+
+12. **Compact progress breakdown** — Show what compaction actually did: "Snipped 14 tool results (5840 → 4800 tokens), summarized 12 old messages (4800 → 2100 tokens)" instead of just "Compacted: 5840 → 4283". Helps users understand what happened and whether the LLM summary step ran.
+
+## Memory improvements
+
+13. **Memory search** — `/memory search <query>` to grep through memory entries instead of dumping all 50 lines. Simple substring match would be enough.
+
+14. **Memory delete** — `/memory delete <n>` or `/memory clear` to remove entries. Currently append-only with no way to clean up stale notes.
+
+15. **Memory auto-save from conversation** — The model can't currently save to memory on its own. Add a `remember` tool so the LLM can persist key facts/decisions during conversation (e.g. "user prefers tabs over spaces"). Would require adding a tool to the registry that calls `append_memory`.
+
+## Help system
+
+16. **Per-command help** — `/help <command>` should show usage details for a specific command (e.g. `/help model` shows the three switch syntaxes). Currently `/help` ignores any arguments and always shows the full list. Each command handler could have a `__doc__` or a `HELP` constant.
+
+17. **Help descriptions in command list** — `/help` currently just lists command names with no descriptions. Add a one-line description next to each (e.g. `/model — Switch model or provider`).
+
+## Project initialisation
+
+18. **`/init` command** — Interactive project setup that creates `.tigger/` with scaffolded files:
+    - `config.json` (already handled by the setup wizard)
+    - `agents.md` with example agent definitions
+    - `skills.md` with example skill definitions  
+    - `system.md` with a customisable system prompt
+    - `hooks.py` with commented-out example hooks
+    
+    Should be smart about existing files — only create missing ones, never overwrite. Could also detect project type (Python, Node, etc.) and tailor the system prompt.
+
+19. **AGENTS.md awareness** — The CLI already loads `agents.md` from `.tigger/` but there's no way to discover this without reading the source. `/init` should create a documented template, and `/help agent` should explain the format.
 
 ## Additional skill dependencies (from prompts.ts)
 

@@ -104,15 +104,59 @@ tigger-code
 
 The REPL shows a status line with the current model and token usage.
 
-### Slash commands
+### Commands
+
+Type `exit` or `quit` to leave the REPL. Ctrl+C during a response interrupts it and returns to the prompt.
 
 | Command | Description |
 |---|---|
-| `/memory` | View and edit persistent memory |
+| `/help` | Show all available commands and loaded skills |
+| `/model [name]` | Switch model — interactive picker, or `/model gpt-4o` directly |
+| `/model prov/name` | Switch to a specific provider's model, e.g. `/model cloud/gpt-4o` |
+| `/provider add` | Add a new provider or model interactively |
+| `/mode [ask\|plan]` | View or change the interaction mode |
+| `/permission [ask\|allow\|bypass]` | View or change tool permission level |
+| `/memory` | View persistent memory notes |
+| `/remember <note>` | Save a note to persistent memory |
+| `/tokens` | Show current token usage vs context limit |
+| `/compact` | Manually compact the context window |
 | `/skills` | List loaded skills |
 | `/agent <name>` | Invoke a sub-agent by name |
-| `/compact` | Manually compact the context window |
-| `/help` | Show available commands |
+| `/clear` | Clear message history |
+| `exit` / `quit` | Exit the REPL |
+
+### Adding new commands
+
+Commands are functions in `src/tigger/commands/` registered in `commands/__init__.py`.
+
+**Simple command** (just args + context):
+
+```python
+# src/tigger/commands/misc.py
+def cmd_ping(args: str, ctx: RunContext) -> None:
+    print("pong")
+```
+
+```python
+# src/tigger/commands/__init__.py — add to the dict
+"ping": misc.cmd_ping,
+```
+
+**Command with extra state** (e.g. a file path):
+
+```python
+# src/tigger/commands/mycommand.py
+def cmd_export(args: str, ctx: RunContext, output_dir: pathlib.Path) -> None:
+    # output_dir is bound at startup via functools.partial
+    print(f"Exporting to {output_dir}")
+```
+
+```python
+# src/tigger/commands/__init__.py — bind the extra arg
+"export": partial(mycommand.cmd_export, output_dir=some_path),
+```
+
+Commands receive `(args: str, ctx: RunContext)` where `args` is everything after the command name (e.g. `/model gpt-4o` passes `"gpt-4o"` as args).
 
 ---
 

@@ -199,6 +199,10 @@ def repl(result: StartupResult) -> None:
         if not line:
             continue
 
+        if line in ("exit", "quit", "/exit", "/quit"):
+            ui.print_info("Bye.")
+            break
+
         skill = match_skill(line, skills)
         if skill:
             if skill.context == "fork":
@@ -219,20 +223,23 @@ def repl(result: StartupResult) -> None:
             continue
 
         # Run agent turn.
-        # The clock starts here so elapsed time is continuous across thinking + streaming.
         turn_start = time.time()
-        output_chars = [0]  # mutable accumulator passed through render_event
-        text_buf: list[str] = []  # collects TextChunks; flushed as Rich Markdown
-        event_gen = run(line, ctx, registry, hooks, provider_fn=provider_fn)
+        output_chars = [0]
+        text_buf: list[str] = []
 
-        # Spinner (with live elapsed-time counter) shows while waiting for first chunk.
-        with ui.Spinner(turn_start, token_counter=output_chars):
-            first_event = next(event_gen, None)
+        try:
+            event_gen = run(line, ctx, registry, hooks, provider_fn=provider_fn)
 
-        if first_event is not None:
-            ui.render_event(first_event, ctx, output_chars, text_buf)
-            for event in event_gen:
-                ui.render_event(event, ctx, output_chars, text_buf)
+            with ui.Spinner(turn_start, token_counter=output_chars):
+                first_event = next(event_gen, None)
+
+            if first_event is not None:
+                ui.render_event(first_event, ctx, output_chars, text_buf)
+                for event in event_gen:
+                    ui.render_event(event, ctx, output_chars, text_buf)
+        except KeyboardInterrupt:
+            ui.print_info("\n(interrupted)")
+            continue
 
         elapsed = time.time() - turn_start
         ui.print_turn_summary(output_chars[0] // 4, elapsed)
