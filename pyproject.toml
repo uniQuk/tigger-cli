@@ -3,19 +3,19 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "newcli"
+name = "tigger-code"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = ["openai>=1.0", "pyyaml>=6.0", "rich>=13.0", "tiktoken>=0.7", "prompt_toolkit>=3.0"]
 
 [project.scripts]
-newcli = "newcli.main:main"
+tigger-code = "tigger.main:main"
 
 [project.optional-dependencies]
 dev = ["ruff", "mypy", "pytest"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/newcli"]
+packages = ["src/tigger"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
