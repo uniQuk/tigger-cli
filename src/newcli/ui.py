@@ -5,119 +5,11 @@ import threading
 import time
 from contextlib import contextmanager
 from rich.console import Console
+from rich.markdown import Markdown
+from newcli._spinners import SPINNER_MESSAGES
+from newcli.types import RunContext, TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent
 
 console = Console()
-
-SPINNER_MESSAGES = [
-    "Bouncing through the codebase...",
-    "Consulting the whiskers...",
-    "Chasing the laser pointer of insight...",
-    "T-I-double-guh-er thinking...",
-    "Sniffing out an answer...",
-    "Padding softly through your files...",
-    "I'm Feeling Lucky",
-    'Shipping awesomeness...',
-    'Painting the serifs back on...',
-    'Navigating the slime mold...',
-    'Consulting the digital spirits...',
-    'Reticulating splines...',
-    'Warming up the AI hamsters...',
-    'Asking the magic conch shell...',
-    'Generating witty retort...',
-    'Polishing the algorithms...',
-    "Don't rush perfection (or my code)...",
-    'Brewing fresh bytes...',
-    'Counting electrons...',
-    'Engaging cognitive processors...',
-    'Checking for syntax errors in the universe...',
-    'One moment, optimizing humor...',
-    'Shuffling punchlines...',
-    'Untangling neural nets...',
-    'Compiling brilliance...',
-    'Loading wit.exe...',
-    'Summoning the cloud of wisdom...',
-    'Preparing a witty response...',
-    "Just a sec, I'm debugging reality...",
-    'Confuzzling the options...',
-    'Tuning the cosmic frequencies...',
-    'Crafting a response worthy of your patience...',
-    'Compiling the 1s and 0s...',
-    'Resolving dependencies... and existential crises...',
-    'Defragmenting memories... both RAM and personal...',
-    'Rebooting the humor module...',
-    'Caching the essentials (mostly cat memes)...',
-    'Optimizing for ludicrous speed',
-    "Swapping bits... don't tell the bytes...",
-    'Garbage collecting... be right back...',
-    'Assembling the interwebs...',
-    'Converting coffee into code...',
-    'Updating the syntax for reality...',
-    'Rewiring the synapses...',
-    'Looking for a misplaced semicolon...',
-    "Greasin' the cogs of the machine...",
-    'Pre-heating the servers...',
-    'Calibrating the flux capacitor...',
-    'Engaging the improbability drive...',
-    'Channeling the Force...',
-    'Aligning the stars for optimal response...',
-    'So say we all...',
-    'Loading the next great idea...',
-    "Just a moment, I'm in the zone...",
-    'Preparing to dazzle you with brilliance...',
-    "Just a tick, I'm polishing my wit...",
-    "Hold tight, I'm crafting a masterpiece...",
-    "Just a jiffy, I'm debugging the universe...",
-    "Just a moment, I'm aligning the pixels...",
-    "Just a sec, I'm optimizing the humor...",
-    "Just a moment, I'm tuning the algorithms...",
-    'Warp speed engaged...',
-    'Mining for more Dilithium crystals...',
-    "Don't panic...",
-    'Following the white rabbit...',
-    'The truth is in here... somewhere...',
-    'Blowing on the cartridge...',
-    'Loading... Do a barrel roll!',
-    'Waiting for the respawn...',
-    'Finishing the Kessel Run in less than 12 parsecs...',
-    "The cake is not a lie, it's just still loading...",
-    'Fiddling with the character creation screen...',
-    "Just a moment, I'm finding the right meme...",
-    "Pressing 'A' to continue...",
-    'Herding digital cats...',
-    'Polishing the pixels...',
-    'Finding a suitable loading screen pun...',
-    'Distracting you with this witty phrase...',
-    'Almost there... probably...',
-    'Our hamsters are working as fast as they can...',
-    'Giving Cloudy a pat on the head...',
-    'Petting the cat...',
-    'Never gonna give you up, never gonna let you down...',
-    'Slapping the bass...',
-    'Tasting the snozberries...',
-    "I'm going the distance, I'm going for speed...",
-    'Is this the real life? Is this just fantasy?...',
-    "I've got a good feeling about this...",
-    'Poking the bear...',
-    'Hmmm... let me think...',
-    'What do you call a fish with no eyes? A fsh...',
-    'Applying percussive maintenance...',
-    'Searching for the correct USB orientation...',
-    'Ensuring the magic smoke stays inside the wires...',
-    'Trying to exit Vim...',
-    'Spinning up the hamster wheel...',
-    "That's not a bug, it's an undocumented feature...",
-    'Engage.',
-    "I'll be back... with an answer.",
-    'My other process is a TARDIS...',
-    'Communing with the machine spirit...',
-    'Letting the thoughts marinate...',
-    'Pondering the orb...',
-    'Initiating thoughtful gaze...',
-    'Making it go beep boop.',
-    'Buffering... because even AIs need a moment.',
-    'Entangling quantum particles for a faster response...',
-    'Constructing additional pylons...',
-]
 
 _LOGO_LINES = [
     " ████████╗██╗  ██████╗  ██████╗ ███████╗██████╗ ",
@@ -242,3 +134,49 @@ def Spinner(start: float):
         finally:
             stop_event.set()
             t.join(timeout=0.5)
+
+
+def _fmt_args(args: dict) -> str:
+    if not args:
+        return ""
+    parts = []
+    for k, v in args.items():
+        sv = repr(v)
+        if len(sv) > 60:
+            sv = sv[:57] + "..."
+        parts.append(f"{k}={sv}")
+    return ", ".join(parts)
+
+
+def _flush_text(text_buf: list[str]) -> None:
+    """Render accumulated model text as Rich Markdown and clear the buffer."""
+    if text_buf:
+        console.print(Markdown("".join(text_buf)))
+        text_buf.clear()
+
+
+def render_event(event, ctx: RunContext, output_chars: list[int], text_buf: list[str]) -> None:
+    """Render one agent event to the terminal.
+
+    ``output_chars`` is a 1-element mutable list accumulating character count.
+    ``text_buf`` is a mutable list that collects TextChunk content; flushed as
+    Rich Markdown before tool events and at turn end.
+    """
+    if isinstance(event, TextChunk):
+        text_buf.append(event.content)
+        output_chars[0] += len(event.content)
+    elif isinstance(event, ToolStartEvent):
+        _flush_text(text_buf)
+        console.print(f"\n[bold]⏺[/bold] [dim]{event.name}[/dim]({_fmt_args(event.args)})")
+    elif isinstance(event, ToolEndEvent):
+        # Only surface errors and denials — successful tool calls stay quiet.
+        if not event.permitted:
+            console.print(f"  [dim]⎿[/dim]  [yellow](denied)[/yellow]")
+        elif event.error:
+            out = event.output[:120].replace("\n", " · ").rstrip(" · ")
+            console.print(f"  [dim]⎿[/dim]  [red]{out}[/red]")
+    elif isinstance(event, PermissionEvent):
+        event.granted = ask_permission(event.name, event.args)
+    elif isinstance(event, TurnDoneEvent):
+        _flush_text(text_buf)
+        print()

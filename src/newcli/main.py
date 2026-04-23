@@ -17,8 +17,6 @@ from newcli.commands import load_builtin_commands
 from newcli import provider as _provider
 from newcli import trust as _trust
 from newcli import ui
-from newcli.types import TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent
-from rich.markdown import Markdown
 
 
 @dataclasses.dataclass
@@ -33,52 +31,6 @@ class StartupResult:
 
 def _prompt(ctx: RunContext) -> str:
     return "❯ "
-
-
-def _fmt_args(args: dict) -> str:
-    if not args:
-        return ""
-    parts = []
-    for k, v in args.items():
-        sv = repr(v)
-        if len(sv) > 60:
-            sv = sv[:57] + "..."
-        parts.append(f"{k}={sv}")
-    return ", ".join(parts)
-
-
-def _flush_text(text_buf: list[str]) -> None:
-    """Render accumulated model text as Rich Markdown and clear the buffer."""
-    if text_buf:
-        ui.console.print(Markdown("".join(text_buf)))
-        text_buf.clear()
-
-
-def render_event(event, ctx: RunContext, output_chars: list[int], text_buf: list[str]) -> None:
-    """Render one agent event to the terminal.
-
-    ``output_chars`` is a 1-element mutable list accumulating character count.
-    ``text_buf`` is a mutable list that collects TextChunk content; flushed as
-    Rich Markdown before tool events and at turn end.
-    """
-    if isinstance(event, TextChunk):
-        text_buf.append(event.content)
-        output_chars[0] += len(event.content)
-    elif isinstance(event, ToolStartEvent):
-        _flush_text(text_buf)
-        ui.console.print(f"\n[bold]⏺[/bold] [dim]{event.name}[/dim]({_fmt_args(event.args)})")
-    elif isinstance(event, ToolEndEvent):
-        # Only surface errors and denials — successful tool calls stay quiet.
-        if not event.permitted:
-            ui.console.print(f"  [dim]⎿[/dim]  [yellow](denied)[/yellow]")
-        elif event.error:
-            out = event.output[:120].replace("\n", " · ").rstrip(" · ")
-            ui.console.print(f"  [dim]⎿[/dim]  [red]{out}[/red]")
-    elif isinstance(event, PermissionEvent):
-        event.granted = ui.ask_permission(event.name, event.args)
-    elif isinstance(event, TurnDoneEvent):
-        _flush_text(text_buf)
-        print()
 
 
 def startup(config_path: pathlib.Path | None = None) -> StartupResult:
@@ -272,9 +224,9 @@ def repl(result: StartupResult) -> None:
             first_event = next(event_gen, None)
 
         if first_event is not None:
-            render_event(first_event, ctx, output_chars, text_buf)
+            ui.render_event(first_event, ctx, output_chars, text_buf)
             for event in event_gen:
-                render_event(event, ctx, output_chars, text_buf)
+                ui.render_event(event, ctx, output_chars, text_buf)
 
         elapsed = time.time() - turn_start
         ui.print_turn_summary(output_chars[0] // 4, elapsed)
