@@ -11,10 +11,21 @@ class TrustLevel(str, Enum):
 
 
 @dataclass(frozen=True)
+class ProviderConfig:
+    name: str
+    base_url: str
+    api_key: str
+    models: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class Config:
     base_url: str
     model: str
     api_key: str = "local"
+    providers: dict[str, ProviderConfig] = field(default_factory=dict)
+    active_provider: str = ""
+    active_model: str = ""
     context_limit: int = 8192
     max_tokens: int = 2048
     temperature: float = 0.7

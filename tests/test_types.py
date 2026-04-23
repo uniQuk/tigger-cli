@@ -2,7 +2,7 @@ import dataclasses
 from newcli.types import (
     Config, RunContext, Message, ToolCallRecord, ToolDef,
     TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent,
-    TurnDoneEvent, AssistantMessage, TrustLevel,
+    TurnDoneEvent, AssistantMessage, TrustLevel, ProviderConfig,
 )
 
 def test_config_frozen():
@@ -70,3 +70,35 @@ def test_config_mode_defaults_to_ask():
 def test_config_permission_mode_default_is_allow():
     cfg = Config(base_url="http://x", model="m")
     assert cfg.permission_mode == "allow"
+
+
+def test_provider_config_fields():
+    pc = ProviderConfig(name="local", base_url="http://localhost:1234/v1",
+                        api_key="local", models=["qwen3"])
+    assert pc.name == "local"
+    assert pc.base_url == "http://localhost:1234/v1"
+    assert pc.api_key == "local"
+    assert pc.models == ["qwen3"]
+
+
+def test_provider_config_is_frozen():
+    pc = ProviderConfig(name="x", base_url="http://x", api_key="k", models=["m"])
+    import pytest
+    with pytest.raises(AttributeError):
+        pc.name = "y"
+
+
+def test_config_has_providers_field():
+    pc = ProviderConfig(name="loc", base_url="http://x/v1", api_key="local", models=["m"])
+    cfg = Config(base_url="http://x/v1", model="m", providers={"loc": pc},
+                 active_provider="loc", active_model="m")
+    assert cfg.providers["loc"].base_url == "http://x/v1"
+    assert cfg.active_provider == "loc"
+    assert cfg.active_model == "m"
+
+
+def test_config_providers_default_empty():
+    cfg = Config(base_url="http://x", model="m")
+    assert cfg.providers == {}
+    assert cfg.active_provider == ""
+    assert cfg.active_model == ""
