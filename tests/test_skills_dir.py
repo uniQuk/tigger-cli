@@ -70,15 +70,15 @@ def test_load_skills_dir_explicit_trigger_overrides(tmp_path):
     assert skills[0].triggers == ["/ms"]
 
 
-def test_load_skills_dir_references_injected(tmp_path):
+def test_load_skills_dir_references_loaded(tmp_path):
     _make_skill(
         tmp_path, "my-skill", _BASIC,
         refs={"a.md": "Reference A content", "b.md": "Reference B content"},
     )
     skills = load_skills_dir(tmp_path)
     assert len(skills[0].references) == 2
-    assert "Reference A content" in skills[0].references
-    assert "Reference B content" in skills[0].references
+    assert ("a.md", "Reference A content") in skills[0].references
+    assert ("b.md", "Reference B content") in skills[0].references
 
 
 def test_load_skills_dir_references_sorted(tmp_path):
@@ -88,8 +88,8 @@ def test_load_skills_dir_references_sorted(tmp_path):
     )
     skills = load_skills_dir(tmp_path)
     # sorted by filename: a.md first, z.md second
-    assert skills[0].references[0] == "A"
-    assert skills[0].references[1] == "Z"
+    assert skills[0].references[0] == ("a.md", "A")
+    assert skills[0].references[1] == ("z.md", "Z")
 
 
 def test_load_skills_dir_assets_path_set(tmp_path):
@@ -143,20 +143,42 @@ def test_load_skills_dir_nonexistent(tmp_path):
     assert load_skills_dir(tmp_path / "no-such-dir") == []
 
 
-def test_render_does_not_auto_inject_references(tmp_path):
-    # References are loaded into SkillDef.references but render() does NOT
-    # prepend them — they are available for intentional use by calling code.
+def test_render_auto_injects_references_by_default(tmp_path):
+    # References are loaded and auto-injected into render() output by default.
     _make_skill(
         tmp_path, "my-skill", _BASIC,
         refs={"ref.md": "Important reference context"},
     )
     skills = load_skills_dir(tmp_path)
-    assert "Important reference context" in skills[0].references
+    assert ("ref.md", "Important reference context") in skills[0].references
+    rendered = skills[0].render("/my-skill do this")
+    assert "## Reference: ref.md" in rendered
+    assert "Important reference context" in rendered
+    assert "Do the thing" in rendered
+    assert "do this" in rendered
+    assert "$ARGUMENTS" not in rendered
+
+
+_WITH_NO_INJECT = textwrap.dedent("""\
+    ---
+    name: my-skill
+    inject_references: false
+    ---
+    Do the thing with $ARGUMENTS.
+""")
+
+
+def test_render_inject_references_false_skips_injection(tmp_path):
+    _make_skill(
+        tmp_path, "my-skill", _WITH_NO_INJECT,
+        refs={"ref.md": "Important reference context"},
+    )
+    skills = load_skills_dir(tmp_path)
+    assert skills[0].inject_references is False
     rendered = skills[0].render("/my-skill do this")
     assert "Important reference context" not in rendered
     assert "Do the thing" in rendered
     assert "do this" in rendered
-    assert "$ARGUMENTS" not in rendered
 
 
 def test_render_no_references_unchanged(tmp_path):

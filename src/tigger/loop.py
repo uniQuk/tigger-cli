@@ -1,4 +1,6 @@
 from __future__ import annotations
+import functools
+import pathlib
 from typing import Callable, Generator
 from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, AssistantMessage,
@@ -11,6 +13,20 @@ from tigger.permissions import check as permission_check
 from tigger.compaction import maybe_compact
 
 Event = TextChunk | ToolStartEvent | ToolEndEvent | PermissionEvent | TurnDoneEvent | ThinkingEvent
+
+_ASSETS_DIR = pathlib.Path(__file__).parent / "assets"
+
+
+@functools.lru_cache(maxsize=1)
+def _load_plan_mode_text() -> str:
+    """Load plan-mode prompt text from the packaged asset file."""
+    plan_mode_path = _ASSETS_DIR / "plan_mode.md"
+    if not plan_mode_path.exists():
+        raise FileNotFoundError(
+            f"Missing plan-mode asset: {plan_mode_path}. "
+            "This file should be packaged with tigger-code."
+        )
+    return plan_mode_path.read_text().strip()
 
 
 def run(
@@ -38,16 +54,7 @@ def run(
 
         system = ctx.system_prompt
         if ctx.config.mode == "plan":
-            system += (
-                "\n\n## Plan Mode\n\n"
-                "You are in plan mode. You MUST NOT make any edits or execute any tools "
-                "until you have presented a complete numbered plan and received user confirmation.\n\n"
-                "1. Analyze the request\n"
-                "2. Present a numbered plan with clear steps\n"
-                "3. Wait for the user to approve before taking any action\n\n"
-                "This instruction supersedes any other instructions that might suggest "
-                "taking immediate action."
-            )
+            system += "\n\n" + _load_plan_mode_text()
         stream = provider_fn(system, ctx.messages, tools_schemas, ctx.config)
         assistant_msg: AssistantMessage | None = None
 

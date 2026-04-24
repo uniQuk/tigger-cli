@@ -13,8 +13,9 @@ class SkillDef:
     context: str                                    # "inline" | "fork"
     body: str                                       # prompt template
     folder: pathlib.Path | None = None              # source folder
-    references: list[str] = field(default_factory=list)  # available for custom use; not auto-injected
+    references: list[tuple[str, str]] = field(default_factory=list)  # (filename, content) pairs
     assets: pathlib.Path | None = None              # assets/ subdir path
+    inject_references: bool = True                  # auto-inject references into rendered prompt
 
     def render(self, user_input: str) -> str:
         args = user_input
@@ -22,10 +23,21 @@ class SkillDef:
             if user_input.startswith(trigger):
                 args = user_input[len(trigger):].strip()
                 break
+
+        # Build the rendered body from the skill template
         if "$ARGUMENTS" in self.body:
-            return self.body.replace("$ARGUMENTS", args)
-        # No placeholder: append the user's request so the model has it
-        return (self.body + f"\n\n---\n{args}") if args else self.body
+            rendered = self.body.replace("$ARGUMENTS", args)
+        else:
+            rendered = (self.body + f"\n\n---\n{args}") if args else self.body
+
+        # Prepend references if injection is enabled
+        if self.inject_references and self.references:
+            ref_sections = []
+            for filename, content in self.references:
+                ref_sections.append(f"## Reference: {filename}\n\n{content}")
+            return "\n\n".join(ref_sections) + "\n\n" + rendered
+
+        return rendered
 
 
 @dataclass
@@ -105,13 +117,13 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
         if not triggers:
             triggers = [f"/{entry.name}"]
 
-        # References: glob references/*.md sorted by name
-        refs: list[str] = []
+        # References: glob references/*.md sorted by name, store (filename, content) tuples
+        refs: list[tuple[str, str]] = []
         refs_dir = entry / "references"
         if refs_dir.exists():
             for ref_file in sorted(refs_dir.glob("*.md")):
                 try:
-                    refs.append(ref_file.read_text())
+                    refs.append((ref_file.name, ref_file.read_text()))
                 except OSError as exc:
                     print(f"Warning: could not read {ref_file}: {exc}", file=sys.stderr)
 
@@ -129,6 +141,7 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
             folder=entry,
             references=refs,
             assets=assets,
+            inject_references=fm.get("inject_references", True),
         ))
     return skills
 

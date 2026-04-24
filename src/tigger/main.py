@@ -82,18 +82,18 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     agents = load_agents(tigger_dir / "agents.md")
 
     # 9. System prompt + memory
-    # .tigger/system.md overrides the built-in base prompt when present.
+    # .tigger/system.md overrides the package default when present.
     _system_md = tigger_dir / "system.md"
     if _system_md.exists():
         _base_system = _system_md.read_text().strip()
     else:
-        _base_system = (
-            "You are a helpful AI agent. "
-            "Never use emojis in your responses unless the user explicitly asks for them. "
-            "Use plain text, unicode symbols, or markdown formatting instead. "
-            "When given a multi-step task, continue working through all steps until the task "
-            "is fully complete — do not stop mid-task and wait for the user to say 'continue'."
-        )
+        _default_system = pathlib.Path(__file__).parent / "assets" / "system.md"
+        if not _default_system.exists():
+            raise FileNotFoundError(
+                f"Missing system prompt asset: {_default_system}. "
+                "This file should be packaged with tigger-code."
+            )
+        _base_system = _default_system.read_text().strip()
     memory_lines = read_memory(tigger_dir / "memory.md")
     memory_section = format_for_prompt(memory_lines)
     system = (_base_system + ("\n\n" + memory_section if memory_section else "")).strip()
