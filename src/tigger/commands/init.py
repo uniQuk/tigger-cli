@@ -1,15 +1,9 @@
 from __future__ import annotations
 import pathlib
 from tigger.types import RunContext
-from tigger._constants import CONFIG_DIR
+from tigger._constants import CONFIG_DIR, home_config_dir
 
 _TEMPLATES = {
-    "agents.md": '''---
-name: example-agent
-tools: [read, glob, grep]
----
-You are a helpful agent. Describe your purpose here.
-''',
     "system.md": '''# System Prompt
 
 Customise your system prompt here. This will be prepended to every conversation.
@@ -38,12 +32,27 @@ context: inline
 This is an example skill. Replace this with your skill content.
 ''',
     },
+    "agents": {
+        "example-agent.md": '''---
+name: example-agent
+description: Describe when to use this agent
+tools:
+  - read
+  - glob
+  - grep
+---
+You are a helpful agent. Describe your purpose here.
+''',
+    },
 }
 
 
 def cmd_init(args: str, ctx: RunContext) -> None:
-    tigger_dir = pathlib.Path.cwd() / CONFIG_DIR
-    tigger_dir.mkdir(exist_ok=True)
+    if "--global" in args:
+        tigger_dir = home_config_dir()
+    else:
+        tigger_dir = pathlib.Path.cwd() / CONFIG_DIR
+    tigger_dir.mkdir(parents=True, exist_ok=True)
 
     created = []
     skipped = []
@@ -68,8 +77,9 @@ def cmd_init(args: str, ctx: RunContext) -> None:
                 created.append(f"{dirname}/{name}")
 
     if created:
-        print(f"Created: {', '.join(created)}")
+        print(f"Scaffolded {tigger_dir}:")
+        print(f"  Created: {', '.join(created)}")
     if skipped:
-        print(f"Skipped (already exist): {', '.join(skipped)}")
+        print(f"  Skipped (already exist): {', '.join(skipped)}")
     if not created and not skipped:
         print("Nothing to do.")

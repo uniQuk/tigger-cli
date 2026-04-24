@@ -16,6 +16,7 @@ class SkillDef:
     references: list[tuple[str, str]] = field(default_factory=list)  # (filename, content) pairs
     assets: pathlib.Path | None = None              # assets/ subdir path
     inject_references: bool = True                  # auto-inject references into rendered prompt
+    internal: bool = False                          # set by resolver for bundled skills
 
     def render(self, user_input: str) -> str:
         args = user_input
@@ -46,6 +47,8 @@ class AgentDef:
     system_prompt: str
     tools: list[str]
     model: str | None = None
+    description: str = ""                           # when to spawn this agent
+    internal: bool = False                          # set by resolver for bundled agents
 
 
 def _parse_blocks(text: str) -> list[dict]:
@@ -161,6 +164,32 @@ def load_agents(path: pathlib.Path) -> list[AgentDef]:
             system_prompt=fm.get("system_prompt", ""),
             tools=tools,
             model=fm.get("model"),
+        ))
+    return agents
+
+
+def load_agents_dir(agents_dir: pathlib.Path) -> list[AgentDef]:
+    """Load agents from a directory. Each .md file is one agent."""
+    if not agents_dir.exists() or not agents_dir.is_dir():
+        return []
+    agents = []
+    for entry in sorted(agents_dir.iterdir()):
+        if not entry.is_file() or entry.suffix != ".md":
+            continue
+        blocks = _parse_blocks(entry.read_text())
+        if not blocks:
+            continue
+        b = blocks[0]
+        fm = b["fm"]
+        name = fm.get("name", entry.stem)
+        if not name:
+            continue
+        agents.append(AgentDef(
+            name=name,
+            system_prompt=b["body"],
+            tools=fm.get("tools", []),
+            model=fm.get("model"),
+            description=fm.get("description", ""),
         ))
     return agents
 

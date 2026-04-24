@@ -40,9 +40,9 @@ COMMAND_HELP: dict[str, str] = {
     "agent": "Usage:\n  /agent             — list available agents\n  /agent <name> <q>  — run agent with query\n\nAgents are defined in .tigger/agents.md using YAML frontmatter:\n\n  ---\n  name: my-agent\n  tools: [read, glob, grep]\n  ---\n  System prompt for the agent.",
     "provider": "Usage:\n  /provider           — list providers\n  /provider add       — add a new provider",
     "summary": "Usage: /summary\n  Save a structured summary of the current session to .tigger/summaries/.",
-    "init": "Usage: /init\n  Create template files in .tigger/: agents.md, system.md, hooks.py, skills/.\n  Existing files are never overwritten.",
+    "init": "Usage: /init [--global]\n  Create template files in .tigger/: system.md, hooks.py, skills/, agents/.\n  --global  Scaffold ~/.tigger/ instead of the project directory.\n  Existing files are never overwritten.",
     "rtk": "Usage:\n  /rtk                  — show RTK status\n  /rtk on               — enable RTK proxy\n  /rtk off              — disable RTK proxy\n  /rtk gain             — show project token savings\n  /rtk gain --history   — per-command savings history\n  /rtk gain --graph     — daily savings graph\n\nRTK (Rust Token Killer) proxies shell commands to reduce token output by 60-90%.\n/rtk gain is scoped to the current project by default.\nhttps://github.com/rtk-ai/rtk",
-    "help": "Usage: /help [command]\n  Show help for a specific command, or list all commands.",
+    "help": "Usage: /help [command] [--all]\n  Show help for a specific command, or list all commands.\n  --all  Include internal (bundled) skills and agents.",
 }
 
 
@@ -54,6 +54,7 @@ def load_builtin_commands(
     registry: ToolRegistry,
     hooks: HookRegistry,
     provider_fn,
+    summary_dir: pathlib.Path | None = None,
 ) -> dict:
     """Return a dict mapping command name → handler callable with (args, ctx) signature."""
     d: dict = {
@@ -68,9 +69,9 @@ def load_builtin_commands(
         "skills":     partial(skills_cmd.cmd_skills, skills=skills),
         "agent":      partial(agent_cmd.cmd_agent, agents=agents, registry=registry, hooks=hooks, provider_fn=provider_fn),
         "provider":   partial(provider_cmd.cmd_provider, config_path=config_path),
-        "summary":    partial(summary_cmd.cmd_summary, tigger_dir=memory_path.parent, provider_fn=provider_fn),
+        "summary":    partial(summary_cmd.cmd_summary, tigger_dir=summary_dir or memory_path.parent, provider_fn=provider_fn),
         "init":       init_cmd.cmd_init,
         "rtk":        rtk_cmd.cmd_rtk,
     }
-    d["help"] = partial(misc.cmd_help, commands=d, skills=skills)
+    d["help"] = partial(misc.cmd_help, commands=d, skills=skills, agents=agents)
     return d

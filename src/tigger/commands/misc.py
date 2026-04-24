@@ -4,10 +4,19 @@ from tigger.types import RunContext
 from tigger.compaction import estimate_tokens
 
 
-def cmd_help(args: str, ctx: RunContext, commands: dict, skills: list) -> None:
+def cmd_help(
+    args: str, ctx: RunContext, commands: dict, skills: list, agents: list | None = None,
+) -> None:
     from tigger.commands import COMMAND_DESCRIPTIONS, COMMAND_HELP
 
+    if agents is None:
+        agents = []
+
     query = args.strip()
+    show_all = "--all" in query
+    if show_all:
+        query = query.replace("--all", "").strip()
+
     if query:
         if query in COMMAND_HELP:
             print(f"\n/{query}\n{COMMAND_HELP[query]}\n")
@@ -20,10 +29,21 @@ def cmd_help(args: str, ctx: RunContext, commands: dict, skills: list) -> None:
     for name in sorted(commands):
         desc = COMMAND_DESCRIPTIONS.get(name, "")
         print(f"  /{name:<{width}}  {desc}")
-    if skills:
+
+    visible_skills = skills if show_all else [s for s in skills if not s.internal]
+    if visible_skills:
         print("\nLoaded skills:")
-        for s in skills:
-            print(f"  {', '.join(s.triggers)}  — {s.name}")
+        for s in visible_skills:
+            suffix = "  [internal]" if s.internal else ""
+            print(f"  {', '.join(s.triggers)}  — {s.name}{suffix}")
+
+    visible_agents = agents if show_all else [a for a in agents if not a.internal]
+    if visible_agents:
+        print("\nLoaded agents:")
+        for a in visible_agents:
+            suffix = "  [internal]" if a.internal else ""
+            desc = f" — {a.description}" if a.description else ""
+            print(f"  {a.name}{desc}{suffix}")
     print()
 
 

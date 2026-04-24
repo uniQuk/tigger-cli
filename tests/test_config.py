@@ -87,7 +87,7 @@ def test_invalid_mode_raises():
 # --- derive_provider_name tests ---
 
 def test_derive_provider_name_ip():
-    assert derive_provider_name("http://192.168.2.122:1234/v1") == "192.168.2.122"
+    assert derive_provider_name("http://192.0.2.100:1234/v1") == "192.0.2.100"
 
 
 def test_derive_provider_name_openai():
@@ -130,16 +130,16 @@ def test_switch_model_preserves_other_fields():
 # --- load_config provider tests ---
 
 def test_load_old_format_creates_provider():
-    p = _write({"base_url": "http://192.168.2.122:1234/v1", "model": "qwen3",
+    p = _write({"base_url": "http://192.0.2.100:1234/v1", "model": "qwen3",
                 "api_key": "sk-test"})
     cfg = load_config(p)
     assert len(cfg.providers) == 1
-    assert cfg.active_provider == "192.168.2.122"
+    assert cfg.active_provider == "192.0.2.100"
     assert cfg.model == "qwen3"
-    assert cfg.base_url == "http://192.168.2.122:1234/v1"
+    assert cfg.base_url == "http://192.0.2.100:1234/v1"
     assert cfg.model == "qwen3"
     assert cfg.api_key == "sk-test"
-    prov = cfg.providers["192.168.2.122"]
+    prov = cfg.providers["192.0.2.100"]
     assert prov.models == ["qwen3"]
 
 

@@ -1,6 +1,7 @@
 from io import StringIO
 from rich.console import Console
-from tigger.ui import SPINNER_MESSAGES, ask_permission
+from tigger._spinners import SPINNER_MESSAGES
+from tigger.ui import ask_permission
 
 
 def test_spinner_messages_non_empty():

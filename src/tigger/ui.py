@@ -34,21 +34,58 @@ _tool_buffer: list[tuple[str, str]] = []
 BATCHABLE_TOOLS = {"read", "glob", "grep"}
 
 _activity_status = None
+_activity_stop = None
+_activity_thread = None
 
 
-def _start_activity(message: str) -> None:
-    """Start or update a live status spinner with the given message."""
-    global _activity_status
-    if _activity_status is not None:
-        _activity_status.update(message)
-    else:
-        _activity_status = console.status(message, spinner="dots")
+def _start_activity(message: str, *, rotate: bool = False) -> None:
+    """Start or update a live status spinner.
+
+    When *rotate* is True, the message cycles through random spinner
+    messages every 2.5-5s on a background thread (used for thinking pauses).
+    """
+    global _activity_status, _activity_stop, _activity_thread
+    # Stop any existing rotation thread but keep the status object alive
+    if _activity_stop is not None:
+        _activity_stop.set()
+        if _activity_thread is not None:
+            _activity_thread.join(timeout=0.3)
+        _activity_stop = None
+        _activity_thread = None
+
+    if _activity_status is None:
+        _activity_status = console.status("", spinner="dots")
         _activity_status.start()
+
+    if rotate:
+        _activity_stop = threading.Event()
+
+        def _tick() -> None:
+            msg = message
+            next_change = time.time() + random.uniform(2.5, 5.0)
+            while not _activity_stop.is_set():
+                now = time.time()
+                if now >= next_change:
+                    msg = pick_message()
+                    next_change = now + random.uniform(2.5, 5.0)
+                _activity_status.update(f"[#999999]{msg}[/]")
+                _activity_stop.wait(0.1)
+
+        _activity_thread = threading.Thread(target=_tick, daemon=True)
+        _activity_thread.start()
+    else:
+        _activity_status.update(message)
 
 
 def _stop_activity() -> None:
     """Stop the live status spinner if one is running."""
-    global _activity_status
+    global _activity_status, _activity_stop, _activity_thread
+    if _activity_stop is not None:
+        _activity_stop.set()
+        if _activity_thread is not None:
+            _activity_thread.join(timeout=0.3)
+        _activity_stop = None
+        _activity_thread = None
     if _activity_status is not None:
         _activity_status.stop()
         _activity_status = None
@@ -61,7 +98,7 @@ def _tool_counter_message() -> str:
         counts[name] = counts.get(name, 0) + 1
     parts = ", ".join(f"{n}\u00d7{c}" if c > 1 else n for n, c in counts.items())
     total = len(_tool_buffer)
-    return f"[dim]\u23fa {total} tool{'s' if total != 1 else ''} ({parts})[/dim]"
+    return f"[#999999]\u23fa {total} tool{'s' if total != 1 else ''} ({parts})[/]"
 
 _LOGO_LINES = [
     " ████████╗██╗  ██████╗  ██████╗ ███████╗██████╗ ",
@@ -322,11 +359,12 @@ def Spinner(start: float, token_counter: list[int] | None = None):
     Show an animated spinner with a live elapsed-time counter while the model
     is thinking. Optionally shows streaming token count.
 
-    Message rotates on a random interval (2.5–5s) so it feels alive.
+    Message rotates on a random interval (5-15s) so it feels alive
+    without being distracting.
     """
     msg = pick_message()
     stop_event = threading.Event()
-    next_change = time.time() + random.uniform(2.5, 5.0)
+    next_change = time.time() + random.uniform(10.0, 30.0)
 
     with console.status("", spinner="dots") as status:
         def _tick() -> None:
@@ -335,13 +373,13 @@ def Spinner(start: float, token_counter: list[int] | None = None):
                 now = time.time()
                 if now >= next_change:
                     msg = pick_message()
-                    next_change = now + random.uniform(2.5, 5.0)
+                    next_change = now + random.uniform(5.0, 15.0)
                 elapsed = now - start
                 parts = [msg, f"{elapsed:.0f}s"]
                 if token_counter and token_counter[0] > 0:
                     tok = token_counter[0] // 4
                     parts.append(f"↓ {tok} tokens")
-                status.update(f"[dim]{' · '.join(parts)}[/dim]")
+                status.update(f"[#999999]{' · '.join(parts)}[/]")
                 stop_event.wait(0.1)
 
         t = threading.Thread(target=_tick, daemon=True)
@@ -464,8 +502,7 @@ def render_event(event, ctx: RunContext, output_chars: list[int], text_buf: list
         _stop_activity()
         _flush_tool_buffer()
         _flush_text(text_buf)
-        msg = pick_message()
-        _start_activity(f"[dim]{msg}[/dim]")
+        _start_activity(pick_message(), rotate=True)
     elif isinstance(event, TurnDoneEvent):
         _stop_activity()
         _flush_tool_buffer()

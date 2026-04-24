@@ -10,7 +10,10 @@ from tigger.config import load_config, find_config, derive_provider_name
 from tigger.types import RunContext, TrustLevel
 from tigger.tools import ToolRegistry, register_all
 from tigger.hooks import HookRegistry, load_hooks
-from tigger.skills import load_skills, load_skills_dir, load_agents, match_skill
+from tigger.skills import match_skill
+from tigger.resolve import (
+    resolve_file, resolve_skills, resolve_agents, is_global_config, INTERNAL_DIR,
+)
 from tigger.memory import read_memory, format_for_prompt
 from tigger.mcp import connect_all
 from tigger.compaction import estimate_tokens
@@ -30,6 +33,7 @@ class StartupResult:
     ctx: RunContext
     commands: dict
     skills: list
+    agents: list
     registry: ToolRegistry
     hooks: HookRegistry
     provider_fn: object
@@ -43,8 +47,15 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     if config_path is None:
         config_path, _ = ui.run_setup_wizard(project_dir=pathlib.Path.cwd())
 
-    tigger_dir = config_path.parent
     config = load_config(config_path)
+
+    # 1b. Derive 3-tier resolution directories
+    global_dir = home_config_dir()
+    bundled_dir = pathlib.Path(__file__).parent / "assets"
+    if is_global_config(config_path):
+        project_dir = None
+    else:
+        project_dir = config_path.parent
 
     # 2. Workspace trust check
     cwd = pathlib.Path.cwd()
@@ -52,13 +63,12 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     if trust_level is None:
         choice = ui.ask_trust_prompt(cwd)
         if choice == "always":
-            _trust.write_trusted(cwd, home_config_dir() / "trusted_paths.json")
+            _trust.write_trusted(cwd, global_dir / "trusted_paths.json")
             trust_level = TrustLevel.ALWAYS
         else:
             trust_level = TrustLevel.READONLY
 
     # 3. Logo + startup info
-    # RTK detection is done later (step 6b), so check here for display only.
     _rtk_available = shutil.which("rtk") is not None
     _rtk_enabled = config.rtk or _rtk_available
     ui.print_logo(
@@ -68,16 +78,28 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         rtk=_rtk_enabled,
     )
 
-    # 4. Tool registry
+    # 4. Tool registry + memory
+    # Memory write path: project if available, else global. Resolved once.
+    if project_dir is not None:
+        memory_path = project_dir / "memory.md"
+    else:
+        memory_path = global_dir / "memory.md"
     registry = ToolRegistry()
-    memory_path = tigger_dir / "memory.md"
     register_all(registry, memory_path=memory_path)
 
-    # 5. MCP
-    connect_all(registry, tigger_dir / "mcp.json")
+    # 5. MCP — override semantics (first found wins)
+    mcp_path = resolve_file("mcp.json", project_dir, global_dir)
+    if mcp_path:
+        connect_all(registry, mcp_path)
 
-    # 6. Hooks
-    hooks = load_hooks(tigger_dir / "hooks.py")
+    # 6. Hooks — override semantics (first found wins)
+    hooks_path = resolve_file("hooks.py", project_dir, global_dir, INTERNAL_DIR)
+    if hooks_path:
+        # Internal hooks are trusted (bundled with package) — skip consent.
+        _is_internal = hooks_path.is_relative_to(INTERNAL_DIR)
+        hooks = load_hooks(hooks_path, require_consent=not _is_internal)
+    else:
+        hooks = load_hooks(pathlib.Path("/dev/null"))  # empty registry
 
     # 6b. RTK auto-detection — enable if rtk binary is found and not explicitly disabled
     if not config.rtk and shutil.which("rtk"):
@@ -91,28 +113,20 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         return call
     hooks.before.setdefault("bash", []).append(_rtk_before_hook)
 
-    # 7-8. Skills + agents — prefer skills/ directory, fall back to skills.md
-    skills_dir = tigger_dir / "skills"
-    if skills_dir.exists() and skills_dir.is_dir():
-        skills = load_skills_dir(skills_dir)
-    else:
-        skills = load_skills(tigger_dir / "skills.md")
-    agents = load_agents(tigger_dir / "agents.md")
+    # 7-8. Skills + agents — 3-tier merge (project > global > internal)
+    skills = resolve_skills(project_dir, global_dir)
+    agents = resolve_agents(project_dir, global_dir)
 
-    # 9. System prompt + memory
-    # .tigger/system.md overrides the package default when present.
-    _system_md = tigger_dir / "system.md"
-    if _system_md.exists():
-        _base_system = _system_md.read_text().strip()
-    else:
-        _default_system = pathlib.Path(__file__).parent / "assets" / "system.md"
-        if not _default_system.exists():
-            raise FileNotFoundError(
-                f"Missing system prompt asset: {_default_system}. "
-                "This file should be packaged with tigger-code."
-            )
-        _base_system = _default_system.read_text().strip()
-    memory_lines = read_memory(tigger_dir / "memory.md")
+    # 9. System prompt + memory — override semantics
+    _system_path = resolve_file("system.md", project_dir, global_dir, bundled_dir)
+    if _system_path is None:
+        raise FileNotFoundError(
+            f"Missing system prompt asset: {bundled_dir / 'system.md'}. "
+            "This file should be packaged with tigger-code."
+        )
+    _base_system = _system_path.read_text().strip()
+    _memory_read_path = resolve_file("memory.md", project_dir, global_dir)
+    memory_lines = read_memory(_memory_read_path) if _memory_read_path else []
     memory_section = format_for_prompt(memory_lines)
     system = (_base_system + ("\n\n" + memory_section if memory_section else "")).strip()
 
@@ -123,20 +137,25 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     if trust_level == TrustLevel.READONLY:
         ctx.allowed_tools = [t.name for t in registry.all() if t.read_only]
 
+    # Summary dir: project-scoped if available, else global.
+    summary_dir = project_dir if project_dir is not None else global_dir
+
     commands = load_builtin_commands(
-        memory_path=tigger_dir / "memory.md",
+        memory_path=memory_path,
         config_path=config_path,
         skills=skills,
         agents=agents,
         registry=registry,
         hooks=hooks,
         provider_fn=_provider.stream,
+        summary_dir=summary_dir,
     )
 
     return StartupResult(
         ctx=ctx,
         commands=commands,
         skills=skills,
+        agents=agents,
         registry=registry,
         hooks=hooks,
         provider_fn=_provider.stream,
