@@ -1,5 +1,5 @@
 ---
-name: test-engineer
+name: _test-engineer
 description: >
   Bug reproduction and verification agent. Spawn to reproduce a reported bug
   or verify that a fix resolves the issue. Never fixes bugs or modifies source code.

@@ -1,7 +1,7 @@
 ---
-name: debug
+name: _debug
 triggers:
-  - /debug
+  - /_debug
 context: inline
 ---
 # Structured Debugging

@@ -61,9 +61,9 @@ def test_init_global_seeds_from_internals(tmp_path, monkeypatch, capsys):
     cmd_init("--global", _ctx())
     assert global_dir.exists()
     # Should have real internal skills, not useless templates
-    assert (global_dir / "skills" / "debug" / "SKILL.md").exists()
-    assert (global_dir / "skills" / "commit" / "SKILL.md").exists()
-    assert (global_dir / "agents" / "test-engineer.md").exists()
+    assert (global_dir / "skills" / "_debug" / "SKILL.md").exists()
+    assert (global_dir / "skills" / "_commit" / "SKILL.md").exists()
+    assert (global_dir / "agents" / "_test-engineer.md").exists()
     out = capsys.readouterr().out
     assert "Seeded" in out
     assert "live copies" in out

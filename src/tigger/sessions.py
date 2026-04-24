@@ -1,7 +1,9 @@
 from __future__ import annotations
+import hashlib
 import json
 import pathlib
 import datetime
+import re
 from dataclasses import dataclass
 from tigger.types import Message, ToolCallRecord
 
@@ -73,3 +75,18 @@ def list_sessions(session_dir: pathlib.Path) -> list[SessionInfo]:
 def new_session_id() -> str:
     """Generate a timestamp-based session ID."""
     return datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def project_id(project_path: pathlib.Path) -> str:
+    """Return a stable, readable project identifier: <basename>-<sha256[:8]>."""
+    resolved = str(project_path.resolve())
+    digest = hashlib.sha256(resolved.encode()).hexdigest()[:8]
+    basename = project_path.resolve().name
+    # Sanitise basename to filesystem-safe chars
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", basename)
+    return f"{safe}-{digest}"
+
+
+def project_session_dir(global_dir: pathlib.Path, project_path: pathlib.Path) -> pathlib.Path:
+    """Return the session directory for a project under the global config dir."""
+    return global_dir / "sessions" / project_id(project_path)

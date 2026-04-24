@@ -39,7 +39,6 @@ class TestHelpNoArgs:
         class FakeSkill:
             triggers = ["/foo", "/bar"]
             name = "Fake Skill"
-            internal = False
         cmds = _make_commands()
         cmd_help(args="", ctx=_make_ctx(), commands=cmds, skills=[FakeSkill()])
         out = capsys.readouterr().out
@@ -52,35 +51,31 @@ class TestHelpInternalFiltering:
         class UserSkill:
             triggers = ["/user"]
             name = "user-skill"
-            internal = False
         class InternalSkill:
-            triggers = ["/debug"]
-            name = "debug"
-            internal = True
+            triggers = ["/_debug"]
+            name = "_debug"
         cmds = _make_commands()
         cmd_help(args="", ctx=_make_ctx(), commands=cmds,
                  skills=[UserSkill(), InternalSkill()])
         out = capsys.readouterr().out
         assert "user-skill" in out
-        assert "debug" not in out
+        assert "/_debug" not in out  # internal skill trigger hidden
 
     def test_all_flag_shows_internal_skills(self, capsys):
         class InternalSkill:
-            triggers = ["/debug"]
-            name = "debug"
-            internal = True
+            triggers = ["/_debug"]
+            name = "_debug"
         cmds = _make_commands()
         cmd_help(args="--all", ctx=_make_ctx(), commands=cmds,
                  skills=[InternalSkill()])
         out = capsys.readouterr().out
-        assert "debug" in out
+        assert "_debug" in out
         assert "[internal]" in out
 
     def test_shows_agents(self, capsys):
         class FakeAgent:
             name = "test-engineer"
             description = "Bug reproduction agent"
-            internal = False
         cmds = _make_commands()
         cmd_help(args="", ctx=_make_ctx(), commands=cmds,
                  skills=[], agents=[FakeAgent()])
@@ -90,25 +85,23 @@ class TestHelpInternalFiltering:
 
     def test_hides_internal_agents_by_default(self, capsys):
         class InternalAgent:
-            name = "test-engineer"
+            name = "_test-engineer"
             description = "Bug reproduction"
-            internal = True
         cmds = _make_commands()
         cmd_help(args="", ctx=_make_ctx(), commands=cmds,
                  skills=[], agents=[InternalAgent()])
         out = capsys.readouterr().out
-        assert "test-engineer" not in out
+        assert "_test-engineer" not in out
 
     def test_all_flag_shows_internal_agents(self, capsys):
         class InternalAgent:
-            name = "test-engineer"
+            name = "_test-engineer"
             description = "Bug reproduction"
-            internal = True
         cmds = _make_commands()
         cmd_help(args="--all", ctx=_make_ctx(), commands=cmds,
                  skills=[], agents=[InternalAgent()])
         out = capsys.readouterr().out
-        assert "test-engineer" in out
+        assert "_test-engineer" in out
         assert "[internal]" in out
 
     def test_no_agents_omits_section(self, capsys):
@@ -119,9 +112,8 @@ class TestHelpInternalFiltering:
 
     def test_all_internal_skills_hidden_in_default(self, capsys):
         class InternalSkill:
-            triggers = ["/debug"]
-            name = "debug"
-            internal = True
+            triggers = ["/_debug"]
+            name = "_debug"
         cmds = _make_commands()
         cmd_help(args="", ctx=_make_ctx(), commands=cmds,
                  skills=[InternalSkill()])

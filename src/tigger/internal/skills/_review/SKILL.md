@@ -1,7 +1,7 @@
 ---
-name: review
+name: _review
 triggers:
-  - /review
+  - /_review
 context: inline
 ---
 # Code Review

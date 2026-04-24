@@ -1,7 +1,7 @@
 ---
-name: commit
+name: _commit
 triggers:
-  - /commit
+  - /_commit
 context: inline
 ---
 # Conventional Commit

@@ -8,7 +8,7 @@ from tigger.types import (
     ThinkingEvent,
 )
 from tigger.tools import ToolRegistry
-from tigger.hooks import HookRegistry, run_before, run_after
+from tigger.hooks import HookDef, HookRegistry, run_before, run_after, evaluate_hooks
 from tigger.permissions import check as permission_check
 from tigger.compaction import maybe_compact
 
@@ -35,6 +35,7 @@ def run(
     registry: ToolRegistry,
     hooks: HookRegistry,
     provider_fn: Callable,
+    hook_defs: list | None = None,
 ) -> Generator[Event, None, None]:
     """Drive a full multi-turn agent exchange. Yields events; mutates ctx.messages in place."""
     ctx.messages.append(Message(role="user", content=query))
@@ -118,6 +119,26 @@ def run(
                 ))
                 continue
 
+            # Declarative hooks (PreToolUse) — block/warn before execution
+            if hook_defs:
+                _hook_ctx = {"tool_name": tc.name, "tool_args": tc.args}
+                _hook_result = evaluate_hooks("PreToolUse", _hook_ctx, hook_defs)
+                for msg in _hook_result.messages:
+                    print(f"[hook] {msg}")
+                if _hook_result.blocked:
+                    yield ToolEndEvent(
+                        call_id=tc.call_id, name=tc.name,
+                        output="(blocked by hook)", permitted=False,
+                    )
+                    ctx.messages.append(Message(
+                        role="tool",
+                        content="(tool call blocked by hook)",
+                        tool_call_id=tc.call_id,
+                        name=tc.name,
+                    ))
+                    continue
+
+            # Legacy hooks (RTK arg mutation)
             tc = run_before(tc, ctx, hooks)
             yield ToolStartEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
             output = registry.execute(tc.name, tc.args)
@@ -126,6 +147,14 @@ def run(
                 error=output.startswith("Error:"),
             )
             end_event = run_after(end_event, ctx, hooks)
+
+            # Declarative hooks (PostToolUse) — warn after execution
+            if hook_defs:
+                _post_ctx = {"tool_name": tc.name, "tool_args": tc.args}
+                _post_result = evaluate_hooks("PostToolUse", _post_ctx, hook_defs)
+                for msg in _post_result.messages:
+                    print(f"[hook] {msg}")
+
             yield end_event
 
             ctx.messages.append(Message(
@@ -151,6 +180,7 @@ def run_forked(
     registry: ToolRegistry,
     hooks: HookRegistry,
     provider_fn: Callable | None,
+    hook_defs: list | None = None,
 ) -> str:
     """Run *query* in a forked context (isolated message history, depth+1). Returns result string."""
     if ctx.depth >= ctx.config.max_depth:
@@ -181,7 +211,8 @@ def run_forked(
         return "(no provider available for forked skill)"
 
     result_parts = []
-    for event in run(query, forked, sub_registry, hooks, provider_fn=provider_fn):
+    for event in run(query, forked, sub_registry, hooks, provider_fn=provider_fn,
+                      hook_defs=hook_defs):
         if isinstance(event, TextChunk):
             result_parts.append(event.content)
 

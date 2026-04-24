@@ -1,7 +1,7 @@
 ---
-name: tigger-self
+name: _tigger-self
 triggers:
-  - /tigger-self
+  - /_tigger-self
   - /self
 context: inline
 ---

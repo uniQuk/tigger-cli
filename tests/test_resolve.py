@@ -123,20 +123,19 @@ def test_resolve_skills_project_shadows_global(tmp_path):
 def test_resolve_skills_project_shadows_internal(tmp_path):
     project = tmp_path / "project"
     internal = tmp_path / "internal"
-    _make_skill(project, "debug", body="Custom debug.")
-    _make_skill(internal, "debug", body="Internal debug.")
+    _make_skill(project, "_debug", body="Custom debug.")
+    _make_skill(internal, "_debug", body="Internal debug.")
     skills = resolve_skills(project, None, internal)
     assert len(skills) == 1
     assert "Custom debug" in skills[0].body
-    assert skills[0].internal is False
 
 
-def test_resolve_skills_internal_flag_set(tmp_path):
+def test_resolve_skills_internal_detected_by_name(tmp_path):
     internal = tmp_path / "internal"
-    _make_skill(internal, "debug")
+    _make_skill(internal, "_debug")
     skills = resolve_skills(None, None, internal)
     assert len(skills) == 1
-    assert skills[0].internal is True
+    assert skills[0].name.startswith("_")
 
 
 def test_resolve_skills_global_not_internal(tmp_path):
@@ -144,7 +143,7 @@ def test_resolve_skills_global_not_internal(tmp_path):
     _make_skill(global_, "my-skill")
     skills = resolve_skills(None, global_, tmp_path / "empty")
     assert len(skills) == 1
-    assert skills[0].internal is False
+    assert not skills[0].name.startswith("_")
 
 
 def test_resolve_skills_only_one_tier(tmp_path):
@@ -184,20 +183,19 @@ def test_resolve_agents_merges_tiers(tmp_path):
 def test_resolve_agents_project_shadows_internal(tmp_path):
     project = tmp_path / "project"
     internal = tmp_path / "internal"
-    _make_agent_file(project, "test-engineer", body="Custom version.")
-    _make_agent_file(internal, "test-engineer", body="Internal version.")
+    _make_agent_file(project, "_test-engineer", body="Custom version.")
+    _make_agent_file(internal, "_test-engineer", body="Internal version.")
     agents = resolve_agents(project, None, internal)
     assert len(agents) == 1
     assert "Custom version" in agents[0].system_prompt
-    assert agents[0].internal is False
 
 
-def test_resolve_agents_internal_flag_set(tmp_path):
+def test_resolve_agents_internal_detected_by_name(tmp_path):
     internal = tmp_path / "internal"
-    _make_agent_file(internal, "test-engineer")
+    _make_agent_file(internal, "_test-engineer")
     agents = resolve_agents(None, None, internal)
     assert len(agents) == 1
-    assert agents[0].internal is True
+    assert agents[0].name.startswith("_")
 
 
 def test_resolve_agents_directory_shadows_flat_within_tier(tmp_path):
@@ -237,43 +235,62 @@ def test_is_global_config_false(tmp_path, monkeypatch):
 
 def test_seed_global_copies_skills_and_agents(tmp_path):
     internal = tmp_path / "internal"
-    _make_skill(internal, "debug")
-    _make_agent_file(internal, "test-engineer")
+    _make_skill(internal, "_debug")
+    _make_agent_file(internal, "_test-engineer")
     global_dir = tmp_path / "global"
     global_dir.mkdir()
     result = seed_global(global_dir, internal)
     assert result is True
-    assert (global_dir / "skills" / "debug" / "SKILL.md").exists()
-    assert (global_dir / "agents" / "test-engineer.md").exists()
+    assert (global_dir / "skills" / "_debug" / "SKILL.md").exists()
+    assert (global_dir / "agents" / "_test-engineer.md").exists()
 
 
 def test_seed_global_skips_existing(tmp_path):
     internal = tmp_path / "internal"
-    _make_skill(internal, "debug")
+    _make_skill(internal, "_debug")
     global_dir = tmp_path / "global"
     # Pre-populate with custom content
-    custom_dir = global_dir / "skills" / "debug"
+    custom_dir = global_dir / "skills" / "_debug"
     custom_dir.mkdir(parents=True)
     (custom_dir / "SKILL.md").write_text("my custom debug")
     result = seed_global(global_dir, internal)
     assert result is False
     # Custom content preserved
-    assert (global_dir / "skills" / "debug" / "SKILL.md").read_text() == "my custom debug"
+    assert (global_dir / "skills" / "_debug" / "SKILL.md").read_text() == "my custom debug"
+
+
+def test_seed_global_skips_prefixed_if_non_prefixed_exists(tmp_path):
+    """If user has debug/ from a prior seed, don't also create _debug/."""
+    internal = tmp_path / "internal"
+    _make_skill(internal, "_debug")
+    _make_agent_file(internal, "_test-engineer")
+    global_dir = tmp_path / "global"
+    # Pre-populate with non-prefixed versions (prior seed)
+    custom_dir = global_dir / "skills" / "debug"
+    custom_dir.mkdir(parents=True)
+    (custom_dir / "SKILL.md").write_text("old debug")
+    agents_dir = global_dir / "agents"
+    agents_dir.mkdir(parents=True)
+    (agents_dir / "test-engineer.md").write_text("old agent")
+    result = seed_global(global_dir, internal)
+    assert result is False
+    assert not (global_dir / "skills" / "_debug").exists()
+    assert not (global_dir / "agents" / "_test-engineer.md").exists()
 
 
 def test_seed_global_adds_new_skills_alongside_existing(tmp_path):
     internal = tmp_path / "internal"
-    _make_skill(internal, "debug")
-    _make_skill(internal, "commit")
+    _make_skill(internal, "_debug")
+    _make_skill(internal, "_commit")
     global_dir = tmp_path / "global"
-    # Pre-populate debug only
-    custom_dir = global_dir / "skills" / "debug"
+    # Pre-populate _debug only
+    custom_dir = global_dir / "skills" / "_debug"
     custom_dir.mkdir(parents=True)
     (custom_dir / "SKILL.md").write_text("my custom debug")
     result = seed_global(global_dir, internal)
-    assert result is True  # commit was new
-    assert (global_dir / "skills" / "debug" / "SKILL.md").read_text() == "my custom debug"
-    assert (global_dir / "skills" / "commit" / "SKILL.md").exists()
+    assert result is True  # _commit was new
+    assert (global_dir / "skills" / "_debug" / "SKILL.md").read_text() == "my custom debug"
+    assert (global_dir / "skills" / "_commit" / "SKILL.md").exists()
 
 
 def test_seed_global_no_internal_dir(tmp_path):
@@ -285,7 +302,7 @@ def test_seed_global_no_internal_dir(tmp_path):
 
 def test_seed_global_idempotent(tmp_path):
     internal = tmp_path / "internal"
-    _make_skill(internal, "debug")
+    _make_skill(internal, "_debug")
     global_dir = tmp_path / "global"
     global_dir.mkdir()
     seed_global(global_dir, internal)

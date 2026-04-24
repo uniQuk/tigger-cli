@@ -9,11 +9,11 @@ import httpx
 from tigger.config import load_config, find_config, derive_provider_name
 from tigger.types import RunContext, TrustLevel
 from tigger.tools import ToolRegistry, register_all
-from tigger.hooks import HookRegistry, load_hooks
+from tigger.hooks import HookDef, HookRegistry, load_hooks, load_hooks_dir
 from tigger.skills import match_skill
 from tigger.resolve import (
-    resolve_file, resolve_skills, resolve_agents, is_global_config,
-    seed_global, INTERNAL_DIR,
+    resolve_file, resolve_skills, resolve_agents, resolve_hooks,
+    is_global_config, seed_global, INTERNAL_DIR,
 )
 from tigger.memory import read_memory, format_for_prompt
 from tigger.mcp import connect_all
@@ -26,7 +26,7 @@ from tigger import provider as _provider
 from tigger import trust as _trust
 from tigger import ui
 from tigger._constants import home_config_dir
-from tigger.sessions import save_message, load_session, list_sessions, new_session_id
+from tigger.sessions import save_message, load_session, list_sessions, new_session_id, project_session_dir
 
 
 @dataclasses.dataclass
@@ -36,7 +36,8 @@ class StartupResult:
     skills: list
     agents: list
     registry: ToolRegistry
-    hooks: HookRegistry
+    hooks: HookRegistry              # legacy — RTK hook only
+    hook_defs: list                   # new declarative hooks
     provider_fn: object
     config_path: pathlib.Path
 
@@ -96,16 +97,23 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     if mcp_path:
         connect_all(registry, mcp_path)
 
-    # 6. Hooks — override semantics (first found wins)
-    hooks_path = resolve_file("hooks.py", project_dir, global_dir, INTERNAL_DIR)
-    if hooks_path:
-        # Only project hooks need consent (untrusted repo code).
-        # Global (~/.tigger/) and internal (package) hooks are trusted.
-        _is_project = (project_dir is not None
-                       and hooks_path.is_relative_to(project_dir))
-        hooks = load_hooks(hooks_path, require_consent=_is_project)
-    else:
-        hooks = load_hooks(pathlib.Path("/dev/null"))  # empty registry
+    # 6. Hooks — declarative markdown hooks from hooks/ directories (additive merge)
+    hook_defs = resolve_hooks(project_dir, global_dir)
+
+    # 6a. Legacy hooks.py deprecation warning
+    for _dir in [d for d in (project_dir, global_dir) if d is not None]:
+        _legacy = _dir / "hooks.py"
+        if _legacy.exists():
+            ui.print_info(
+                f"[hooks] Deprecated: {_legacy}\n"
+                "  hooks.py is no longer supported. "
+                "Use hooks/ directory with .md files instead.\n"
+                "  Run /hookify to create hooks from natural language, "
+                "or see /help hooks for the format."
+            )
+
+    # Legacy HookRegistry — only used for RTK hook (mutates args, not supported by declarative hooks)
+    hooks = HookRegistry()
 
     # 6b. RTK auto-detection — enable if rtk binary is found and not explicitly disabled
     if not config.rtk and shutil.which("rtk"):
@@ -164,6 +172,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         agents=agents,
         registry=registry,
         hooks=hooks,
+        hook_defs=hook_defs,
         provider_fn=_provider.stream,
         config_path=config_path,
     )
@@ -206,6 +215,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
     skills = result.skills
     registry = result.registry
     hooks = result.hooks
+    hook_defs = result.hook_defs
     provider_fn = result.provider_fn
 
     # Session tracking: how many messages existed before this REPL turn.
@@ -315,7 +325,8 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         if skill:
             if skill.context == "fork":
                 query = skill.render(line)
-                text = run_forked(query, skill, ctx, registry, hooks, provider_fn)
+                text = run_forked(query, skill, ctx, registry, hooks, provider_fn,
+                                  hook_defs=hook_defs)
                 print(text)
                 continue
             else:
@@ -336,7 +347,8 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         text_buf: list[str] = []
 
         try:
-            event_gen = run(line, ctx, registry, hooks, provider_fn=provider_fn)
+            event_gen = run(line, ctx, registry, hooks, provider_fn=provider_fn,
+                           hook_defs=hook_defs)
 
             with ui.Spinner(turn_start, token_counter=output_chars):
                 first_event = next(event_gen, None)
@@ -391,7 +403,7 @@ def main() -> None:
         result.ctx.config = dataclasses.replace(result.ctx.config, permission_mode=parsed.permission)
 
     # Session setup
-    session_dir = result.config_path.parent / "sessions"
+    session_dir = project_session_dir(home_config_dir(), pathlib.Path.cwd().resolve())
     session_id: str | None = None
 
     if parsed.resume:

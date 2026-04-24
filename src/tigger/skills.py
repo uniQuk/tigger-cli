@@ -16,7 +16,6 @@ class SkillDef:
     references: list[tuple[str, str]] = field(default_factory=list)  # (filename, content) pairs
     assets: pathlib.Path | None = None              # assets/ subdir path
     inject_references: bool = True                  # auto-inject references into rendered prompt
-    internal: bool = False                          # set by resolver for bundled skills
 
     def render(self, user_input: str) -> str:
         args = user_input
@@ -48,7 +47,6 @@ class AgentDef:
     tools: list[str]
     model: str | None = None
     description: str = ""                           # when to spawn this agent
-    internal: bool = False                          # set by resolver for bundled agents
 
 
 def _parse_blocks(text: str) -> list[dict]:

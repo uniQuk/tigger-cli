@@ -158,12 +158,12 @@ def test_load_agents_flat_format_still_works(tmp_path):
     assert agents[0].system_prompt == "You are an old-style agent."
 
 
-def test_agent_def_has_internal_field():
+def test_agent_def_no_internal_field():
     agent = AgentDef(name="test", system_prompt="prompt", tools=[])
-    assert agent.internal is False
+    assert not hasattr(agent, "internal")
 
 
-def test_skill_def_has_internal_field():
+def test_skill_def_no_internal_field():
     from tigger.skills import SkillDef
     skill = SkillDef(name="test", triggers=[], tools=[], context="inline", body="body")
-    assert skill.internal is False
+    assert not hasattr(skill, "internal")

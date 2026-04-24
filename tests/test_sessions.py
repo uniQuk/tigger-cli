@@ -1,7 +1,7 @@
 import json
 import pathlib
 from tigger.types import Message, ToolCallRecord
-from tigger.sessions import save_message, load_session, list_sessions, new_session_id, _message_to_dict, _message_from_dict
+from tigger.sessions import save_message, load_session, list_sessions, new_session_id, _message_to_dict, _message_from_dict, project_id, project_session_dir
 
 
 def test_message_round_trip():
@@ -66,3 +66,35 @@ def test_new_session_id_format():
     sid = new_session_id()
     assert len(sid) == 15  # YYYYMMDD-HHMMSS
     assert "-" in sid
+
+
+def test_project_id_stable():
+    p = pathlib.Path("/tmp/my-project")
+    assert project_id(p) == project_id(p)
+
+
+def test_project_id_different_paths():
+    a = project_id(pathlib.Path("/tmp/project-a"))
+    b = project_id(pathlib.Path("/tmp/project-b"))
+    assert a != b
+
+
+def test_project_id_readable():
+    pid = project_id(pathlib.Path("/home/user/cool-app"))
+    assert pid.startswith("cool-app-")
+
+
+def test_project_id_special_chars():
+    pid = project_id(pathlib.Path("/home/user/my project (v2)"))
+    # Should not contain spaces or parens — only safe chars
+    assert " " not in pid
+    assert "(" not in pid
+    assert ")" not in pid
+
+
+def test_project_session_dir(tmp_path):
+    global_dir = tmp_path / "global"
+    project = pathlib.Path("/tmp/my-project")
+    result = project_session_dir(global_dir, project)
+    assert result.parent == global_dir / "sessions"
+    assert result.name == project_id(project)

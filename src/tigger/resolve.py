@@ -5,6 +5,7 @@ import pathlib
 import shutil
 
 from tigger._constants import home_config_dir
+from tigger.hooks import HookDef, load_hooks_dir
 from tigger.skills import AgentDef, SkillDef, load_agents, load_agents_dir, load_skills_dir
 
 INTERNAL_DIR = pathlib.Path(__file__).parent / "internal"
@@ -30,7 +31,9 @@ def seed_global(global_dir: pathlib.Path, internal_dir: pathlib.Path | None = No
         internal_dir = INTERNAL_DIR
     seeded = False
 
-    # Seed skills: copy each internal skill dir if not already present
+    # Seed skills: copy each internal skill dir if not already present.
+    # For underscore-prefixed internals (e.g. _debug/), also check if the
+    # non-prefixed version (debug/) exists from a prior seed — skip if so.
     internal_skills = internal_dir / "skills"
     if internal_skills.exists():
         global_skills = global_dir / "skills"
@@ -39,11 +42,18 @@ def seed_global(global_dir: pathlib.Path, internal_dir: pathlib.Path | None = No
             if not skill_dir.is_dir():
                 continue
             target = global_skills / skill_dir.name
-            if not target.exists():
-                shutil.copytree(skill_dir, target)
-                seeded = True
+            if target.exists():
+                continue
+            # Check for non-prefixed version from prior seed
+            if skill_dir.name.startswith("_"):
+                non_prefixed = global_skills / skill_dir.name[1:]
+                if non_prefixed.exists():
+                    continue
+            shutil.copytree(skill_dir, target)
+            seeded = True
 
-    # Seed agents: copy each internal agent .md if not already present
+    # Seed agents: copy each internal agent .md if not already present.
+    # Same underscore-prefix logic as skills above.
     internal_agents = internal_dir / "agents"
     if internal_agents.exists():
         global_agents = global_dir / "agents"
@@ -52,9 +62,15 @@ def seed_global(global_dir: pathlib.Path, internal_dir: pathlib.Path | None = No
             if not agent_file.is_file() or agent_file.suffix != ".md":
                 continue
             target = global_agents / agent_file.name
-            if not target.exists():
-                shutil.copy2(agent_file, target)
-                seeded = True
+            if target.exists():
+                continue
+            # Check for non-prefixed version from prior seed
+            if agent_file.name.startswith("_"):
+                non_prefixed = global_agents / agent_file.name[1:]
+                if non_prefixed.exists():
+                    continue
+            shutil.copy2(agent_file, target)
+            seeded = True
 
     # Note: hooks.py is NOT seeded — hooks are executable code, not prompts.
     # The internal hooks.py serves as a package-level fallback only.
@@ -78,6 +94,30 @@ def resolve_file(
     return None
 
 
+def resolve_hooks(
+    project_dir: pathlib.Path | None,
+    global_dir: pathlib.Path | None,
+    internal_dir: pathlib.Path | None = None,
+) -> list[HookDef]:
+    """Load hooks from all tiers and concatenate (additive merge).
+
+    Unlike skills/agents, hooks do NOT shadow by name — all hooks from
+    all tiers fire. This ensures both project and global safety hooks execute.
+    """
+    if internal_dir is None:
+        internal_dir = INTERNAL_DIR
+    all_hooks: list[HookDef] = []
+    for tier_dir in [
+        internal_dir / "hooks" if internal_dir else None,
+        global_dir / "hooks" if global_dir else None,
+        project_dir / "hooks" if project_dir else None,
+    ]:
+        if tier_dir is None:
+            continue
+        all_hooks.extend(load_hooks_dir(tier_dir))
+    return all_hooks
+
+
 def resolve_skills(
     project_dir: pathlib.Path | None,
     global_dir: pathlib.Path | None,
@@ -89,16 +129,14 @@ def resolve_skills(
     seen: dict[str, SkillDef] = {}
     # Load in reverse priority: internal first, then global, then project.
     # Later entries shadow earlier ones by name.
-    for tier_dir, is_internal in [
-        (internal_dir / "skills" if internal_dir else None, True),
-        (global_dir / "skills" if global_dir else None, False),
-        (project_dir / "skills" if project_dir else None, False),
+    for tier_dir in [
+        internal_dir / "skills" if internal_dir else None,
+        global_dir / "skills" if global_dir else None,
+        project_dir / "skills" if project_dir else None,
     ]:
         if tier_dir is None:
             continue
         for skill in load_skills_dir(tier_dir):
-            if is_internal:
-                skill.internal = True
             seen[skill.name] = skill
     return list(seen.values())
 
@@ -119,28 +157,21 @@ def resolve_agents(
     # Load in reverse priority order so higher-priority tiers overwrite.
     tiers = [
         (internal_dir / "agents" if internal_dir else None,
-         internal_dir / "agents.md" if internal_dir else None,
-         True),
+         internal_dir / "agents.md" if internal_dir else None),
         (global_dir / "agents" if global_dir else None,
-         global_dir / "agents.md" if global_dir else None,
-         False),
+         global_dir / "agents.md" if global_dir else None),
         (project_dir / "agents" if project_dir else None,
-         project_dir / "agents.md" if project_dir else None,
-         False),
+         project_dir / "agents.md" if project_dir else None),
     ]
-    for agents_dir, agents_md, is_internal in tiers:
+    for agents_dir, agents_md in tiers:
         if agents_dir is None:
             continue
         # Within each tier: flat file first, directory second (directory wins).
         tier_agents: dict[str, AgentDef] = {}
         if agents_md is not None:
             for agent in load_agents(agents_md):
-                if is_internal:
-                    agent.internal = True
                 tier_agents[agent.name] = agent
         for agent in load_agents_dir(agents_dir):
-            if is_internal:
-                agent.internal = True
             tier_agents[agent.name] = agent
         seen.update(tier_agents)
     return list(seen.values())

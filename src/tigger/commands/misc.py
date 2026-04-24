@@ -30,18 +30,18 @@ def cmd_help(
         desc = COMMAND_DESCRIPTIONS.get(name, "")
         print(f"  /{name:<{width}}  {desc}")
 
-    visible_skills = skills if show_all else [s for s in skills if not s.internal]
+    visible_skills = skills if show_all else [s for s in skills if not s.name.startswith("_")]
     if visible_skills:
         print("\nLoaded skills:")
         for s in visible_skills:
-            suffix = "  [internal]" if s.internal else ""
+            suffix = "  [internal]" if s.name.startswith("_") else ""
             print(f"  {', '.join(s.triggers)}  — {s.name}{suffix}")
 
-    visible_agents = agents if show_all else [a for a in agents if not a.internal]
+    visible_agents = agents if show_all else [a for a in agents if not a.name.startswith("_")]
     if visible_agents:
         print("\nLoaded agents:")
         for a in visible_agents:
-            suffix = "  [internal]" if a.internal else ""
+            suffix = "  [internal]" if a.name.startswith("_") else ""
             desc = f" — {a.description}" if a.description else ""
             print(f"  {a.name}{desc}{suffix}")
     print()
