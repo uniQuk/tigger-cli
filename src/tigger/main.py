@@ -66,11 +66,11 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     memory_path = tigger_dir / "memory.md"
     register_all(registry, memory_path=memory_path)
 
-    # 5. MCP (require consent for untrusted workspaces)
-    connect_all(registry, tigger_dir / "mcp.json", require_consent=(trust_level != TrustLevel.ALWAYS))
+    # 5. MCP
+    connect_all(registry, tigger_dir / "mcp.json")
 
-    # 6. Hooks (require consent for untrusted workspaces)
-    hooks = load_hooks(tigger_dir / "hooks.py", require_consent=(trust_level != TrustLevel.ALWAYS))
+    # 6. Hooks
+    hooks = load_hooks(tigger_dir / "hooks.py")
 
     # 7-8. Skills + agents — prefer skills/ directory, fall back to skills.md
     skills_dir = tigger_dir / "skills"
@@ -282,6 +282,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
                 for event in event_gen:
                     ui.render_event(event, ctx, output_chars, text_buf)
         except KeyboardInterrupt:
+            ui._stop_activity()
             ui.print_info("\n(interrupted)")
             continue
 
