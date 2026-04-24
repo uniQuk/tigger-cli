@@ -373,6 +373,13 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             ui._stop_activity()
             ui.print_error(f"Network error: {exc}")
             continue
+        except Exception as exc:
+            if "TimeoutError" in type(exc).__name__ or "timed out" in str(exc).lower():
+                ui._stop_activity()
+                ui.print_error(f"Request timed out — is the model server running?")
+            else:
+                raise
+            continue
 
         turn_tokens = output_chars[0] // 4
         stats.output_tokens += turn_tokens
