@@ -68,6 +68,30 @@ def _parse_blocks(text: str) -> list[dict]:
     return blocks
 
 
+def _parse_single(text: str) -> dict | None:
+    """Parse a single frontmatter document.
+
+    Only the first --- pair is treated as frontmatter. Everything after
+    the closing --- is body, even if it contains more --- lines (e.g.
+    YAML examples inside code blocks).
+    """
+    import yaml
+    m = re.match(r"^---\s*\n(.*?\n)---\s*$", text, flags=re.MULTILINE | re.DOTALL)
+    if not m:
+        return None
+    fm_text = m.group(1).strip()
+    body = text[m.end():].strip()
+    if not fm_text:
+        return None
+    try:
+        fm = yaml.safe_load(fm_text)
+        if isinstance(fm, dict):
+            return {"fm": fm, "body": body}
+    except Exception:
+        pass
+    return None
+
+
 def load_skills(path: pathlib.Path) -> list[SkillDef]:
     """Load skills from a flat skills.md file (legacy/fallback)."""
     if not path.exists():
@@ -103,10 +127,9 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
         skill_md = entry / "SKILL.md"
         if not skill_md.exists():
             continue
-        blocks = _parse_blocks(skill_md.read_text())
-        if not blocks:
+        b = _parse_single(skill_md.read_text())
+        if not b:
             continue
-        b = blocks[0]
         fm = b["fm"]
         if "name" not in fm:
             continue
@@ -174,10 +197,9 @@ def load_agents_dir(agents_dir: pathlib.Path) -> list[AgentDef]:
     for entry in sorted(agents_dir.iterdir()):
         if not entry.is_file() or entry.suffix != ".md":
             continue
-        blocks = _parse_blocks(entry.read_text())
-        if not blocks:
+        b = _parse_single(entry.read_text())
+        if not b:
             continue
-        b = blocks[0]
         fm = b["fm"]
         name = fm.get("name", entry.stem)
         if not name:

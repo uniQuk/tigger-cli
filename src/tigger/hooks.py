@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Callable
 
-from tigger.skills import _parse_blocks
+from tigger.skills import _parse_single
 from tigger.types import RunContext, ToolCallRecord, ToolEndEvent
 
 # ---------------------------------------------------------------------------
@@ -43,10 +43,9 @@ def load_hooks_dir(hooks_dir: pathlib.Path) -> list[HookDef]:
     for entry in sorted(hooks_dir.iterdir()):
         if not entry.is_file() or entry.suffix != ".md":
             continue
-        blocks = _parse_blocks(entry.read_text())
-        if not blocks:
+        b = _parse_single(entry.read_text())
+        if not b:
             continue
-        b = blocks[0]
         fm = b["fm"]
         name = fm.get("name", entry.stem)
         event = fm.get("event", "")
