@@ -41,7 +41,7 @@ COMMAND_HELP: dict[str, str] = {
     "provider": "Usage:\n  /provider           — list providers\n  /provider add       — add a new provider",
     "summary": "Usage: /summary\n  Save a structured summary of the current session to .tigger/summaries/.",
     "init": "Usage: /init\n  Create template files in .tigger/: agents.md, system.md, hooks.py, skills/.\n  Existing files are never overwritten.",
-    "rtk": "Usage:\n  /rtk              — show RTK status\n  /rtk on           — enable RTK proxy\n  /rtk off          — disable RTK proxy\n  /rtk gain         — show token savings\n  /rtk gain --history — show command savings history\n\nRTK (Rust Token Killer) proxies shell commands to reduce token output by 60-90%.\nhttps://github.com/rtk-ai/rtk",
+    "rtk": "Usage:\n  /rtk                  — show RTK status\n  /rtk on               — enable RTK proxy\n  /rtk off              — disable RTK proxy\n  /rtk gain             — show project token savings\n  /rtk gain --history   — per-command savings history\n  /rtk gain --graph     — daily savings graph\n\nRTK (Rust Token Killer) proxies shell commands to reduce token output by 60-90%.\n/rtk gain is scoped to the current project by default.\nhttps://github.com/rtk-ai/rtk",
     "help": "Usage: /help [command]\n  Show help for a specific command, or list all commands.",
 }
 

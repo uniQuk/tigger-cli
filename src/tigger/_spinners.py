@@ -1,110 +1,231 @@
-SPINNER_MESSAGES = [
-    "Bouncing through the codebase...",
-    "Consulting the whiskers...",
-    "Chasing the laser pointer of insight...",
-    "T-I-double-guh-er thinking...",
-    "Sniffing out an answer...",
-    "Padding softly through your files...",
-    "I'm Feeling Lucky",
-    'Shipping awesomeness...',
-    'Painting the serifs back on...',
-    'Navigating the slime mold...',
-    'Consulting the digital spirits...',
-    'Reticulating splines...',
-    'Warming up the AI hamsters...',
-    'Asking the magic conch shell...',
-    'Generating witty retort...',
-    'Polishing the algorithms...',
-    "Don't rush perfection (or my code)...",
-    'Brewing fresh bytes...',
-    'Counting electrons...',
-    'Engaging cognitive processors...',
-    'Checking for syntax errors in the universe...',
-    'One moment, optimizing humor...',
-    'Shuffling punchlines...',
-    'Untangling neural nets...',
-    'Compiling brilliance...',
-    'Loading wit.exe...',
-    'Summoning the cloud of wisdom...',
-    'Preparing a witty response...',
-    "Just a sec, I'm debugging reality...",
-    'Confuzzling the options...',
-    'Tuning the cosmic frequencies...',
-    'Crafting a response worthy of your patience...',
-    'Compiling the 1s and 0s...',
-    'Resolving dependencies... and existential crises...',
-    'Defragmenting memories... both RAM and personal...',
-    'Rebooting the humor module...',
-    'Caching the essentials (mostly cat memes)...',
-    'Optimizing for ludicrous speed',
-    "Swapping bits... don't tell the bytes...",
-    'Garbage collecting... be right back...',
-    'Assembling the interwebs...',
-    'Converting coffee into code...',
-    'Updating the syntax for reality...',
-    'Rewiring the synapses...',
-    'Looking for a misplaced semicolon...',
-    "Greasin' the cogs of the machine...",
-    'Pre-heating the servers...',
-    'Calibrating the flux capacitor...',
-    'Engaging the improbability drive...',
-    'Channeling the Force...',
-    'Aligning the stars for optimal response...',
-    'So say we all...',
-    'Loading the next great idea...',
-    "Just a moment, I'm in the zone...",
-    'Preparing to dazzle you with brilliance...',
-    "Just a tick, I'm polishing my wit...",
-    "Hold tight, I'm crafting a masterpiece...",
-    "Just a jiffy, I'm debugging the universe...",
-    "Just a moment, I'm aligning the pixels...",
-    "Just a sec, I'm optimizing the humor...",
-    "Just a moment, I'm tuning the algorithms...",
-    'Warp speed engaged...',
-    'Mining for more Dilithium crystals...',
-    "Don't panic...",
-    'Following the white rabbit...',
-    'The truth is in here... somewhere...',
-    'Blowing on the cartridge...',
-    'Loading... Do a barrel roll!',
-    'Waiting for the respawn...',
-    'Finishing the Kessel Run in less than 12 parsecs...',
-    "The cake is not a lie, it's just still loading...",
-    'Fiddling with the character creation screen...',
-    "Just a moment, I'm finding the right meme...",
-    "Pressing 'A' to continue...",
-    'Herding digital cats...',
-    'Polishing the pixels...',
-    'Finding a suitable loading screen pun...',
-    'Distracting you with this witty phrase...',
-    'Almost there... probably...',
-    'Our hamsters are working as fast as they can...',
-    'Giving Cloudy a pat on the head...',
-    'Petting the cat...',
-    'Never gonna give you up, never gonna let you down...',
-    'Slapping the bass...',
-    'Tasting the snozberries...',
-    "I'm going the distance, I'm going for speed...",
-    'Is this the real life? Is this just fantasy?...',
-    "I've got a good feeling about this...",
-    'Poking the bear...',
-    'Hmmm... let me think...',
-    'What do you call a fish with no eyes? A fsh...',
-    'Applying percussive maintenance...',
-    'Searching for the correct USB orientation...',
-    'Ensuring the magic smoke stays inside the wires...',
-    'Trying to exit Vim...',
-    'Spinning up the hamster wheel...',
-    "That's not a bug, it's an undocumented feature...",
-    'Engage.',
-    "I'll be back... with an answer.",
-    'My other process is a TARDIS...',
-    'Communing with the machine spirit...',
-    'Letting the thoughts marinate...',
-    'Pondering the orb...',
-    'Initiating thoughtful gaze...',
-    'Making it go beep boop.',
-    'Buffering... because even AIs need a moment.',
-    'Entangling quantum particles for a faster response...',
-    'Constructing additional pylons...',
+"""Weighted, alive-feeling spinner messages for Tigger TUI."""
+
+from __future__ import annotations
+
+import random
+import re
+
+# ── Short cat noises ─────────────────────────────────────────────
+# Weighted heavily – feel like real cat interrupts.
+
+_NOISES = [
+    "mrrp...",
+    "mlem...",
+    "brrt...",
+    "prrr...",
+    "mrow?",
+    "nya...",
+    "chirrp!",
+    "ekekekek...",
+    "hrrmmm...",
+    "boop.",
+    "blep.",
+    "yeow...",
+    "whrrr...",
+    "prrt.",
+    "mew...",
+    "rrrow...",
+    "trill~",
+    "kekeke...",
+    "mmrr...",
+    "pfft.",
 ]
+
+# ── Behaviour-driven lines ──────────────────────────────────────
+# Much stronger than generic tech jokes.
+
+_BEHAVIOUR = [
+    # Bengal / Tigger personality
+    "Tigger is investigating...",
+    "Tigger has opinions about this...",
+    "High-speed Bengal processing...",
+    "Engaging chaos mode...",
+    "Too fast. Too curious.",
+    "Climbing somewhere he shouldn't...",
+    "Knocking something off the desk...",
+    "Definitely not helping...",
+    "Supervising aggressively...",
+    "Demanding attention mid-task...",
+    "Sprinting for no reason...",
+    "Parkour across the codebase...",
+
+    # Hunting / curiosity
+    "Stalking the bug...",
+    "Pouncing on the problem...",
+    "Chasing a moving pointer...",
+    "Tracking suspicious variables...",
+    "Sniffing the stack trace...",
+    "Listening for hidden errors...",
+    "Watching it... waiting...",
+    "Calculating the perfect pounce...",
+    "Ambushing the solution...",
+    "Chattering at a function he can't reach...",
+    "Ears back. Focused.",
+    "Pupils fully dilated...",
+
+    # Classic cat behaviour
+    "Sitting on your keyboard...",
+    "Walking across the keys...",
+    "Interrupting your workflow...",
+    "Sleeping on the important part...",
+    "Ignoring you deliberately...",
+    "Demanding food (again)...",
+    "Staring into nothing...",
+    "Judging your code silently...",
+    "Pretending not to hear you...",
+    "Now it works. You're welcome.",
+    "Making biscuits on your keyboard...",
+    "Showing you his belly (it's a trap)...",
+    "Brought you a dead process...",
+    "Knocking your cursor off the edge...",
+    "Refusing to move from the warm laptop...",
+    "Asserting dominance over the cursor...",
+    "Yelling at a closed door...",
+    "Third nap of the hour...",
+    "Found a bug. Ate it.",
+    "Flicking tail disapprovingly...",
+    "Zoomies through the call stack...",
+
+    # Boxes / objects
+    "Inspecting a box...",
+    "Sitting in a smaller box than expected...",
+    "Choosing the worst possible place to sit...",
+    "Occupying critical infrastructure...",
+    "Claiming this as mine...",
+    "Wedging into the smallest gap possible...",
+
+    # Cat logic
+    "If fits, I sits.",
+    "If not fits, still sits.",
+    "This was intentional.",
+    "Working as designed (cat logic)...",
+    "Chaos is optimal.",
+    "Solution is somewhere under the couch...",
+
+    # Grooming / idle
+    "Grooming mid-operation...",
+    "Cleaning nonexistent dust...",
+    "Pausing for dramatic effect...",
+    "Reconsidering everything...",
+    "Buffering thoughts...",
+
+    # Retained / adapted
+    "Petting the cat...",
+    "Padding softly through your files...",
+    "Consulting the whiskers...",
+    "Herding digital cats...",
+    "Looking for a misplaced semicolon...",
+    "Trying to exit Vim (unsuccessfully)...",
+]
+
+# ── Light tech puns ─────────────────────────────────────────────
+# A few land better than many.
+
+_TECH = [
+    "Compiling meowdule...",
+    "Running purr-allel processes...",
+    "Optimizing purrformance...",
+    "Debugging with whiskers...",
+    "Caching tuna packets...",
+    "Allocating catnip resources...",
+    "Forking a new pawcess...",
+    "Segfault? hiss...",
+    "Garbage collecting hairballs...",
+    "Spawning background purrcess...",
+    "Reticulating whiskers...",
+    "Caching the essentials (mostly cat memes)...",
+    "Ensuring the magic smoke stays inside the wires...",
+    "Applying percussive paw-maintenance...",
+    "Converting tuna into code...",
+    "Tail-recursive purring...",
+    "Meowlloc failed. Retrying...",
+    "Defurragmenting memory...",
+    "git push --paws...",
+    "cat /dev/random...",
+    "chmod 777 treats...",
+    "sudo meow...",
+]
+
+# ── Mild absurdity ──────────────────────────────────────────────
+# Fits LLM latency well.
+
+_ABSURD = [
+    "Consulting the litter logs...",
+    "Aligning whisker sensors...",
+    "Reading ancient cat runes...",
+    "Summoning the nap daemon...",
+    "Balancing on the edge of reality...",
+    "Listening to the void...",
+    "The void listens back...",
+    "Receiving transmission from the mothership...",
+    "The red dot was inside us all along...",
+    "Solving P=NP (got distracted)...",
+    "Opening a portal behind the sofa...",
+    "Transcending to a higher shelf...",
+]
+
+# ── Chaos lines (rare, noticeably different) ────────────────────
+
+_CHAOS = [
+    "I AM SPEED.",
+    "this is fine.",
+    "have you tried turning it off and on again?",
+    "the code is coming from inside the house...",
+    "01101101 01100101 01101111 01110111",
+    "ᵐᵉᵒʷ",
+    "404: cat not found",
+    "AAAAAAAAAAAAAA",
+    "you saw nothing.",
+    "[object Object]",
+    "ˢᵐᵒˡ ᵗʰᵒᵘᵍʰᵗˢ",
+    "undefined is not a cat",
+]
+
+# ── Weighting ───────────────────────────────────────────────────
+# (category, weight) — noises hit hardest, chaos is ~1-2%.
+
+_WEIGHTED_CATEGORIES: list[tuple[list[str], float]] = [
+    (_NOISES,    4),
+    (_BEHAVIOUR, 3),
+    (_TECH,      1),
+    (_ABSURD,    1),
+    (_CHAOS,     0.15),
+]
+
+# ── Noise stretching ────────────────────────────────────────────
+# Occasionally stretch repeated consonants: mrrp → mrrrrrp
+
+_STRETCHABLE = re.compile(r"([mrpbwnke])\1+")
+
+
+def _stretch_noise(msg: str) -> str:
+    """Maybe stretch repeated consonants in short noises."""
+    if random.random() > 0.3:
+        return msg
+
+    def _stretch(m: re.Match[str]) -> str:
+        char = m.group(1)
+        count = len(m.group(0))
+        extra = random.randint(1, 4)
+        return char * (count + extra)
+
+    return _STRETCHABLE.sub(_stretch, msg)
+
+
+# ── Public API ──────────────────────────────────────────────────
+
+
+def pick_message() -> str:
+    """Pick a weighted random spinner message with occasional stretching."""
+    categories, weights = zip(*_WEIGHTED_CATEGORIES)
+    chosen_cat = random.choices(categories, weights=weights, k=1)[0]
+    msg = random.choice(chosen_cat)
+
+    if chosen_cat is _NOISES:
+        msg = _stretch_noise(msg)
+
+    return msg
+
+
+# Flat list kept for backwards compat.
+SPINNER_MESSAGES = _NOISES + _BEHAVIOUR + _TECH + _ABSURD + _CHAOS

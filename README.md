@@ -105,8 +105,9 @@ tigger-code
 | `/rtk` | Show RTK status (installed, enabled) |
 | `/rtk on` | Enable RTK proxy |
 | `/rtk off` | Disable RTK proxy |
-| `/rtk gain` | Show token savings stats |
-| `/rtk gain --history` | Show per-command savings history |
+| `/rtk gain` | Show project token savings (scoped to cwd) |
+| `/rtk gain --history` | Per-command savings history |
+| `/rtk gain --graph` | Daily savings graph |
 
 ### Configuration
 
@@ -143,7 +144,7 @@ my-project/
 tigger-code
 ```
 
-The REPL shows a status line with the current model and token usage.
+The REPL shows a status line with the current model and token usage. On exit, a session summary panel displays duration, turns, tool stats, and RTK savings (if enabled).
 
 ### Commands
 

@@ -14,6 +14,7 @@ from tigger.skills import load_skills, load_skills_dir, load_agents, match_skill
 from tigger.memory import read_memory, format_for_prompt
 from tigger.mcp import connect_all
 from tigger.compaction import estimate_tokens
+from tigger.types import ToolEndEvent, TurnDoneEvent
 from tigger.loop import run, run_forked
 from tigger.commands import load_builtin_commands
 from tigger.input_processing import expand_file_refs
@@ -161,6 +162,19 @@ def _toolbar(ctx: RunContext) -> str:
     )
 
 
+def _show_exit(stats: ui.SessionStats, session_id: str | None, ctx: RunContext) -> None:
+    """Print the session summary panel on exit."""
+    if stats.turns == 0 and stats.tool_calls == 0:
+        ui.print_info("\nBye.")
+        return
+    ui.print_session_summary(
+        stats=stats,
+        session_id=session_id,
+        model=ctx.config.model,
+        rtk_enabled=ctx.config.rtk,
+    )
+
+
 def repl(result: StartupResult, session_id: str | None = None, session_dir: pathlib.Path | None = None) -> None:
     ctx = result.ctx
     commands = result.commands
@@ -171,6 +185,9 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
 
     # Session tracking: how many messages existed before this REPL turn.
     _saved_count = len(ctx.messages)
+    stats = ui.SessionStats()
+    if ctx.config.rtk:
+        stats.snapshot_rtk()
 
     # Set up prompt_toolkit session with history and tab completion.
     # Falls back to plain input() if prompt_toolkit is unavailable.
@@ -254,14 +271,14 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         try:
             line = _get_input().strip()
         except (KeyboardInterrupt, EOFError):
-            ui.print_info("\nBye.")
+            _show_exit(stats, session_id, ctx)
             break
 
         if not line:
             continue
 
         if line in ("exit", "quit", "/exit", "/quit"):
-            ui.print_info("Bye.")
+            _show_exit(stats, session_id, ctx)
             break
 
         skill = match_skill(line, skills)
@@ -298,8 +315,16 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
                 first_event = next(event_gen, None)
 
             if first_event is not None:
+                if isinstance(first_event, ToolEndEvent):
+                    stats.record_tool_end(first_event)
+                elif isinstance(first_event, TurnDoneEvent):
+                    stats.turns += 1
                 ui.render_event(first_event, ctx, output_chars, text_buf)
                 for event in event_gen:
+                    if isinstance(event, ToolEndEvent):
+                        stats.record_tool_end(event)
+                    elif isinstance(event, TurnDoneEvent):
+                        stats.turns += 1
                     ui.render_event(event, ctx, output_chars, text_buf)
         except KeyboardInterrupt:
             ui._stop_activity()
@@ -310,8 +335,10 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             ui.print_error(f"Network error: {exc}")
             continue
 
+        turn_tokens = output_chars[0] // 4
+        stats.output_tokens += turn_tokens
         elapsed = time.time() - turn_start
-        ui.print_turn_summary(output_chars[0] // 4, elapsed)
+        ui.print_turn_summary(turn_tokens, elapsed)
 
         # Persist new messages to the session file.
         if session_id and session_dir:

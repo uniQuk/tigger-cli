@@ -9,10 +9,21 @@ def _rtk_available() -> bool:
     return shutil.which("rtk") is not None
 
 
-def cmd_rtk(args: str, ctx: RunContext) -> None:
-    arg = args.strip().lower()
+def _run_rtk(*args: str) -> None:
+    if not _rtk_available():
+        print("rtk binary not found in PATH. Install from https://github.com/rtk-ai/rtk")
+        return
+    result = subprocess.run(
+        ["rtk", *args], capture_output=True, text=True, timeout=10,
+    )
+    print(result.stdout or result.stderr or "(no output)")
 
-    if arg == "on":
+
+def cmd_rtk(args: str, ctx: RunContext) -> None:
+    parts = args.strip().split()
+    sub = parts[0].lower() if parts else ""
+
+    if sub == "on":
         if not _rtk_available():
             print("rtk binary not found in PATH. Install from https://github.com/rtk-ai/rtk")
             return
@@ -20,29 +31,18 @@ def cmd_rtk(args: str, ctx: RunContext) -> None:
         print("RTK enabled — bash commands will be proxied through rtk.")
         return
 
-    if arg == "off":
+    if sub == "off":
         ctx.config = dataclasses.replace(ctx.config, rtk=False)
         print("RTK disabled — bash commands run directly.")
         return
 
-    if arg == "gain":
-        if not _rtk_available():
-            print("rtk binary not found in PATH.")
-            return
-        result = subprocess.run(
-            ["rtk", "gain"], capture_output=True, text=True, timeout=10,
-        )
-        print(result.stdout or result.stderr or "(no output)")
-        return
-
-    if arg == "gain --history":
-        if not _rtk_available():
-            print("rtk binary not found in PATH.")
-            return
-        result = subprocess.run(
-            ["rtk", "gain", "--history"], capture_output=True, text=True, timeout=10,
-        )
-        print(result.stdout or result.stderr or "(no output)")
+    if sub == "gain":
+        # Pass remaining flags through to rtk gain (e.g. --history, --project, --graph)
+        # Always include --project to scope to current workspace
+        extra = parts[1:]
+        if "--project" not in extra and "-p" not in extra:
+            extra.insert(0, "--project")
+        _run_rtk("gain", *extra)
         return
 
     # Default: show status
@@ -55,5 +55,7 @@ def cmd_rtk(args: str, ctx: RunContext) -> None:
         print(f"  https://github.com/rtk-ai/rtk")
     elif not enabled:
         print(f"\n  RTK is installed but not enabled. Run /rtk on to enable.")
-    print(f"\n  /rtk on|off     Toggle RTK proxy")
-    print(f"  /rtk gain       Show token savings")
+    print(f"\n  /rtk on|off          Toggle RTK proxy")
+    print(f"  /rtk gain            Show project token savings")
+    print(f"  /rtk gain --history  Per-command savings history")
+    print(f"  /rtk gain --graph    Daily savings graph")

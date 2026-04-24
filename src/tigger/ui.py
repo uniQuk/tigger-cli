@@ -1,14 +1,18 @@
 from __future__ import annotations
 import pathlib
 import random
+import shutil
+import subprocess
 import threading
 import time
 from collections import deque
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.theme import Theme
-from tigger._spinners import SPINNER_MESSAGES
+from tigger._spinners import pick_message
 from tigger.types import RunContext, TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent, ThinkingEvent
 from tigger._constants import CONFIG_DIR, home_config_dir
 
@@ -126,6 +130,127 @@ def format_duration(seconds: float) -> str:
     return f"{h}h {m}m"
 
 
+def _rtk_project_totals() -> tuple[int, int, int] | None:
+    """Query RTK for project-scoped totals. Returns (saved, input, output) or None."""
+    if not shutil.which("rtk"):
+        return None
+    try:
+        result = subprocess.run(
+            ["rtk", "gain", "--project", "--format", "json"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        import json
+        data = json.loads(result.stdout)
+        summary = data.get("summary", {})
+        return (
+            summary.get("total_saved", 0),
+            summary.get("total_input", 0),
+            summary.get("total_output", 0),
+        )
+    except Exception:
+        return None
+
+
+@dataclass
+class SessionStats:
+    """Tracks session-level metrics for the exit summary."""
+    start_time: float = field(default_factory=time.time)
+    turns: int = 0
+    tool_calls: int = 0
+    tool_success: int = 0
+    tool_errors: int = 0
+    tool_denied: int = 0
+    output_tokens: int = 0
+    tool_names: dict[str, int] = field(default_factory=dict)
+    rtk_saved_at_start: int = 0
+    rtk_input_at_start: int = 0
+
+    def record_tool_end(self, event: ToolEndEvent) -> None:
+        self.tool_calls += 1
+        if not event.permitted:
+            self.tool_denied += 1
+        elif event.error:
+            self.tool_errors += 1
+        else:
+            self.tool_success += 1
+        self.tool_names[event.name] = self.tool_names.get(event.name, 0) + 1
+
+    def snapshot_rtk(self) -> None:
+        """Capture RTK totals at session start for diffing on exit."""
+        totals = _rtk_project_totals()
+        if totals:
+            self.rtk_saved_at_start, self.rtk_input_at_start, _ = totals
+
+    def rtk_session_savings(self) -> tuple[int, float] | None:
+        """Return (tokens_saved, pct) for this session only, or None."""
+        totals = _rtk_project_totals()
+        if totals is None:
+            return None
+        saved_now, input_now, _ = totals
+        session_saved = saved_now - self.rtk_saved_at_start
+        session_input = input_now - self.rtk_input_at_start
+        if session_saved <= 0:
+            return None
+        pct = session_saved / session_input * 100 if session_input > 0 else 0
+        return session_saved, pct
+
+
+def print_session_summary(
+    stats: SessionStats,
+    session_id: str | None,
+    model: str,
+    rtk_enabled: bool,
+) -> None:
+    """Print a boxed session summary on exit."""
+    wall = time.time() - stats.start_time
+    lines: list[str] = []
+
+    lines.append("[bold]Session Summary[/bold]")
+    lines.append("")
+
+    if session_id:
+        lines.append(f"  Session:       {session_id}")
+    lines.append(f"  Model:         {model}")
+    lines.append(f"  Duration:      {format_duration(wall)}")
+    lines.append(f"  Turns:         {stats.turns}")
+    lines.append(f"  Output:        ~{stats.output_tokens:,} tokens")
+
+    if stats.tool_calls > 0:
+        lines.append("")
+        pct = stats.tool_success / stats.tool_calls * 100 if stats.tool_calls else 0
+        lines.append(f"  Tools:         {stats.tool_calls}  "
+                      f"( [green]\u2713 {stats.tool_success}[/green]"
+                      f"  [red]\u2717 {stats.tool_errors}[/red]"
+                      f"  [yellow]\u2298 {stats.tool_denied}[/yellow] )")
+        lines.append(f"  Success:       {pct:.0f}%")
+
+        # Top tools breakdown
+        top = sorted(stats.tool_names.items(), key=lambda x: x[1], reverse=True)[:5]
+        if top:
+            breakdown = ", ".join(f"{n} \u00d7{c}" if c > 1 else n for n, c in top)
+            lines.append(f"  Top tools:     {breakdown}")
+
+    if rtk_enabled:
+        rtk_savings = stats.rtk_session_savings()
+        if rtk_savings:
+            saved, pct = rtk_savings
+            lines.append("")
+            lines.append(f"  [green]RTK:[/green]          {saved:,} tokens saved ({pct:.0f}%)")
+
+    if session_id:
+        lines.append("")
+        lines.append(f"  [dim]Resume: tigger-code -c[/dim]")
+
+    console.print()
+    console.print(Panel(
+        "\n".join(lines),
+        border_style="dim",
+        padding=(1, 2),
+    ))
+
+
 def print_turn_summary(tokens: int, elapsed: float) -> None:
     console.print(f"[dim]· {tokens} tokens · {format_duration(elapsed)}[/dim]")
 
@@ -196,14 +321,22 @@ def Spinner(start: float, token_counter: list[int] | None = None):
     """
     Show an animated spinner with a live elapsed-time counter while the model
     is thinking. Optionally shows streaming token count.
+
+    Message rotates on a random interval (2.5–5s) so it feels alive.
     """
-    msg = random.choice(SPINNER_MESSAGES)
+    msg = pick_message()
     stop_event = threading.Event()
+    next_change = time.time() + random.uniform(2.5, 5.0)
 
     with console.status("", spinner="dots") as status:
         def _tick() -> None:
+            nonlocal msg, next_change
             while not stop_event.is_set():
-                elapsed = time.time() - start
+                now = time.time()
+                if now >= next_change:
+                    msg = pick_message()
+                    next_change = now + random.uniform(2.5, 5.0)
+                elapsed = now - start
                 parts = [msg, f"{elapsed:.0f}s"]
                 if token_counter and token_counter[0] > 0:
                     tok = token_counter[0] // 4
@@ -331,7 +464,7 @@ def render_event(event, ctx: RunContext, output_chars: list[int], text_buf: list
         _stop_activity()
         _flush_tool_buffer()
         _flush_text(text_buf)
-        msg = random.choice(SPINNER_MESSAGES)
+        msg = pick_message()
         _start_activity(f"[dim]{msg}[/dim]")
     elif isinstance(event, TurnDoneEvent):
         _stop_activity()
