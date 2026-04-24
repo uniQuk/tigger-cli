@@ -4,6 +4,7 @@ import dataclasses
 import pathlib
 import sys
 import time
+import httpx
 from tigger.config import load_config, find_config, derive_provider_name
 from tigger.types import RunContext, TrustLevel
 from tigger.tools import ToolRegistry, register_all
@@ -284,6 +285,10 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         except KeyboardInterrupt:
             ui._stop_activity()
             ui.print_info("\n(interrupted)")
+            continue
+        except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ConnectError) as exc:
+            ui._stop_activity()
+            ui.print_error(f"Network error: {exc}")
             continue
 
         elapsed = time.time() - turn_start

@@ -1,13 +1,14 @@
 from __future__ import annotations
 import json
 from typing import Generator
+import httpx
 from openai import OpenAI
 from tigger.types import Config, Message, AssistantMessage, ToolCallRecord, TextChunk
 
 _client_cache: dict[tuple[str, str], OpenAI] = {}
 
-
-_DEFAULT_TIMEOUT = 60  # seconds — covers slow first-token responses
+# Short connect timeout, long read timeout for streaming (models may think for minutes).
+_DEFAULT_TIMEOUT = httpx.Timeout(connect=30, read=300, write=30, pool=30)
 
 
 def _get_client(base_url: str, api_key: str) -> OpenAI:

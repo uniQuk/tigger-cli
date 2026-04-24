@@ -74,6 +74,9 @@ def _read(args: dict) -> str:
     return safe.read_text(errors="replace")
 
 
+_GLOB_MAX_RESULTS = 200
+
+
 def _glob_tool(args: dict) -> str:
     pattern = args["pattern"]
     base = args.get("path", ".")
@@ -92,6 +95,10 @@ def _glob_tool(args: dict) -> str:
             safe_matches.append(m)
         except ValueError:
             pass
+    total = len(safe_matches)
+    if total > _GLOB_MAX_RESULTS:
+        safe_matches = safe_matches[:_GLOB_MAX_RESULTS]
+        return "\n".join(safe_matches) + f"\n\n(truncated — showing {_GLOB_MAX_RESULTS} of {total} results. Use a more specific pattern to narrow results.)"
     return "\n".join(safe_matches) or "(no matches)"
 
 

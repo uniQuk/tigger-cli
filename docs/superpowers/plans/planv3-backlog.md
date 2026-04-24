@@ -76,6 +76,23 @@ Items identified during multi-provider design. These are not part of the current
 
 19. **AGENTS.md awareness** — The CLI already loads `agents.md` from `.tigger/` but there's no way to discover this without reading the source. `/init` should create a documented template, and `/help agent` should explain the format.
 
+## System prompt & tool guidance
+
+20. **Tool usage guidance in system prompt** — The model has no instructions on how to use tools effectively. It will do things like `glob **/*` (listing every file in the project) which overwhelms context and can timeout the provider. The system prompt needs a section teaching the model tool best practices:
+    - Use specific glob patterns, never `**/*`
+    - Prefer `grep` for content search over reading entire files
+    - Use `read` with specific paths rather than globbing then reading everything
+    - Prefer targeted tool calls over broad sweeps
+    
+    Claude Code's system prompt has an extensive "Using your tools" section covering this. Tigger needs an equivalent tailored to its own tool set. This is the primary fix — the glob result cap (item 21) is just a safety net.
+
+21. **Tool result size caps** — Safety limits on tool output sent to the model. Currently a `glob **/*` on a large project returns thousands of lines, blowing up context and causing provider timeouts. Glob is now capped at 200 results with a truncation message. Similar caps should be considered for:
+    - `read`: truncate very large files with a "(truncated — use offset/limit for specific sections)" message
+    - `grep`: cap match count with guidance to narrow the pattern
+    - `bash`: cap stdout length
+    
+    These are guardrails, not the primary solution (see item 20).
+
 ## Additional skill dependencies (from prompts.ts)
 
 None identified. The Qwen prompts.ts is self-contained — all system prompt content is inline, no external skill file dependencies. The tool name references (`ToolNames.*`) are just string constants, not separate skill files.
