@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pathlib
+import shutil
 
 from tigger._constants import home_config_dir
 from tigger.skills import AgentDef, SkillDef, load_agents, load_agents_dir, load_skills_dir
@@ -16,6 +17,50 @@ def is_global_config(config_path: pathlib.Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def seed_global(global_dir: pathlib.Path, internal_dir: pathlib.Path | None = None) -> bool:
+    """Copy internal skills/agents to ~/.tigger/ if they don't exist yet.
+
+    Returns True if anything was seeded, False if global already populated.
+    This runs once on first launch — after that, ~/.tigger/ is the living
+    copy that the user and tigger can edit freely.
+    """
+    if internal_dir is None:
+        internal_dir = INTERNAL_DIR
+    seeded = False
+
+    # Seed skills: copy each internal skill dir if not already present
+    internal_skills = internal_dir / "skills"
+    if internal_skills.exists():
+        global_skills = global_dir / "skills"
+        global_skills.mkdir(parents=True, exist_ok=True)
+        for skill_dir in sorted(internal_skills.iterdir()):
+            if not skill_dir.is_dir():
+                continue
+            target = global_skills / skill_dir.name
+            if not target.exists():
+                shutil.copytree(skill_dir, target)
+                seeded = True
+
+    # Seed agents: copy each internal agent .md if not already present
+    internal_agents = internal_dir / "agents"
+    if internal_agents.exists():
+        global_agents = global_dir / "agents"
+        global_agents.mkdir(parents=True, exist_ok=True)
+        for agent_file in sorted(internal_agents.iterdir()):
+            if not agent_file.is_file() or agent_file.suffix != ".md":
+                continue
+            target = global_agents / agent_file.name
+            if not target.exists():
+                shutil.copy2(agent_file, target)
+                seeded = True
+
+    # Note: hooks.py is NOT seeded — hooks are executable code, not prompts.
+    # The internal hooks.py serves as a package-level fallback only.
+    # Users create their own hooks.py when they need custom hooks.
+
+    return seeded
 
 
 def resolve_file(

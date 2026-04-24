@@ -18,7 +18,7 @@ Built-in slash commands: /help, /clear, /tokens, /model, /mode, /permission, /me
 - Memory: `.tigger/memory.md` — persistent notes appended to system prompt
 - Skills: `.tigger/skills/<name>/SKILL.md` — custom skills with YAML frontmatter
 - Agents: `.tigger/agents/<name>.md` — custom agents with YAML frontmatter
-- Hooks: `.tigger/hooks.py` — before/after hooks using @on_before/@on_after decorators
+- Hooks: `.tigger/hooks.py` — before/after hooks using on_before/on_after decorators
 - MCP: `.tigger/mcp.json` — Model Context Protocol server configuration
 
 ## Skill Format

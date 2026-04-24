@@ -55,45 +55,46 @@ def test_init_creates_directory(tmp_path, monkeypatch):
     assert (tmp_path / CONFIG_DIR).is_dir()
 
 
-def test_init_global_creates_in_home(tmp_path, monkeypatch, capsys):
+def test_init_global_seeds_from_internals(tmp_path, monkeypatch, capsys):
     global_dir = tmp_path / ".tigger"
     monkeypatch.setattr("tigger.commands.init.home_config_dir", lambda: global_dir)
     cmd_init("--global", _ctx())
     assert global_dir.exists()
-    assert (global_dir / "system.md").exists()
-    assert (global_dir / "hooks.py").exists()
-    assert (global_dir / "skills" / "SKILL.md").exists()
-    assert (global_dir / "agents" / "example-agent.md").exists()
+    # Should have real internal skills, not useless templates
+    assert (global_dir / "skills" / "debug" / "SKILL.md").exists()
+    assert (global_dir / "skills" / "commit" / "SKILL.md").exists()
+    assert (global_dir / "agents" / "test-engineer.md").exists()
     out = capsys.readouterr().out
-    assert str(global_dir) in out
+    assert "Seeded" in out
+    assert "live copies" in out
 
 
-def test_init_global_skips_existing(tmp_path, monkeypatch, capsys):
+def test_init_global_already_populated(tmp_path, monkeypatch, capsys):
     global_dir = tmp_path / ".tigger"
-    global_dir.mkdir(parents=True)
-    (global_dir / "system.md").write_text("my global prompt")
     monkeypatch.setattr("tigger.commands.init.home_config_dir", lambda: global_dir)
     cmd_init("--global", _ctx())
-    assert (global_dir / "system.md").read_text() == "my global prompt"
+    capsys.readouterr()
+    # Second call — nothing new
+    cmd_init("--global", _ctx())
     out = capsys.readouterr().out
-    assert "Skipped" in out
+    assert "already populated" in out
+
+
+def test_init_global_preserves_customizations(tmp_path, monkeypatch, capsys):
+    global_dir = tmp_path / ".tigger"
+    monkeypatch.setattr("tigger.commands.init.home_config_dir", lambda: global_dir)
+    # Pre-create a custom debug skill
+    custom_dir = global_dir / "skills" / "debug"
+    custom_dir.mkdir(parents=True)
+    (custom_dir / "SKILL.md").write_text("my custom debug")
+    cmd_init("--global", _ctx())
+    # Custom content preserved
+    assert (global_dir / "skills" / "debug" / "SKILL.md").read_text() == "my custom debug"
 
 
 def test_init_without_global_uses_cwd(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     cmd_init("", _ctx())
     assert (tmp_path / CONFIG_DIR).is_dir()
-    # Should NOT create in a global location
     out = capsys.readouterr().out
     assert "Created" in out
-
-
-def test_init_global_creates_agents_dir_template(tmp_path, monkeypatch, capsys):
-    global_dir = tmp_path / ".tigger"
-    monkeypatch.setattr("tigger.commands.init.home_config_dir", lambda: global_dir)
-    cmd_init("--global", _ctx())
-    agent_file = global_dir / "agents" / "example-agent.md"
-    assert agent_file.exists()
-    content = agent_file.read_text()
-    assert "name: example-agent" in content
-    assert "description:" in content

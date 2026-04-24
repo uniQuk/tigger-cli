@@ -2,7 +2,7 @@ from __future__ import annotations
 import pathlib
 import textwrap
 import pytest
-from tigger.resolve import resolve_file, resolve_skills, resolve_agents, is_global_config
+from tigger.resolve import resolve_file, resolve_skills, resolve_agents, is_global_config, seed_global
 
 
 def _make_skill(base_dir: pathlib.Path, name: str, body: str = "Body.") -> None:
@@ -231,3 +231,64 @@ def test_is_global_config_false(tmp_path, monkeypatch):
     cfg.parent.mkdir(parents=True)
     cfg.touch()
     assert is_global_config(cfg) is False
+
+
+# --- seed_global ---
+
+def test_seed_global_copies_skills_and_agents(tmp_path):
+    internal = tmp_path / "internal"
+    _make_skill(internal, "debug")
+    _make_agent_file(internal, "test-engineer")
+    global_dir = tmp_path / "global"
+    global_dir.mkdir()
+    result = seed_global(global_dir, internal)
+    assert result is True
+    assert (global_dir / "skills" / "debug" / "SKILL.md").exists()
+    assert (global_dir / "agents" / "test-engineer.md").exists()
+
+
+def test_seed_global_skips_existing(tmp_path):
+    internal = tmp_path / "internal"
+    _make_skill(internal, "debug")
+    global_dir = tmp_path / "global"
+    # Pre-populate with custom content
+    custom_dir = global_dir / "skills" / "debug"
+    custom_dir.mkdir(parents=True)
+    (custom_dir / "SKILL.md").write_text("my custom debug")
+    result = seed_global(global_dir, internal)
+    assert result is False
+    # Custom content preserved
+    assert (global_dir / "skills" / "debug" / "SKILL.md").read_text() == "my custom debug"
+
+
+def test_seed_global_adds_new_skills_alongside_existing(tmp_path):
+    internal = tmp_path / "internal"
+    _make_skill(internal, "debug")
+    _make_skill(internal, "commit")
+    global_dir = tmp_path / "global"
+    # Pre-populate debug only
+    custom_dir = global_dir / "skills" / "debug"
+    custom_dir.mkdir(parents=True)
+    (custom_dir / "SKILL.md").write_text("my custom debug")
+    result = seed_global(global_dir, internal)
+    assert result is True  # commit was new
+    assert (global_dir / "skills" / "debug" / "SKILL.md").read_text() == "my custom debug"
+    assert (global_dir / "skills" / "commit" / "SKILL.md").exists()
+
+
+def test_seed_global_no_internal_dir(tmp_path):
+    global_dir = tmp_path / "global"
+    global_dir.mkdir()
+    result = seed_global(global_dir, tmp_path / "nonexistent")
+    assert result is False
+
+
+def test_seed_global_idempotent(tmp_path):
+    internal = tmp_path / "internal"
+    _make_skill(internal, "debug")
+    global_dir = tmp_path / "global"
+    global_dir.mkdir()
+    seed_global(global_dir, internal)
+    # Second call should be a no-op
+    result = seed_global(global_dir, internal)
+    assert result is False

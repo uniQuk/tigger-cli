@@ -2,7 +2,10 @@ from __future__ import annotations
 import pathlib
 from tigger.types import RunContext
 from tigger._constants import CONFIG_DIR, home_config_dir
+from tigger.resolve import seed_global
 
+# Templates for project-level .tigger/ scaffolding only.
+# Global (~/.tigger/) is seeded from internal skills/agents instead.
 _TEMPLATES = {
     "system.md": '''# System Prompt
 
@@ -11,10 +14,14 @@ Customise your system prompt here. This will be prepended to every conversation.
     "hooks.py": '''# Tigger Hooks
 # Uncomment and modify to add custom hooks.
 #
-# def before_bash(tool_call, ctx):
-#     """Called before bash tool executes."""
-#     return tool_call
+# from tigger.hooks import on_before, on_after
 #
+# @on_before("bash")
+# def before_bash(call, ctx):
+#     """Called before bash tool executes."""
+#     return call
+#
+# @on_after("bash")
 # def after_bash(event, ctx):
 #     """Called after bash tool executes."""
 #     return event
@@ -49,9 +56,18 @@ You are a helpful agent. Describe your purpose here.
 
 def cmd_init(args: str, ctx: RunContext) -> None:
     if "--global" in args:
-        tigger_dir = home_config_dir()
-    else:
-        tigger_dir = pathlib.Path.cwd() / CONFIG_DIR
+        global_dir = home_config_dir()
+        global_dir.mkdir(parents=True, exist_ok=True)
+        seeded = seed_global(global_dir)
+        if seeded:
+            print(f"Seeded {global_dir} with internal skills and agents.")
+        else:
+            print(f"{global_dir} already populated — nothing new to seed.")
+        print("  Skills and agents are live copies you can edit freely.")
+        print("  New internal skills from upgrades will be added automatically.")
+        return
+
+    tigger_dir = pathlib.Path.cwd() / CONFIG_DIR
     tigger_dir.mkdir(parents=True, exist_ok=True)
 
     created = []

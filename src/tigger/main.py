@@ -12,7 +12,8 @@ from tigger.tools import ToolRegistry, register_all
 from tigger.hooks import HookRegistry, load_hooks
 from tigger.skills import match_skill
 from tigger.resolve import (
-    resolve_file, resolve_skills, resolve_agents, is_global_config, INTERNAL_DIR,
+    resolve_file, resolve_skills, resolve_agents, is_global_config,
+    seed_global, INTERNAL_DIR,
 )
 from tigger.memory import read_memory, format_for_prompt
 from tigger.mcp import connect_all
@@ -57,6 +58,9 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     else:
         project_dir = config_path.parent
 
+    # 1c. Seed ~/.tigger/ with internal skills/agents on first run
+    seed_global(global_dir)
+
     # 2. Workspace trust check
     cwd = pathlib.Path.cwd()
     trust_level = _trust.check_trust(cwd)
@@ -95,9 +99,11 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     # 6. Hooks — override semantics (first found wins)
     hooks_path = resolve_file("hooks.py", project_dir, global_dir, INTERNAL_DIR)
     if hooks_path:
-        # Internal hooks are trusted (bundled with package) — skip consent.
-        _is_internal = hooks_path.is_relative_to(INTERNAL_DIR)
-        hooks = load_hooks(hooks_path, require_consent=not _is_internal)
+        # Only project hooks need consent (untrusted repo code).
+        # Global (~/.tigger/) and internal (package) hooks are trusted.
+        _is_project = (project_dir is not None
+                       and hooks_path.is_relative_to(project_dir))
+        hooks = load_hooks(hooks_path, require_consent=_is_project)
     else:
         hooks = load_hooks(pathlib.Path("/dev/null"))  # empty registry
 
@@ -300,6 +306,11 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             _show_exit(stats, session_id, ctx)
             break
 
+        # Expand @file references in raw user input before skill/command processing.
+        # Must happen before skill.render() to avoid mangling skill content
+        # that contains @ characters (e.g. @on_before decorator examples).
+        line = expand_file_refs(line)
+
         skill = match_skill(line, skills)
         if skill:
             if skill.context == "fork":
@@ -318,9 +329,6 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             else:
                 ui.print_error(f"Unknown command: /{name}. Type /help for list.")
             continue
-
-        # Expand @file references before sending to agent.
-        line = expand_file_refs(line)
 
         # Run agent turn.
         turn_start = time.time()
