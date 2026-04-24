@@ -36,6 +36,9 @@ def expand_file_refs(line: str) -> str:
         if not path.exists():
             print(f"Warning: file not found: {path_str}")
             return match.group(0)  # leave as-is
+        if path.is_dir():
+            print(f"Warning: @file references must point to files, not directories: {path_str}")
+            return match.group(0)
         if path.stat().st_size > _MAX_FILE_SIZE:
             print(f"Warning: {path_str} exceeds 50KB, truncating")
             content = path.read_text(errors="replace")[:_MAX_FILE_SIZE]

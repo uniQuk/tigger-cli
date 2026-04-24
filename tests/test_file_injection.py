@@ -70,6 +70,15 @@ def test_expand_rejects_home_path(capsys):
     assert "must be relative" in out
 
 
+def test_expand_rejects_directory(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "subdir").mkdir()
+    result = expand_file_refs("@subdir")
+    assert result == "@subdir"
+    out = capsys.readouterr().out
+    assert "not directories" in out
+
+
 def test_expand_rejects_parent_traversal(tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(tmp_path)
     # Create a file outside workspace
