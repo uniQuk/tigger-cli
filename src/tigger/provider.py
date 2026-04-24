@@ -3,7 +3,7 @@ import json
 from typing import Generator
 import httpx
 from openai import OpenAI
-from tigger.types import Config, Message, AssistantMessage, ToolCallRecord, TextChunk
+from tigger.types import Config, Message, AssistantMessage, ToolCallRecord, TextChunk, ThinkingEvent
 
 _client_cache: dict[tuple[str, str], OpenAI] = {}
 
@@ -69,7 +69,7 @@ def stream(
     messages: list[Message],
     tools: list[dict],
     config: Config,
-) -> Generator[TextChunk | AssistantMessage, None, None]:
+) -> Generator[TextChunk | AssistantMessage | ThinkingEvent, None, None]:
     """Stream a chat completion. Yields TextChunk during streaming, then AssistantMessage."""
     client = _get_client(config.base_url, config.api_key)
     openai_messages = [{"role": "system", "content": system}] + messages_to_openai(messages)
@@ -85,6 +85,7 @@ def stream(
 
     collected_text = ""
     collected_tool_calls: list[dict] = []
+    tool_call_signalled = False
 
     response = client.chat.completions.create(**kwargs)
     for chunk in response:
@@ -95,6 +96,9 @@ def stream(
             collected_text += delta.content
             yield TextChunk(content=delta.content)
         if delta.tool_calls:
+            if not tool_call_signalled:
+                tool_call_signalled = True
+                yield ThinkingEvent()
             for tc_chunk in delta.tool_calls:
                 idx = tc_chunk.index
                 while len(collected_tool_calls) <= idx:

@@ -412,7 +412,7 @@ def load_config(path: pathlib.Path) -> Config:
 
 
 def find_config(start: pathlib.Path) -> pathlib.Path | None:
-    """Walk up from *start* looking for .ai/config.json, fallback to ~/.ai/."""
+    """Walk up from *start* looking for .tigger/config.json, fallback to ~/.tigger/."""
     current = start.resolve()
     while True:
         candidate = current / ".ai" / "config.json"
@@ -2439,7 +2439,7 @@ def startup(config_path: pathlib.Path | None = None) -> tuple[RunContext, dict, 
     if config_path is None:
         config_path = find_config(pathlib.Path.cwd())
     if config_path is None:
-        print("Error: no .ai/config.json found. Create one in your project or ~/.ai/")
+        print("Error: no .tigger/config.json found. Create one in your project or ~/.tigger/")
         sys.exit(1)
 
     ai_dir = config_path.parent
@@ -2552,9 +2552,9 @@ git commit -m "feat: add REPL and startup sequence — newcli is complete"
 Verify the CLI starts against a real local model endpoint.
 
 **Files:**
-- Create: `.ai/config.json` (local, not committed)
+- Create: `.tigger/config.json` (local, not committed)
 
-- [ ] **Step 1: Create a minimal `.ai/config.json`**
+- [ ] **Step 1: Create a minimal `.tigger/config.json`**
 
 ```json
 {
@@ -2595,12 +2595,12 @@ Expected: model calls the `glob` or `bash` tool; results displayed
 Press: `Ctrl+D`
 Expected: `Bye.`
 
-- [ ] **Step 8: Commit `.ai/config.json` to `.gitignore`**
+- [ ] **Step 8: Commit `.tigger/config.json` to `.gitignore`**
 
 ```bash
-echo ".ai/" >> .gitignore
+echo ".tigger/" >> .gitignore
 git add .gitignore
-git commit -m "chore: ignore local .ai/ config directory"
+git commit -m "chore: ignore local .tigger/ config directory"
 ```
 
 ---

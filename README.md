@@ -78,6 +78,47 @@ Create `.tigger/config.json` in your project or home directory:
 | `max_depth` | Max sub-agent recursion depth | `4` |
 | `max_retries` | Retries on provider error | `2` |
 | `bash_safe_prefixes` | Commands that don't require permission | `[]` |
+| `rtk` | Enable RTK token optimization for bash commands | `false` (auto-detected) |
+
+---
+
+## RTK Integration
+
+[RTK](https://github.com/rtk-ai/rtk) (Rust Token Killer) is an optional CLI proxy that reduces token consumption by 60-90% on shell command output. Tigger auto-detects RTK at startup — if `rtk` is in your PATH, it's enabled automatically.
+
+When enabled, all bash tool calls are transparently proxied through `rtk`. The agent doesn't know the difference; it just receives cleaner, shorter output.
+
+### Quick start
+
+```bash
+# Install RTK (see https://github.com/rtk-ai/rtk for options)
+curl -fsSL https://rtk.sh | bash
+
+# Tigger auto-detects it — just start normally
+tigger-code
+```
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `/rtk` | Show RTK status (installed, enabled) |
+| `/rtk on` | Enable RTK proxy |
+| `/rtk off` | Disable RTK proxy |
+| `/rtk gain` | Show token savings stats |
+| `/rtk gain --history` | Show per-command savings history |
+
+### Configuration
+
+To explicitly enable or disable in `config.json`:
+
+```json
+{
+  "rtk": true
+}
+```
+
+When `rtk` is not set in config, tigger auto-detects: if the `rtk` binary is found in PATH, it's enabled. Set `"rtk": false` to disable even when installed.
 
 ---
 
@@ -122,6 +163,7 @@ Type `exit` or `quit` to leave the REPL. Ctrl+C during a response interrupts it 
 | `/compact` | Manually compact the context window |
 | `/skills` | List loaded skills |
 | `/agent <name>` | Invoke a sub-agent by name |
+| `/rtk` | Show RTK status, toggle on/off, view token savings |
 | `/clear` | Clear message history |
 | `exit` / `quit` | Exit the REPL |
 

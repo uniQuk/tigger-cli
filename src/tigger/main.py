@@ -2,6 +2,7 @@
 from __future__ import annotations
 import dataclasses
 import pathlib
+import shutil
 import sys
 import time
 import httpx
@@ -55,11 +56,15 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         else:
             trust_level = TrustLevel.READONLY
 
-    # 3. Logo + startup info (side-by-side when terminal is wide enough)
+    # 3. Logo + startup info
+    # RTK detection is done later (step 6b), so check here for display only.
+    _rtk_available = shutil.which("rtk") is not None
+    _rtk_enabled = config.rtk or _rtk_available
     ui.print_logo(
         provider=config.active_provider or derive_provider_name(config.base_url),
         model=config.model,
         cwd=str(cwd),
+        rtk=_rtk_enabled,
     )
 
     # 4. Tool registry
@@ -72,6 +77,18 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
 
     # 6. Hooks
     hooks = load_hooks(tigger_dir / "hooks.py")
+
+    # 6b. RTK auto-detection — enable if rtk binary is found and not explicitly disabled
+    if not config.rtk and shutil.which("rtk"):
+        config = dataclasses.replace(config, rtk=True)
+
+    # 6c. RTK before-hook — always registered, checks ctx.config.rtk at runtime
+    #     so /rtk on|off works without restart
+    def _rtk_before_hook(call, ctx):
+        if ctx.config.rtk and not call.args.get("command", "").startswith("rtk "):
+            call.args["command"] = f"rtk {call.args['command']}"
+        return call
+    hooks.before.setdefault("bash", []).append(_rtk_before_hook)
 
     # 7-8. Skills + agents — prefer skills/ directory, fall back to skills.md
     skills_dir = tigger_dir / "skills"
@@ -133,11 +150,13 @@ def _toolbar(ctx: RunContext) -> str:
     tools_str = ""
     if ui.recent_tools:
         tools_str = f"  tools: {', '.join(ui.recent_tools)}"
+    rtk_str = "  rtk" if ctx.config.rtk else ""
     return (
         f" {ctx.config.model}"
         f"  mode:{ctx.config.mode}"
         f"  perm:{ctx.config.permission_mode}"
         f"  {pct:.1f}% context"
+        f"{rtk_str}"
         f"{tools_str}"
     )
 

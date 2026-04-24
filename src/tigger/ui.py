@@ -90,14 +90,15 @@ def _gradient_line(line: str, max_width: int) -> str:
     return "".join(out)
 
 
-def print_startup_info(provider: str, model: str, cwd: str) -> None:
+def print_startup_info(provider: str, model: str, cwd: str, rtk: bool = False) -> None:
     """Print provider/model info and cwd below the logo."""
-    console.print(f"      [bold]{provider}[/bold] | [bold cyan]{model}[/bold cyan] [dim](/model to change)[/dim]")
+    rtk_badge = "  [green]rtk[/green]" if rtk else ""
+    console.print(f"      [bold]{provider}[/bold] | [bold cyan]{model}[/bold cyan]{rtk_badge} [dim](/model to change)[/dim]")
     console.print(f"      [dim]{cwd}[/dim]")
     console.print()
 
 
-def print_logo(provider: str | None = None, model: str | None = None, cwd: str | None = None) -> None:
+def print_logo(provider: str | None = None, model: str | None = None, cwd: str | None = None, rtk: bool = False) -> None:
     """Print the logo with cat and startup info below."""
     logo_width = max(len(line) for line in _LOGO_LINES)
     for line in _LOGO_LINES:
@@ -107,7 +108,7 @@ def print_logo(provider: str | None = None, model: str | None = None, cwd: str |
         console.print(f"      {cl}")
     console.print(f"      [bold]Tigger — AI Agent[/bold]")
     if provider is not None and model is not None and cwd is not None:
-        print_startup_info(provider, model, cwd)
+        print_startup_info(provider, model, cwd, rtk=rtk)
     else:
         console.print()
 

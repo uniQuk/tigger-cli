@@ -10,25 +10,25 @@ No config found. Let's set up your first provider.
   Base URL (e.g. http://localhost:1234/v1): http://192.168.2.122:1234/v1
   API key (Enter for 'local'): sk-my-key
   Model name (e.g. qwen3, gpt-4o): qwen3.6-35b-a3b
-  Save to [P]roject or [u]ser (~/.ai/)? [P/u]: p
+  Save to [P]roject or [u]ser (~/.tigger/)? [P/u]: p
 
-  Config saved to /path/to/project/.ai/config.json
+  Config saved to /path/to/project/.tigger/config.json
 ```
 
-This creates a `.ai/config.json` in your project (or `~/.ai/config.json` for user-level). You can also create the file manually.
+This creates a `.tigger/config.json` in your project (or `~/.tigger/config.json` for user-level). You can also create the file manually.
 
 ## Config File Location
 
-Tigger searches for `.ai/config.json` by walking up from the current directory, then falls back to `~/.ai/config.json`. Project-level configs override user-level.
+Tigger searches for `.tigger/config.json` by walking up from the current directory, then falls back to `~/.tigger/config.json`. Project-level configs override user-level.
 
 ```
 my-project/
-  .ai/
+  .tigger/
     config.json      <-- project config (takes priority)
     skills/          <-- project skills
     system.md        <-- custom system prompt (optional)
     memory.md        <-- agent memory
-~/.ai/
+~/.tigger/
   config.json        <-- user-level fallback
 ```
 
@@ -225,7 +225,7 @@ Add a model to an existing provider:
   Added model 'deepseek-r1-0528' to provider 'lmstudio'.
 ```
 
-Both operations persist to `.ai/config.json` immediately.
+Both operations persist to `.tigger/config.json` immediately.
 
 ### Other useful commands
 
@@ -251,12 +251,12 @@ Trust workspace: /path/to/project
   Continue? [Y/n]:
 ```
 
-- **Y** (default) — full access, trust persisted to `~/.ai/trusted_paths.json`
+- **Y** (default) — full access, trust persisted to `~/.tigger/trusted_paths.json`
 - **n** — read-only mode (only read, glob, grep, web_fetch tools available)
 
 ## Custom System Prompt
 
-Create `.ai/system.md` to override the built-in system prompt:
+Create `.tigger/system.md` to override the built-in system prompt:
 
 ```markdown
 You are a senior Python developer.

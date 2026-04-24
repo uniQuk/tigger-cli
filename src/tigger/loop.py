@@ -61,6 +61,8 @@ def run(
         for chunk in stream:
             if isinstance(chunk, TextChunk):
                 yield chunk
+            elif isinstance(chunk, ThinkingEvent):
+                yield chunk
             elif isinstance(chunk, AssistantMessage):
                 assistant_msg = chunk
 

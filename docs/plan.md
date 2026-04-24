@@ -28,7 +28,7 @@ A minimal, clean AI agent CLI. One folder. One settings file. No repository requ
 
 ```
 my-project/
-└── .ai/                    ← agent config folder (or use ~/.ai/ globally)
+└── .tigger/                    ← agent config folder (or use ~/.tigger/ globally)
     ├── config.json         ← model endpoint, permissions, limits
     ├── skills.md           ← skill definitions (YAML frontmatter blocks)
     ├── agents.md           ← sub-agent type definitions
@@ -37,8 +37,8 @@ my-project/
     └── memory.md           ← auto-managed persistent notes
 ```
 
-The agent discovers `.ai/` by walking up from `cwd`. Falls back to `~/.ai/` for global defaults.
-Both directories are merged: project `.ai/` overrides global `~/.ai/`.
+The agent discovers `.tigger/` by walking up from `cwd`. Falls back to `~/.tigger/` for global defaults.
+Both directories are merged: project `.tigger/` overrides global `~/.tigger/`.
 
 ### CLI Source
 
@@ -301,7 +301,7 @@ No edits to `permissions.py` required.
 
 ---
 
-## Hooks (`hooks.py` system + `.ai/hooks.py` user file)
+## Hooks (`hooks.py` system + `.tigger/hooks.py` user file)
 
 Hooks are middleware lists. No function replacement.
 
@@ -324,10 +324,10 @@ def run_after(result: ToolEndEvent, ctx: RunContext, registry: HookRegistry) -> 
     return result
 ```
 
-### User hooks (`.ai/hooks.py`)
+### User hooks (`.tigger/hooks.py`)
 
 ```python
-# .ai/hooks.py — loaded at startup if present
+# .tigger/hooks.py — loaded at startup if present
 from newcli.hooks import on_before, on_after   # decorators that register into the hook registry
 
 @on_before("write", "edit")
@@ -340,7 +340,7 @@ def backup_before_modify(call, ctx):
 
 @on_after("bash")
 def log_commands(result, ctx):
-    with open(".ai/bash_log.txt", "a") as f:
+    with open(".tigger/bash_log.txt", "a") as f:
         f.write(result.output + "\n")
     return result
 ```
@@ -412,7 +412,7 @@ for the reviewer.
 
 ---
 
-## MCP Integration (`mcp.py` + `.ai/mcp.json`)
+## MCP Integration (`mcp.py` + `.tigger/mcp.json`)
 
 ```json
 {
@@ -505,7 +505,7 @@ Thin shell. No business logic. ~150 lines.
 ```python
 def repl(ctx: RunContext):
     commands = load_builtin_commands()      # /compact, /memory, /skills, /help, /agent
-    skills = load_skills(".ai/skills.md")   # loaded once
+    skills = load_skills(".tigger/skills.md")   # loaded once
 
     while True:
         try:
@@ -554,21 +554,21 @@ Simple one-liner before each prompt:
 ## Startup Sequence (`main.py`)
 
 ```
-1. find_ai_dir(cwd)          → locate .ai/ (walk up + ~/.ai/ fallback)
+1. find_ai_dir(cwd)          → locate .tigger/ (walk up + ~/.tigger/ fallback)
 2. load_config()             → parse config.json → Config (validated)
 3. ToolRegistry()
 4. tools.register_all(registry)
-5. mcp.connect_all(registry, ".ai/mcp.json")   → blocking, 3s timeout per server
-6. hooks = load_hooks(".ai/hooks.py")           → importlib, safe try/except
-7. skills = load_skills(".ai/skills.md")
-8. agents = load_agents(".ai/agents.md")
+5. mcp.connect_all(registry, ".tigger/mcp.json")   → blocking, 3s timeout per server
+6. hooks = load_hooks(".tigger/hooks.py")           → importlib, safe try/except
+7. skills = load_skills(".tigger/skills.md")
+8. agents = load_agents(".tigger/agents.md")
 9. system = build_system_prompt(config, skills, memory)
 10. ctx = RunContext(config, messages=[], system_prompt=system)
 11. repl(ctx)
 ```
 
 One clean startup sequence. No background threads. No import side-effects.
-If `.ai/hooks.py` doesn't exist, `hooks` is an empty `HookRegistry`. No error.
+If `.tigger/hooks.py` doesn't exist, `hooks` is an empty `HookRegistry`. No error.
 
 ---
 
@@ -598,14 +598,14 @@ submodule, not in `main.py`.
 | Multi-provider SDK (Anthropic, Ollama SDK) | OpenAI-compat covers all targets |
 | Sub-agent orchestration (worker/brainstorm) | Add via skills/agents.md when needed |
 | Task management system | Out of scope; add as MCP server |
-| Plugin system | `.ai/hooks.py` and `skills.md` are sufficient |
+| Plugin system | `.tigger/hooks.py` and `skills.md` are sufficient |
 | Cloud sync | Out of scope |
 | Voice / video | Out of scope |
 | Telegram integration | Out of scope |
 | Proactive background daemon | Out of scope |
 | AI memory consolidation | Simple append is enough |
 | Deliberation / parallel branches | Add if benchmarks demand it |
-| Git checkpoint hooks | Handled by user's `.ai/hooks.py` |
+| Git checkpoint hooks | Handled by user's `.tigger/hooks.py` |
 | Sentinel tuple dispatch | Replaced by direct function calls |
 | Import side-effect registration | Replaced by explicit `register_all()` |
 

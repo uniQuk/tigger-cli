@@ -147,6 +147,7 @@ def load_config(path: pathlib.Path) -> Config:
         max_depth=data.get("max_depth", 4),
         max_retries=data.get("max_retries", 2),
         bash_safe_prefixes=data.get("bash_safe_prefixes", []),
+        rtk=data.get("rtk", False),
     )
 
 
@@ -198,5 +199,6 @@ def write_config(path: pathlib.Path, config: Config) -> None:
         "max_depth": config.max_depth,
         "max_retries": config.max_retries,
         "bash_safe_prefixes": config.bash_safe_prefixes,
+        "rtk": config.rtk,
     }
     path.write_text(json.dumps(data, indent=2) + "\n")

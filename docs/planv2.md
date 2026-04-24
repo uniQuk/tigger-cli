@@ -17,9 +17,9 @@ TL;DR: Four implementation streams — workspace trust gate, `rich`-powered UI w
 
 ### Phase 2 — Workspace Trust (`trust.py`)
 
-4. Create `src/newcli/trust.py` — on startup, check if `cwd` (or any parent) is in `~/.ai/trusted_paths.json`. If not, show a styled prompt with three choices:
+4. Create `src/newcli/trust.py` — on startup, check if `cwd` (or any parent) is in `~/.tigger/trusted_paths.json`. If not, show a styled prompt with three choices:
    - **[T] Trust this session** — no-op, continues normally
-   - **[A] Always trust** — writes path to `~/.ai/trusted_paths.json`
+   - **[A] Always trust** — writes path to `~/.tigger/trusted_paths.json`
    - **[D] Deny** — starts in read-only mode (only `ToolDef.read_only=True` tools available)
 5. Add `TrustLevel` enum and `trust_level: TrustLevel` field to `RunContext` in types.py
 6. Call `check_trust()` in `main.py::startup()` immediately after config load; if `READONLY`, restrict `ctx.allowed_tools` to read-only tool names only

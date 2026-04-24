@@ -10,6 +10,7 @@ from tigger.commands import memory as mem_cmd
 from tigger.commands import provider as provider_cmd
 from tigger.commands import summary as summary_cmd
 from tigger.commands import init as init_cmd
+from tigger.commands import rtk as rtk_cmd
 
 
 COMMAND_DESCRIPTIONS: dict[str, str] = {
@@ -26,6 +27,7 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
     "provider": "Manage providers",
     "summary": "Save session summary to markdown",
     "init": "Scaffold project files in .tigger/",
+    "rtk": "RTK token optimization (on/off/gain)",
     "help": "Show this help",
 }
 
@@ -39,6 +41,7 @@ COMMAND_HELP: dict[str, str] = {
     "provider": "Usage:\n  /provider           — list providers\n  /provider add       — add a new provider",
     "summary": "Usage: /summary\n  Save a structured summary of the current session to .tigger/summaries/.",
     "init": "Usage: /init\n  Create template files in .tigger/: agents.md, system.md, hooks.py, skills/.\n  Existing files are never overwritten.",
+    "rtk": "Usage:\n  /rtk              — show RTK status\n  /rtk on           — enable RTK proxy\n  /rtk off          — disable RTK proxy\n  /rtk gain         — show token savings\n  /rtk gain --history — show command savings history\n\nRTK (Rust Token Killer) proxies shell commands to reduce token output by 60-90%.\nhttps://github.com/rtk-ai/rtk",
     "help": "Usage: /help [command]\n  Show help for a specific command, or list all commands.",
 }
 
@@ -67,6 +70,7 @@ def load_builtin_commands(
         "provider":   partial(provider_cmd.cmd_provider, config_path=config_path),
         "summary":    partial(summary_cmd.cmd_summary, tigger_dir=memory_path.parent, provider_fn=provider_fn),
         "init":       init_cmd.cmd_init,
+        "rtk":        rtk_cmd.cmd_rtk,
     }
     d["help"] = partial(misc.cmd_help, commands=d, skills=skills)
     return d

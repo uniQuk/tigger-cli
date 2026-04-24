@@ -48,6 +48,7 @@ class Config:
     max_depth: int = 4
     max_retries: int = 2
     bash_safe_prefixes: list[str] = field(default_factory=list)
+    rtk: bool = False
 
 
 @dataclass
