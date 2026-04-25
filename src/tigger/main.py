@@ -258,6 +258,21 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             else:
                 buf.start_completion(select_first=False)
 
+        @_kb.add("s-tab")
+        def _shift_tab_mode(event):
+            """Cycle through available modes alphabetically."""
+            mode_names = sorted(m.name for m in ctx.modes)
+            if len(mode_names) <= 1:
+                return
+            current = ctx.config.mode
+            try:
+                idx = mode_names.index(current)
+            except ValueError:
+                idx = -1
+            next_idx = (idx + 1) % len(mode_names)
+            ctx.config = dataclasses.replace(ctx.config, mode=mode_names[next_idx])
+            event.app.invalidate()
+
         _PLACEHOLDER = "Type your message or @path/to/file"
         _RULE = "\u2500" * len("\u276f " + _PLACEHOLDER)
 
