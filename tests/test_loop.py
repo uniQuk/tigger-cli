@@ -90,7 +90,8 @@ def test_depth_cap_prevents_infinite_fork():
 
 
 def test_plan_mode_injects_into_system_prompt():
-    """In plan mode, the provider receives a system prompt containing 'numbered plan'."""
+    """In plan mode, the provider receives a system prompt with mode body appended."""
+    from tigger.skills import ModeRef
     calls: list[str] = []
 
     def recording_provider(system, messages, tools, cfg):
@@ -98,18 +99,18 @@ def test_plan_mode_injects_into_system_prompt():
         yield TextChunk(content="1. Plan")
         yield AssistantMessage(content="1. Plan", tool_calls=[])
 
+    plan_mode = ModeRef(name="plan", body="You are in plan mode. Present a plan before acting.")
     cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="plan")
-    ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.", modes=[plan_mode])
     list(run("do something", ctx, _registry(), _hooks(), provider_fn=recording_provider))
 
     assert len(calls) == 1
-    assert "MUST NOT" in calls[0]
-    assert "confirmation" in calls[0]
-    assert "supersedes" in calls[0]
+    assert "plan mode" in calls[0]
     assert "You are helpful." in calls[0]
 
 
-def test_ask_mode_does_not_inject_plan_text():
+def test_act_mode_does_not_inject_text():
+    from tigger.skills import ModeRef
     calls: list[str] = []
 
     def recording_provider(system, messages, tools, cfg):
@@ -117,8 +118,43 @@ def test_ask_mode_does_not_inject_plan_text():
         yield TextChunk(content="done")
         yield AssistantMessage(content="done", tool_calls=[])
 
-    cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="ask")
-    ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
+    act_mode = ModeRef(name="act", body="")
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="act")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.", modes=[act_mode])
     list(run("do something", ctx, _registry(), _hooks(), provider_fn=recording_provider))
 
-    assert "MUST NOT" not in calls[0]
+    assert calls[0] == "You are helpful."
+
+
+def test_custom_mode_injects_body():
+    from tigger.skills import ModeRef
+    calls: list[str] = []
+
+    def recording_provider(system, messages, tools, cfg):
+        calls.append(system)
+        yield TextChunk(content="done")
+        yield AssistantMessage(content="done", tool_calls=[])
+
+    custom = ModeRef(name="review", body="You are in review mode. Only suggest improvements.")
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="review")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="Base prompt.", modes=[custom])
+    list(run("check code", ctx, _registry(), _hooks(), provider_fn=recording_provider))
+
+    assert "review mode" in calls[0]
+    assert "Base prompt." in calls[0]
+
+
+def test_unknown_mode_no_injection():
+    """If mode name doesn't match any resolved mode, no injection and no crash."""
+    calls: list[str] = []
+
+    def recording_provider(system, messages, tools, cfg):
+        calls.append(system)
+        yield TextChunk(content="done")
+        yield AssistantMessage(content="done", tool_calls=[])
+
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="nonexistent")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="Base.", modes=[])
+    list(run("hi", ctx, _registry(), _hooks(), provider_fn=recording_provider))
+
+    assert calls[0] == "Base."

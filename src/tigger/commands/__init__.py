@@ -1,10 +1,11 @@
 from __future__ import annotations
 import pathlib
+import sys
 from functools import partial
 from tigger.types import RunContext
 from tigger.tools import ToolRegistry
 from tigger.hooks import HookRegistry
-from tigger.skills import AgentDef, SkillDef
+from tigger.skills import AgentDef, ModeRef, SkillDef
 from tigger.commands import misc, agent as agent_cmd, compact as compact_cmd, skills as skills_cmd
 from tigger.commands import memory as mem_cmd
 from tigger.commands import provider as provider_cmd
@@ -17,7 +18,7 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
     "clear": "Clear message history",
     "tokens": "Show token usage",
     "model": "Switch model or provider",
-    "mode": "Switch mode (ask/plan)",
+    "mode": "Switch mode (act/plan/...)",
     "permission": "Set permission mode",
     "memory": "View, search, or delete memory entries",
     "remember": "Save a note to memory",
@@ -33,7 +34,7 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
 
 COMMAND_HELP: dict[str, str] = {
     "model": "Usage:\n  /model              — interactive picker\n  /model <name>       — switch by model name\n  /model prov/model   — switch by provider/model",
-    "mode": "Usage: /mode <ask|plan>\n  ask  — normal conversation\n  plan — write plan before executing",
+    "mode": "Usage: /mode [name]\n  Show current mode and available modes, or switch to a mode by name.\n  Modes are loaded from .tigger/modes/ directories.",
     "permission": "Usage: /permission <ask|allow|bypass>",
     "memory": "Usage:\n  /memory             — list all entries\n  /memory search <q>  — search entries\n  /memory delete <n>  — delete entry by number\n  /memory clear       — delete all entries",
     "compact": "Usage: /compact\n  Force compaction of conversation history.",
@@ -55,13 +56,16 @@ def load_builtin_commands(
     hooks: HookRegistry,
     provider_fn,
     summary_dir: pathlib.Path | None = None,
+    modes: list[ModeRef] | None = None,
 ) -> dict:
     """Return a dict mapping command name → handler callable with (args, ctx) signature."""
+    if modes is None:
+        modes = []
     d: dict = {
         "clear":      misc.cmd_clear,
         "tokens":     misc.cmd_tokens,
         "model":      misc.cmd_model,
-        "mode":       misc.cmd_mode,
+        "mode":       partial(misc.cmd_mode, modes=modes),
         "permission": misc.cmd_permission,
         "memory":     partial(mem_cmd.cmd_memory, memory_path=memory_path),
         "remember":   partial(mem_cmd.cmd_remember, memory_path=memory_path),
@@ -73,5 +77,21 @@ def load_builtin_commands(
         "init":       init_cmd.cmd_init,
         "rtk":        rtk_cmd.cmd_rtk,
     }
+
+    # Register dynamic mode commands: /<mode_name> switches to that mode
+    def _switch_mode(args: str, ctx, *, mode_name: str, modes_list: list):
+        misc.cmd_mode(mode_name, ctx, modes=modes_list)
+
+    for mode in modes:
+        if mode.name in d:
+            print(
+                f"Warning: mode {mode.name!r} collides with built-in command; "
+                f"use /mode {mode.name} instead",
+                file=sys.stderr,
+            )
+            continue
+        d[mode.name] = partial(_switch_mode, mode_name=mode.name, modes_list=modes)
+        COMMAND_DESCRIPTIONS[mode.name] = f"Switch to {mode.name} mode"
+
     d["help"] = partial(misc.cmd_help, commands=d, skills=skills, agents=agents)
     return d

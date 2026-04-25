@@ -8,7 +8,7 @@ from tigger._constants import CONFIG_DIR, home_config_dir
 
 _PERM_RENAME: dict[str, str] = {"manual": "ask", "auto": "allow", "accept-all": "bypass"}
 _VALID_PERMISSION_MODES = {"ask", "allow", "bypass"}
-_VALID_MODES = {"ask", "plan"}
+_MODE_RENAME: dict[str, str] = {"ask": "act"}
 
 
 def derive_provider_name(base_url: str) -> str:
@@ -68,9 +68,9 @@ def load_config(path: pathlib.Path) -> Config:
             f"permission_mode must be one of {_VALID_PERMISSION_MODES}, got {perm!r}"
         )
 
-    mode = data.get("mode", "ask")
-    if mode not in _VALID_MODES:
-        raise ValueError(f"mode must be one of {_VALID_MODES}, got {mode!r}")
+    mode = data.get("mode", "act")
+    if mode in _MODE_RENAME:
+        mode = _MODE_RENAME[mode]
 
     # --- Provider loading ---
     if "providers" in data:

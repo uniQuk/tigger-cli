@@ -12,7 +12,7 @@ from tigger.tools import ToolRegistry, register_all
 from tigger.hooks import HookDef, HookRegistry, load_hooks, load_hooks_dir
 from tigger.skills import match_skill
 from tigger.resolve import (
-    resolve_file, resolve_skills, resolve_agents, resolve_hooks,
+    resolve_file, resolve_skills, resolve_agents, resolve_hooks, resolve_modes,
     is_global_config, seed_global, INTERNAL_DIR,
 )
 from tigger.memory import read_memory, format_for_prompt
@@ -127,9 +127,10 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         return call
     hooks.before.setdefault("bash", []).append(_rtk_before_hook)
 
-    # 7-8. Skills + agents — 3-tier merge (project > global > internal)
+    # 7-8. Skills + agents + modes — 3-tier merge (project > global > internal)
     skills = resolve_skills(project_dir, global_dir)
     agents = resolve_agents(project_dir, global_dir)
+    modes = resolve_modes(project_dir, global_dir)
 
     # 9. System prompt + memory — override semantics
     _system_path = resolve_file("system.md", project_dir, global_dir, bundled_dir)
@@ -145,7 +146,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     system = (_base_system + ("\n\n" + memory_section if memory_section else "")).strip()
 
     # 10. Context
-    ctx = RunContext(config=config, messages=[], system_prompt=system, trust_level=trust_level)
+    ctx = RunContext(config=config, messages=[], system_prompt=system, trust_level=trust_level, modes=modes)
 
     # 11. Restrict tools for read-only trust level
     if trust_level == TrustLevel.READONLY:
@@ -163,6 +164,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         hooks=hooks,
         provider_fn=_provider.stream,
         summary_dir=summary_dir,
+        modes=modes,
     )
 
     return StartupResult(
@@ -255,6 +257,21 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
                     buf.apply_completion(buf.complete_state.completions[0])
             else:
                 buf.start_completion(select_first=False)
+
+        @_kb.add("s-tab")
+        def _shift_tab_mode(event):
+            """Cycle through available modes alphabetically."""
+            mode_names = sorted(m.name for m in ctx.modes)
+            if len(mode_names) <= 1:
+                return
+            current = ctx.config.mode
+            try:
+                idx = mode_names.index(current)
+            except ValueError:
+                idx = -1
+            next_idx = (idx + 1) % len(mode_names)
+            ctx.config = dataclasses.replace(ctx.config, mode=mode_names[next_idx])
+            event.app.invalidate()
 
         _PLACEHOLDER = "Type your message or @path/to/file"
         _RULE = "\u2500" * len("\u276f " + _PLACEHOLDER)
@@ -396,7 +413,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(prog="tigger-code")
-    parser.add_argument("--mode", choices=["ask", "plan"], default=None)
+    parser.add_argument("--mode", default=None)
     parser.add_argument("--permission", choices=["ask", "allow", "bypass"], dest="permission", default=None)
     parser.add_argument("-c", "--continue", dest="resume", action="store_true",
                         help="Resume the most recent session")
@@ -405,9 +422,20 @@ def main() -> None:
     result = startup()
 
     if parsed.mode is not None:
-        result.ctx.config = dataclasses.replace(result.ctx.config, mode=parsed.mode)
+        from tigger.config import _MODE_RENAME
+        mode = _MODE_RENAME.get(parsed.mode, parsed.mode)
+        result.ctx.config = dataclasses.replace(result.ctx.config, mode=mode)
     if parsed.permission is not None:
         result.ctx.config = dataclasses.replace(result.ctx.config, permission_mode=parsed.permission)
+
+    # Validate mode against resolved mode names
+    mode_names = {m.name for m in result.ctx.modes}
+    if mode_names and result.ctx.config.mode not in mode_names:
+        ui.print_error(
+            f"Unknown mode {result.ctx.config.mode!r}. "
+            f"Available: {', '.join(sorted(mode_names))}. Falling back to 'act'."
+        )
+        result.ctx.config = dataclasses.replace(result.ctx.config, mode="act")
 
     # Session setup
     session_dir = project_session_dir(home_config_dir(), pathlib.Path.cwd().resolve())

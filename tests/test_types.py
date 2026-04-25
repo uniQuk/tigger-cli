@@ -19,7 +19,7 @@ def test_config_defaults():
     assert cfg.api_key == "local"
     assert cfg.context_limit == 8192
     assert cfg.permission_mode == "allow"   # was "auto"
-    assert cfg.mode == "ask"
+    assert cfg.mode == "act"
     assert cfg.max_depth == 4
     assert cfg.max_retries == 2
     assert cfg.bash_safe_prefixes == []
@@ -63,9 +63,9 @@ def test_run_context_has_trust_level():
     ctx = RunContext(config=cfg, messages=[], system_prompt="s")
     assert ctx.trust_level == TrustLevel.READONLY
 
-def test_config_mode_defaults_to_ask():
+def test_config_mode_defaults_to_act():
     cfg = Config(base_url="http://x", model="m")
-    assert cfg.mode == "ask"
+    assert cfg.mode == "act"
 
 def test_config_permission_mode_default_is_allow():
     cfg = Config(base_url="http://x", model="m")

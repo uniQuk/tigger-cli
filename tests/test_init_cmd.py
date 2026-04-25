@@ -17,6 +17,7 @@ def test_init_creates_files(tmp_path, monkeypatch, capsys):
     assert (ai_dir / "hooks.py").exists()
     assert (ai_dir / "skills" / "SKILL.md").exists()
     assert (ai_dir / "agents" / "example-agent.md").exists()
+    assert (ai_dir / "modes" / "example-mode.md").exists()
     out = capsys.readouterr().out
     assert "Created" in out
 
@@ -64,6 +65,8 @@ def test_init_global_seeds_from_internals(tmp_path, monkeypatch, capsys):
     assert (global_dir / "skills" / "_debug" / "SKILL.md").exists()
     assert (global_dir / "skills" / "_commit" / "SKILL.md").exists()
     assert (global_dir / "agents" / "_test-engineer.md").exists()
+    assert (global_dir / "modes" / "act.md").exists()
+    assert (global_dir / "modes" / "plan.md").exists()
     out = capsys.readouterr().out
     assert "Seeded" in out
     assert "live copies" in out

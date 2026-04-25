@@ -49,6 +49,13 @@ class AgentDef:
     description: str = ""                           # when to spawn this agent
 
 
+@dataclass
+class ModeRef:
+    name: str
+    body: str                                       # prompt fragment appended to system prompt
+    source_path: pathlib.Path | None = None
+
+
 def _parse_blocks(text: str) -> list[dict]:
     import yaml
     blocks = []
@@ -212,6 +219,29 @@ def load_agents_dir(agents_dir: pathlib.Path) -> list[AgentDef]:
             description=fm.get("description", ""),
         ))
     return agents
+
+
+def load_modes_dir(modes_dir: pathlib.Path) -> list[ModeRef]:
+    """Load modes from a directory. Each .md file is one mode."""
+    if not modes_dir.exists() or not modes_dir.is_dir():
+        return []
+    modes = []
+    for entry in sorted(modes_dir.iterdir()):
+        if not entry.is_file() or entry.suffix != ".md":
+            continue
+        b = _parse_single(entry.read_text())
+        if not b:
+            continue
+        fm = b["fm"]
+        name = fm.get("name", entry.stem)
+        if not name:
+            continue
+        modes.append(ModeRef(
+            name=name,
+            body=b["body"],
+            source_path=entry,
+        ))
+    return modes
 
 
 def match_skill(user_input: str, skills: list[SkillDef]) -> SkillDef | None:

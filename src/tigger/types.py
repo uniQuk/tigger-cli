@@ -44,7 +44,7 @@ class Config:
     max_tokens: int = 2048
     temperature: float = 0.7
     permission_mode: str = "allow"   # ask | allow | bypass
-    mode: str = "ask"                # ask | plan
+    mode: str = "act"                # act | plan | custom modes
     max_depth: int = 4
     max_retries: int = 2
     bash_safe_prefixes: list[str] = field(default_factory=list)
@@ -92,6 +92,7 @@ class RunContext:
     allowed_tools: list[str] | None = None  # None = all tools
     turn: int = 0
     trust_level: TrustLevel = TrustLevel.READONLY
+    modes: list = field(default_factory=list)       # list[ModeRef] — resolved modes
 
 
 # ── Events yielded by the agent loop ──────────────────────────────────────

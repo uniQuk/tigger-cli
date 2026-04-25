@@ -133,14 +133,18 @@ def cmd_model(args: str, ctx: RunContext) -> None:
     print(f"Switched to {pname}/{mname}")
 
 
-def cmd_mode(args: str, ctx: RunContext) -> None:
-    valid = {"ask", "plan"}
+def cmd_mode(args: str, ctx: RunContext, modes: list | None = None) -> None:
+    if modes is None:
+        modes = ctx.modes
+    mode_names = sorted(m.name for m in modes)
     if not args.strip():
         print(f"Current mode: {ctx.config.mode}")
+        if mode_names:
+            print(f"Available: {', '.join(mode_names)}")
         return
     new_mode = args.strip()
-    if new_mode not in valid:
-        print(f"Invalid mode {new_mode!r}. Must be one of {sorted(valid)}")
+    if new_mode not in {m.name for m in modes}:
+        print(f"Invalid mode {new_mode!r}. Available: {', '.join(mode_names)}")
         return
     ctx.config = dataclasses.replace(ctx.config, mode=new_mode)
     print(f"Mode set to: {new_mode}")

@@ -51,6 +51,13 @@ tools:
 You are a helpful agent. Describe your purpose here.
 ''',
     },
+    "modes": {
+        "example-mode.md": '''---
+name: example
+---
+You are in example mode. Replace this with your mode behaviour.
+''',
+    },
 }
 
 

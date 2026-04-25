@@ -1,6 +1,4 @@
 from __future__ import annotations
-import functools
-import pathlib
 from typing import Callable, Generator
 from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, AssistantMessage,
@@ -14,19 +12,13 @@ from tigger.compaction import maybe_compact
 
 Event = TextChunk | ToolStartEvent | ToolEndEvent | PermissionEvent | TurnDoneEvent | ThinkingEvent
 
-_ASSETS_DIR = pathlib.Path(__file__).parent / "assets"
 
-
-@functools.lru_cache(maxsize=1)
-def _load_plan_mode_text() -> str:
-    """Load plan-mode prompt text from the packaged asset file."""
-    plan_mode_path = _ASSETS_DIR / "plan_mode.md"
-    if not plan_mode_path.exists():
-        raise FileNotFoundError(
-            f"Missing plan-mode asset: {plan_mode_path}. "
-            "This file should be packaged with tigger-code."
-        )
-    return plan_mode_path.read_text().strip()
+def _active_mode_body(ctx: RunContext) -> str:
+    """Return the body of the active mode, or empty string if not found."""
+    for mode in ctx.modes:
+        if mode.name == ctx.config.mode:
+            return mode.body
+    return ""
 
 
 def run(
@@ -54,8 +46,9 @@ def run(
         ]
 
         system = ctx.system_prompt
-        if ctx.config.mode == "plan":
-            system += "\n\n" + _load_plan_mode_text()
+        mode_body = _active_mode_body(ctx)
+        if mode_body:
+            system += "\n\n" + mode_body
         stream = provider_fn(system, ctx.messages, tools_schemas, ctx.config)
         assistant_msg: AssistantMessage | None = None
 

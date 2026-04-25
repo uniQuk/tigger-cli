@@ -2,7 +2,7 @@ from __future__ import annotations
 import pathlib
 import textwrap
 import pytest
-from tigger.resolve import resolve_file, resolve_skills, resolve_agents, is_global_config, seed_global
+from tigger.resolve import resolve_file, resolve_skills, resolve_agents, resolve_modes, is_global_config, seed_global
 
 
 def _make_skill(base_dir: pathlib.Path, name: str, body: str = "Body.") -> None:
@@ -29,6 +29,16 @@ def _make_agent_file(base_dir: pathlib.Path, name: str, body: str = "Agent body.
         ---
         {body}
     """))
+
+
+def _make_mode_file(base_dir: pathlib.Path, name: str, body: str = "") -> None:
+    """Create a minimal mode .md file in a modes/ directory."""
+    modes_dir = base_dir / "modes"
+    modes_dir.mkdir(parents=True, exist_ok=True)
+    content = f"---\nname: {name}\n---\n"
+    if body:
+        content += body + "\n"
+    (modes_dir / f"{name}.md").write_text(content)
 
 
 def _make_flat_agents(base_dir: pathlib.Path, name: str) -> None:
@@ -309,3 +319,70 @@ def test_seed_global_idempotent(tmp_path):
     # Second call should be a no-op
     result = seed_global(global_dir, internal)
     assert result is False
+
+
+# --- resolve_modes ---
+
+def test_resolve_modes_merges_tiers(tmp_path):
+    project = tmp_path / "project"
+    global_ = tmp_path / "global"
+    internal = tmp_path / "internal"
+    _make_mode_file(project, "custom", body="Custom mode.")
+    _make_mode_file(global_, "plan", body="Global plan.")
+    _make_mode_file(internal, "act")
+    modes = resolve_modes(project, global_, internal)
+    names = {m.name for m in modes}
+    assert names == {"custom", "plan", "act"}
+
+
+def test_resolve_modes_project_shadows_global(tmp_path):
+    project = tmp_path / "project"
+    global_ = tmp_path / "global"
+    _make_mode_file(project, "plan", body="Project plan.")
+    _make_mode_file(global_, "plan", body="Global plan.")
+    modes = resolve_modes(project, global_, tmp_path / "empty")
+    assert len(modes) == 1
+    assert "Project plan" in modes[0].body
+
+
+def test_resolve_modes_empty_dirs(tmp_path):
+    modes = resolve_modes(None, None, tmp_path / "no-internal")
+    assert modes == []
+
+
+# --- seed_global (modes) ---
+
+def test_seed_global_copies_modes(tmp_path):
+    internal = tmp_path / "internal"
+    _make_mode_file(internal, "act")
+    _make_mode_file(internal, "plan", body="Plan mode.")
+    global_dir = tmp_path / "global"
+    global_dir.mkdir()
+    result = seed_global(global_dir, internal)
+    assert result is True
+    assert (global_dir / "modes" / "act.md").exists()
+    assert (global_dir / "modes" / "plan.md").exists()
+
+
+def test_seed_global_skips_existing_modes(tmp_path):
+    internal = tmp_path / "internal"
+    _make_mode_file(internal, "plan", body="Internal plan.")
+    global_dir = tmp_path / "global"
+    modes_dir = global_dir / "modes"
+    modes_dir.mkdir(parents=True)
+    (modes_dir / "plan.md").write_text("my custom plan")
+    result = seed_global(global_dir, internal)
+    assert result is False
+    assert (modes_dir / "plan.md").read_text() == "my custom plan"
+
+
+def test_seed_global_skips_prefixed_mode_if_non_prefixed_exists(tmp_path):
+    internal = tmp_path / "internal"
+    _make_mode_file(internal, "_act")
+    global_dir = tmp_path / "global"
+    modes_dir = global_dir / "modes"
+    modes_dir.mkdir(parents=True)
+    (modes_dir / "act.md").write_text("existing act")
+    result = seed_global(global_dir, internal)
+    assert result is False
+    assert not (modes_dir / "_act.md").exists()
