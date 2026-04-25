@@ -457,7 +457,6 @@ def test_loop_yields_thinking_event():
     """The agent loop yields ThinkingEvent before looping back for another model call."""
     from tigger.loop import run
     from tigger.tools import ToolRegistry
-    from tigger.hooks import HookRegistry
     from tigger.types import AssistantMessage, ToolCallRecord, Config, RunContext, TrustLevel
 
     registry = ToolRegistry()
@@ -466,7 +465,6 @@ def test_loop_yields_thinking_event():
         name="test_tool", description="test", parameters={},
         func=lambda args: "ok", read_only=True,
     ))
-    hooks = HookRegistry()
 
     call_count = [0]
 
@@ -484,6 +482,6 @@ def test_loop_yields_thinking_event():
     cfg = Config(base_url="http://localhost:1234/v1", model="test", api_key="local")
     ctx = RunContext(config=cfg, messages=[], system_prompt="", trust_level=TrustLevel.ALWAYS)
 
-    events = list(run("test", ctx, registry, hooks, provider_fn=fake_provider))
+    events = list(run("test", ctx, registry, provider_fn=fake_provider))
     event_types = [type(e).__name__ for e in events]
     assert "ThinkingEvent" in event_types

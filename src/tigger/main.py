@@ -9,7 +9,7 @@ import httpx
 from tigger.config import load_config, find_config, derive_provider_name
 from tigger.types import RunContext, TrustLevel
 from tigger.tools import ToolRegistry, register_all
-from tigger.hooks import HookDef, HookRegistry, load_hooks, load_hooks_dir
+from tigger.hooks import HookDef
 from tigger.skills import match_skill
 from tigger.resolve import (
     resolve_file, resolve_skills, resolve_agents, resolve_hooks, resolve_modes,
@@ -36,8 +36,7 @@ class StartupResult:
     skills: list
     agents: list
     registry: ToolRegistry
-    hooks: HookRegistry              # legacy — RTK hook only
-    hook_defs: list                   # new declarative hooks
+    hook_defs: list[HookDef]
     provider_fn: object
     config_path: pathlib.Path
     summaries_dir: pathlib.Path | None = None
@@ -101,32 +100,15 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     # 6. Hooks — declarative markdown hooks from hooks/ directories (additive merge)
     hook_defs = resolve_hooks(project_dir, global_dir)
 
-    # 6a. Legacy hooks.py deprecation warning
-    for _dir in [d for d in (project_dir, global_dir) if d is not None]:
-        _legacy = _dir / "hooks.py"
-        if _legacy.exists():
-            ui.print_info(
-                f"[hooks] Deprecated: {_legacy}\n"
-                "  hooks.py is no longer supported. "
-                "Use hooks/ directory with .md files instead.\n"
-                "  Run /hookify to create hooks from natural language, "
-                "or see /help hooks for the format."
-            )
-
-    # Legacy HookRegistry — only used for RTK hook (mutates args, not supported by declarative hooks)
-    hooks = HookRegistry()
-
-    # 6b. RTK auto-detection — enable if rtk binary is found and not explicitly disabled
+    # 6a. RTK auto-detection — enable if rtk binary is found and not explicitly disabled
     if not config.rtk and shutil.which("rtk"):
         config = dataclasses.replace(config, rtk=True)
 
-    # 6c. RTK before-hook — always registered, checks ctx.config.rtk at runtime
-    #     so /rtk on|off works without restart
-    def _rtk_before_hook(call, ctx):
-        if ctx.config.rtk and not call.args.get("command", "").startswith("rtk "):
-            call.args["command"] = f"rtk {call.args['command']}"
-        return call
-    hooks.before.setdefault("bash", []).append(_rtk_before_hook)
+    # 6b. RTK hook control — disable _rtk-rewrite hook if RTK is off
+    if not config.rtk:
+        for h in hook_defs:
+            if h.name == "_rtk-rewrite":
+                h.enabled = False
 
     # 7-8. Skills + agents + modes — 3-tier merge (project > global > internal)
     skills = resolve_skills(project_dir, global_dir)
@@ -168,7 +150,6 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         skills=skills,
         agents=agents,
         registry=registry,
-        hooks=hooks,
         provider_fn=_provider.stream,
         summary_dir=summary_dir,
         modes=modes,
@@ -181,7 +162,6 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         skills=skills,
         agents=agents,
         registry=registry,
-        hooks=hooks,
         hook_defs=hook_defs,
         provider_fn=_provider.stream,
         config_path=config_path,
@@ -225,7 +205,6 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
     commands = result.commands
     skills = result.skills
     registry = result.registry
-    hooks = result.hooks
     hook_defs = result.hook_defs
     provider_fn = result.provider_fn
     summaries_dir = result.summaries_dir
@@ -352,7 +331,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         if skill:
             if skill.context == "fork":
                 query = skill.render(line)
-                text = run_forked(query, skill, ctx, registry, hooks, provider_fn,
+                text = run_forked(query, skill, ctx, registry, provider_fn,
                                   hook_defs=hook_defs)
                 print(text)
                 continue
@@ -374,7 +353,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         text_buf: list[str] = []
 
         try:
-            event_gen = run(line, ctx, registry, hooks, provider_fn=provider_fn,
+            event_gen = run(line, ctx, registry, provider_fn=provider_fn,
                            hook_defs=hook_defs, summaries_dir=summaries_dir)
 
             with ui.Spinner(turn_start, token_counter=output_chars):
@@ -451,7 +430,7 @@ def main() -> None:
 
     # --once: single non-interactive turn
     if parsed.once is not None:
-        for event in run(parsed.once, result.ctx, result.registry, result.hooks,
+        for event in run(parsed.once, result.ctx, result.registry,
                          provider_fn=result.provider_fn, hook_defs=result.hook_defs):
             if isinstance(event, TextChunk):
                 print(event.content, end="", flush=True)

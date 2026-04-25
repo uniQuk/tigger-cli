@@ -3,7 +3,6 @@ import dataclasses
 from tigger.types import Message, RunContext
 from tigger.skills import AgentDef
 from tigger.tools import ToolRegistry
-from tigger.hooks import HookRegistry
 
 
 def cmd_agent(
@@ -11,8 +10,8 @@ def cmd_agent(
     ctx: RunContext,
     agents: list[AgentDef],
     registry: ToolRegistry,
-    hooks: HookRegistry,
     provider_fn,
+    hook_defs: list | None = None,
 ) -> None:
     parts = args.strip().split(maxsplit=1)
     if len(parts) < 2:
@@ -52,7 +51,7 @@ def cmd_agent(
     from tigger.loop import run
     from tigger.types import TextChunk
     result_parts = []
-    for event in run(query, agent_ctx, sub_registry, hooks, provider_fn=provider_fn):
+    for event in run(query, agent_ctx, sub_registry, provider_fn=provider_fn, hook_defs=hook_defs):
         if isinstance(event, TextChunk):
             result_parts.append(event.content)
     result = "".join(result_parts)

@@ -3,7 +3,6 @@ from tigger.types import (
     Config, RunContext, TextChunk, AssistantMessage, TurnDoneEvent,
 )
 from tigger.tools import ToolRegistry
-from tigger.hooks import HookRegistry
 
 
 def _make_provider(text="Hello!"):
@@ -27,7 +26,6 @@ def test_once_prints_output(mock_startup, capsys):
         skills=[],
         agents=[],
         registry=ToolRegistry(),
-        hooks=HookRegistry(),
         hook_defs=[],
         provider_fn=_make_provider("headless output"),
         config_path=pathlib.Path("/tmp/fake.toml"),
@@ -59,7 +57,6 @@ def test_once_does_not_start_repl(mock_startup):
         skills=[],
         agents=[],
         registry=ToolRegistry(),
-        hooks=HookRegistry(),
         hook_defs=[],
         provider_fn=_make_provider("ok"),
         config_path=pathlib.Path("/tmp/fake.toml"),
@@ -92,7 +89,6 @@ def test_once_empty_response(mock_startup, capsys):
         skills=[],
         agents=[],
         registry=ToolRegistry(),
-        hooks=HookRegistry(),
         hook_defs=[],
         provider_fn=empty_provider,
         config_path=pathlib.Path("/tmp/fake.toml"),

@@ -5,17 +5,15 @@ import pathlib
 import re
 import sys
 from dataclasses import dataclass, field
-from typing import Callable
 
 from tigger.skills import _parse_single
-from tigger.types import RunContext, ToolCallRecord, ToolEndEvent
 
 # ---------------------------------------------------------------------------
 # New declarative hook system
 # ---------------------------------------------------------------------------
 
 VALID_EVENTS = {"PreToolUse", "PostToolUse", "SessionStart"}
-VALID_ACTIONS = {"block", "warn", "allow"}
+VALID_ACTIONS = {"block", "warn", "allow", "transform"}
 
 
 @dataclass
@@ -23,16 +21,19 @@ class HookDef:
     name: str
     event: str                          # PreToolUse | PostToolUse | SessionStart
     matcher: str = ".*"                 # regex matched against tool_name or session source
-    action: str = "warn"                # block | warn | allow
-    body: str = ""                      # message shown on warn/block
+    action: str = "warn"                # block | warn | allow | transform
+    body: str = ""                      # message shown on warn/block; key:template lines for transform
     enabled: bool = True
     source_path: pathlib.Path | None = None
+    args_match: dict[str, str] = field(default_factory=dict)  # arg_name -> regex pattern
 
 
 @dataclass
 class HookResult:
     blocked: bool = False
     messages: list[str] = field(default_factory=list)
+    feedback: list[str] = field(default_factory=list)
+    transformed: bool = False
 
 
 def load_hooks_dir(hooks_dir: pathlib.Path) -> list[HookDef]:
@@ -56,6 +57,8 @@ def load_hooks_dir(hooks_dir: pathlib.Path) -> list[HookDef]:
         action = fm.get("action", "warn")
         if action not in VALID_ACTIONS:
             action = "warn"
+        raw_args_match = fm.get("args_match", {})
+        args_match = {str(k): str(v) for k, v in raw_args_match.items()} if isinstance(raw_args_match, dict) else {}
         hooks.append(HookDef(
             name=name,
             event=event,
@@ -64,6 +67,7 @@ def load_hooks_dir(hooks_dir: pathlib.Path) -> list[HookDef]:
             body=b["body"],
             enabled=fm.get("enabled", True),
             source_path=entry,
+            args_match=args_match,
         ))
     return hooks
 
@@ -88,83 +92,57 @@ def evaluate_hooks(event: str, context: dict, hooks: list[HookDef]) -> HookResul
             print(f"Warning: hook {hook.name!r} has invalid regex {hook.matcher!r}, skipping",
                   file=sys.stderr)
             continue
+        # Check args_match conditions — all must match for hook to fire
+        if hook.args_match:
+            tool_args = context.get("tool_args", {})
+            args_matched = True
+            for arg_key, arg_pattern in hook.args_match.items():
+                arg_val = tool_args.get(arg_key)
+                if arg_val is None or not isinstance(arg_val, str):
+                    args_matched = False
+                    break
+                try:
+                    if not re.search(arg_pattern, arg_val):
+                        args_matched = False
+                        break
+                except re.error:
+                    print(f"Warning: hook {hook.name!r} has invalid args_match regex "
+                          f"{arg_pattern!r} for key {arg_key!r}, skipping",
+                          file=sys.stderr)
+                    args_matched = False
+                    break
+            if not args_matched:
+                continue
         if hook.action == "block":
             result.blocked = True
             if hook.body:
                 result.messages.append(hook.body)
+                result.feedback.append(f"[hook: {hook.name}]\n{hook.body}")
         elif hook.action == "warn":
             if hook.body:
                 result.messages.append(hook.body)
+                result.feedback.append(f"[hook: {hook.name}]\n{hook.body}")
+        elif hook.action == "transform":
+            if result.transformed:
+                print(f"Warning: hook {hook.name!r} skipped — a transform already fired",
+                      file=sys.stderr)
+                continue
+            tool_args = context.get("tool_args", {})
+            for line in hook.body.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                sep = line.find(": ")
+                if sep < 0:
+                    print(f"Warning: hook {hook.name!r} has malformed transform line {line!r}, "
+                          "skipping line", file=sys.stderr)
+                    continue
+                key, template = line[:sep], line[sep + 2:]
+                try:
+                    tool_args[key] = template.format_map(tool_args)
+                except (KeyError, ValueError) as exc:
+                    print(f"Warning: hook {hook.name!r} transform failed for key {key!r}: {exc}",
+                          file=sys.stderr)
+            result.transformed = True
         # "allow" is a no-op
     return result
-
-
-# ---------------------------------------------------------------------------
-# Legacy hook API — kept for backward compatibility during transition.
-# Unit 3 will remove these and update loop.py to use evaluate_hooks.
-# ---------------------------------------------------------------------------
-
-BeforeFn = Callable[[ToolCallRecord, RunContext], ToolCallRecord]
-AfterFn = Callable[[ToolEndEvent, RunContext], ToolEndEvent]
-
-
-@dataclass
-class HookRegistry:
-    before: dict[str, list[BeforeFn]] = field(default_factory=dict)
-    after: dict[str, list[AfterFn]] = field(default_factory=dict)
-
-
-_REGISTRY = HookRegistry()
-
-
-def on_before(*tool_names: str):
-    def decorator(fn: BeforeFn) -> BeforeFn:
-        for name in tool_names:
-            _REGISTRY.before.setdefault(name, []).append(fn)
-        return fn
-    return decorator
-
-
-def on_after(*tool_names: str):
-    def decorator(fn: AfterFn) -> AfterFn:
-        for name in tool_names:
-            _REGISTRY.after.setdefault(name, []).append(fn)
-        return fn
-    return decorator
-
-
-def run_before(call: ToolCallRecord, ctx: RunContext, registry: HookRegistry) -> ToolCallRecord:
-    for fn in registry.before.get(call.name, []) + registry.before.get("*", []):
-        call = fn(call, ctx)
-    return call
-
-
-def run_after(event: ToolEndEvent, ctx: RunContext, registry: HookRegistry) -> ToolEndEvent:
-    for fn in registry.after.get(event.name, []) + registry.after.get("*", []):
-        event = fn(event, ctx)
-    return event
-
-
-def load_hooks(path: pathlib.Path, *, require_consent: bool = True) -> HookRegistry:
-    """Import *path* (legacy hooks.py format). Returns populated registry."""
-    import importlib.util
-    global _REGISTRY
-    _REGISTRY = HookRegistry()
-    if not path.exists():
-        return _REGISTRY
-    if require_consent:
-        print(f"[hooks] Found hooks file: {path}")
-        try:
-            answer = input("  Load and execute project hooks? [y/N] ").strip().lower()
-        except (KeyboardInterrupt, EOFError):
-            answer = "n"
-        if answer != "y":
-            print("[hooks] Skipped — hooks not loaded.")
-            return _REGISTRY
-    spec = importlib.util.spec_from_file_location("_user_hooks", path)
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-    except Exception as exc:
-        print(f"[hooks] Warning: failed to load {path}: {exc}")
-    return _REGISTRY

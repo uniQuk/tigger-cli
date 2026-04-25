@@ -4,7 +4,7 @@ import sys
 from functools import partial
 from tigger.types import RunContext
 from tigger.tools import ToolRegistry
-from tigger.hooks import HookDef, HookRegistry
+from tigger.hooks import HookDef
 from tigger.skills import AgentDef, ModeRef, SkillDef
 from tigger.commands import misc, agent as agent_cmd, compact as compact_cmd, skills as skills_cmd
 from tigger.commands import memory as mem_cmd
@@ -57,7 +57,6 @@ def load_builtin_commands(
     skills: list[SkillDef],
     agents: list[AgentDef],
     registry: ToolRegistry,
-    hooks: HookRegistry,
     provider_fn,
     summary_dir: pathlib.Path | None = None,
     modes: list[ModeRef] | None = None,
@@ -79,11 +78,11 @@ def load_builtin_commands(
         "compact":    partial(compact_cmd.cmd_compact, provider_fn=provider_fn,
                              summaries_dir=(summary_dir / "summaries") if summary_dir else None),
         "skills":     partial(skills_cmd.cmd_skills, skills=skills),
-        "agent":      partial(agent_cmd.cmd_agent, agents=agents, registry=registry, hooks=hooks, provider_fn=provider_fn),
+        "agent":      partial(agent_cmd.cmd_agent, agents=agents, registry=registry, provider_fn=provider_fn, hook_defs=hook_defs),
         "provider":   partial(provider_cmd.cmd_provider, config_path=config_path),
         "summary":    partial(summary_cmd.cmd_summary, tigger_dir=summary_dir or memory_path.parent, provider_fn=provider_fn),
         "init":       init_cmd.cmd_init,
-        "rtk":        rtk_cmd.cmd_rtk,
+        "rtk":        partial(rtk_cmd.cmd_rtk, hook_defs=hook_defs),
         "status":     partial(status_cmd.cmd_status, config_path=config_path, skills=skills, agents=agents, hook_defs=hook_defs, memory_path=memory_path),
     }
 

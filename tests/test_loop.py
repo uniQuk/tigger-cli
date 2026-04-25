@@ -4,7 +4,6 @@ from tigger.types import (
     TextChunk, ToolStartEvent, ToolEndEvent, TurnDoneEvent,
 )
 from tigger.tools import ToolRegistry, ToolDef
-from tigger.hooks import HookRegistry
 from tigger.loop import run, run_forked
 
 def _ctx(permission_mode="bypass"):
@@ -18,9 +17,6 @@ def _registry(tools=None):
             r.register(t)
     return r
 
-def _hooks():
-    return HookRegistry()
-
 def _make_provider(text="Hello!", tool_calls=None):
     """Return a mock provider.stream that yields TextChunk then AssistantMessage."""
     def fake_stream(system, messages, tools, config):
@@ -30,7 +26,7 @@ def _make_provider(text="Hello!", tool_calls=None):
 
 def test_simple_text_response():
     ctx = _ctx()
-    events = list(run("hi", ctx, _registry(), _hooks(), provider_fn=_make_provider("Hello!")))
+    events = list(run("hi", ctx, _registry(), provider_fn=_make_provider("Hello!")))
     texts = [e.content for e in events if isinstance(e, TextChunk)]
     assert texts == ["Hello!"]
     dones = [e for e in events if isinstance(e, TurnDoneEvent)]
@@ -38,7 +34,7 @@ def test_simple_text_response():
 
 def test_messages_appended_after_turn():
     ctx = _ctx()
-    list(run("hi", ctx, _registry(), _hooks(), provider_fn=_make_provider("Hello!")))
+    list(run("hi", ctx, _registry(), provider_fn=_make_provider("Hello!")))
     assert len(ctx.messages) == 2   # user + assistant
     assert ctx.messages[0].role == "user"
     assert ctx.messages[1].role == "assistant"
@@ -62,7 +58,7 @@ def test_tool_call_executed():
             yield AssistantMessage(content="Done", tool_calls=[])
 
     ctx = _ctx()
-    events = list(run("go", ctx, reg, _hooks(), provider_fn=provider))
+    events = list(run("go", ctx, reg, provider_fn=provider))
     assert called == [{"x": 1}]
     ends = [e for e in events if isinstance(e, ToolEndEvent)]
     assert ends[0].output == "tool result"
@@ -77,7 +73,7 @@ def test_run_forked_depth_incremented():
 
     from tigger.skills import SkillDef
     skill = SkillDef(name="s", triggers=["/s"], tools=[], context="fork", body="do it")
-    run_forked("do it", skill, ctx, _registry(), _hooks(), provider_fn=capture_provider)
+    run_forked("do it", skill, ctx, _registry(), provider_fn=capture_provider)
     assert ctx.depth == 0           # original unchanged
 
 def test_depth_cap_prevents_infinite_fork():
@@ -85,7 +81,7 @@ def test_depth_cap_prevents_infinite_fork():
     cfg = Config(base_url="http://x", model="m", max_depth=1)
     ctx = RunContext(config=cfg, messages=[], system_prompt="", depth=1)
     skill = SkillDef(name="s", triggers=["/s"], tools=[], context="fork", body="do it")
-    result = run_forked("do it", skill, ctx, _registry(), _hooks(), provider_fn=None)
+    result = run_forked("do it", skill, ctx, _registry(), provider_fn=None)
     assert "depth" in result.lower()
 
 
@@ -102,7 +98,7 @@ def test_plan_mode_injects_into_system_prompt():
     plan_mode = ModeRef(name="plan", body="You are in plan mode. Present a plan before acting.")
     cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="plan")
     ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.", modes=[plan_mode])
-    list(run("do something", ctx, _registry(), _hooks(), provider_fn=recording_provider))
+    list(run("do something", ctx, _registry(), provider_fn=recording_provider))
 
     assert len(calls) == 1
     assert "plan mode" in calls[0]
@@ -121,7 +117,7 @@ def test_act_mode_does_not_inject_text():
     act_mode = ModeRef(name="act", body="")
     cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="act")
     ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.", modes=[act_mode])
-    list(run("do something", ctx, _registry(), _hooks(), provider_fn=recording_provider))
+    list(run("do something", ctx, _registry(), provider_fn=recording_provider))
 
     assert calls[0] == "You are helpful."
 
@@ -138,7 +134,7 @@ def test_custom_mode_injects_body():
     custom = ModeRef(name="review", body="You are in review mode. Only suggest improvements.")
     cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="review")
     ctx = RunContext(config=cfg, messages=[], system_prompt="Base prompt.", modes=[custom])
-    list(run("check code", ctx, _registry(), _hooks(), provider_fn=recording_provider))
+    list(run("check code", ctx, _registry(), provider_fn=recording_provider))
 
     assert "review mode" in calls[0]
     assert "Base prompt." in calls[0]
@@ -155,6 +151,86 @@ def test_unknown_mode_no_injection():
 
     cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="nonexistent")
     ctx = RunContext(config=cfg, messages=[], system_prompt="Base.", modes=[])
-    list(run("hi", ctx, _registry(), _hooks(), provider_fn=recording_provider))
+    list(run("hi", ctx, _registry(), provider_fn=recording_provider))
 
     assert calls[0] == "Base."
+
+
+# --- Hook feedback integration ---
+
+def test_block_hook_feedback_in_tool_message():
+    from tigger.hooks import HookDef
+    hook_defs = [HookDef(name="no-rm", event="PreToolUse", matcher="bash",
+                         action="block", body="Blocked!")]
+    def my_tool(args): return "should not run"
+    t = ToolDef("bash", "", {"type": "object", "properties": {}}, func=my_tool)
+    reg = _registry([t])
+    tc = ToolCallRecord("c1", "bash", {"command": "rm -rf /"})
+    first_call = True
+    def provider(system, messages, tools, config):
+        nonlocal first_call
+        if first_call:
+            first_call = False
+            yield TextChunk(content="")
+            yield AssistantMessage(content="", tool_calls=[tc])
+        else:
+            yield TextChunk(content="ok")
+            yield AssistantMessage(content="ok", tool_calls=[])
+    ctx = _ctx()
+    list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs))
+    tool_msgs = [m for m in ctx.messages if m.role == "tool"]
+    assert len(tool_msgs) == 1
+    assert "[hook: no-rm]" in tool_msgs[0].content
+    assert "Blocked!" in tool_msgs[0].content
+
+
+def test_warn_hook_feedback_appended_to_tool_result():
+    from tigger.hooks import HookDef
+    hook_defs = [HookDef(name="log", event="PreToolUse", matcher="my_tool",
+                         action="warn", body="Careful!")]
+    def my_tool(args): return "tool output"
+    t = ToolDef("my_tool", "", {"type": "object", "properties": {}}, func=my_tool)
+    reg = _registry([t])
+    tc = ToolCallRecord("c1", "my_tool", {})
+    first_call = True
+    def provider(system, messages, tools, config):
+        nonlocal first_call
+        if first_call:
+            first_call = False
+            yield TextChunk(content="")
+            yield AssistantMessage(content="", tool_calls=[tc])
+        else:
+            yield TextChunk(content="done")
+            yield AssistantMessage(content="done", tool_calls=[])
+    ctx = _ctx()
+    list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs))
+    tool_msgs = [m for m in ctx.messages if m.role == "tool"]
+    assert len(tool_msgs) == 1
+    assert "tool output" in tool_msgs[0].content
+    assert "[hook: log]" in tool_msgs[0].content
+    assert "Careful!" in tool_msgs[0].content
+
+
+def test_post_hook_feedback_appended_to_tool_result():
+    from tigger.hooks import HookDef
+    hook_defs = [HookDef(name="post-warn", event="PostToolUse", matcher="my_tool",
+                         action="warn", body="Review this.")]
+    def my_tool(args): return "tool output"
+    t = ToolDef("my_tool", "", {"type": "object", "properties": {}}, func=my_tool)
+    reg = _registry([t])
+    tc = ToolCallRecord("c1", "my_tool", {})
+    first_call = True
+    def provider(system, messages, tools, config):
+        nonlocal first_call
+        if first_call:
+            first_call = False
+            yield TextChunk(content="")
+            yield AssistantMessage(content="", tool_calls=[tc])
+        else:
+            yield TextChunk(content="done")
+            yield AssistantMessage(content="done", tool_calls=[])
+    ctx = _ctx()
+    list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs))
+    tool_msgs = [m for m in ctx.messages if m.role == "tool"]
+    assert "tool output" in tool_msgs[0].content
+    assert "[hook: post-warn]" in tool_msgs[0].content

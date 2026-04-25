@@ -7,7 +7,7 @@ from tigger.types import (
     ThinkingEvent,
 )
 from tigger.tools import ToolRegistry
-from tigger.hooks import HookDef, HookRegistry, run_before, run_after, evaluate_hooks
+from tigger.hooks import HookDef, evaluate_hooks
 from tigger.permissions import check as permission_check
 from tigger.compaction import maybe_compact
 
@@ -26,9 +26,8 @@ def run(
     query: str,
     ctx: RunContext,
     registry: ToolRegistry,
-    hooks: HookRegistry,
     provider_fn: Callable,
-    hook_defs: list | None = None,
+    hook_defs: list[HookDef] | None = None,
     summaries_dir: pathlib.Path | None = None,
 ) -> Generator[Event, None, None]:
     """Drive a full multi-turn agent exchange. Yields events; mutates ctx.messages in place."""
@@ -115,47 +114,55 @@ def run(
                 ))
                 continue
 
-            # Declarative hooks (PreToolUse) — block/warn before execution
+            # Declarative hooks (PreToolUse) — block/warn/transform before execution
+            pre_hook_feedback: list[str] = []
             if hook_defs:
                 _hook_ctx = {"tool_name": tc.name, "tool_args": tc.args}
                 _hook_result = evaluate_hooks("PreToolUse", _hook_ctx, hook_defs)
                 for msg in _hook_result.messages:
                     print(f"[hook] {msg}")
                 if _hook_result.blocked:
+                    block_content = "(tool call blocked by hook)"
+                    if _hook_result.feedback:
+                        block_content += "\n\n" + "\n\n".join(_hook_result.feedback)
                     yield ToolEndEvent(
                         call_id=tc.call_id, name=tc.name,
                         output="(blocked by hook)", permitted=False,
                     )
                     ctx.messages.append(Message(
                         role="tool",
-                        content="(tool call blocked by hook)",
+                        content=block_content,
                         tool_call_id=tc.call_id,
                         name=tc.name,
                     ))
                     continue
+                pre_hook_feedback = _hook_result.feedback
 
-            # Legacy hooks (RTK arg mutation)
-            tc = run_before(tc, ctx, hooks)
             yield ToolStartEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
             output = registry.execute(tc.name, tc.args)
             end_event = ToolEndEvent(
                 call_id=tc.call_id, name=tc.name, output=output,
                 error=output.startswith("Error:"),
             )
-            end_event = run_after(end_event, ctx, hooks)
 
             # Declarative hooks (PostToolUse) — warn after execution
+            post_hook_feedback: list[str] = []
             if hook_defs:
                 _post_ctx = {"tool_name": tc.name, "tool_args": tc.args}
                 _post_result = evaluate_hooks("PostToolUse", _post_ctx, hook_defs)
                 for msg in _post_result.messages:
                     print(f"[hook] {msg}")
+                post_hook_feedback = _post_result.feedback
 
             yield end_event
 
+            tool_content = end_event.output
+            all_feedback = pre_hook_feedback + post_hook_feedback
+            if all_feedback:
+                tool_content += "\n\n" + "\n\n".join(all_feedback)
             ctx.messages.append(Message(
                 role="tool",
-                content=end_event.output,
+                content=tool_content,
                 tool_call_id=tc.call_id,
                 name=tc.name,
             ))
@@ -174,9 +181,8 @@ def run_forked(
     skill,                          # SkillDef — imported lazily to avoid circular
     ctx: RunContext,
     registry: ToolRegistry,
-    hooks: HookRegistry,
     provider_fn: Callable | None,
-    hook_defs: list | None = None,
+    hook_defs: list[HookDef] | None = None,
 ) -> str:
     """Run *query* in a forked context (isolated message history, depth+1). Returns result string."""
     if ctx.depth >= ctx.config.max_depth:
@@ -207,7 +213,7 @@ def run_forked(
         return "(no provider available for forked skill)"
 
     result_parts = []
-    for event in run(query, forked, sub_registry, hooks, provider_fn=provider_fn,
+    for event in run(query, forked, sub_registry, provider_fn=provider_fn,
                       hook_defs=hook_defs, summaries_dir=None):
         if isinstance(event, TextChunk):
             result_parts.append(event.content)
