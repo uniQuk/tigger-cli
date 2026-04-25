@@ -164,6 +164,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         hooks=hooks,
         provider_fn=_provider.stream,
         summary_dir=summary_dir,
+        modes=modes,
     )
 
     return StartupResult(
