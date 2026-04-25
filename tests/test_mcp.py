@@ -652,3 +652,57 @@ def test_cleanup_closes_all():
     _connections.append(McpConnection(name="b", transport=_TrackingTransport()))
     _cleanup()
     assert len(closed) == 2
+
+
+# ── Unit 7: /mcp status command ──────────────────────────────────────────
+
+from tigger.commands.mcp_cmd import cmd_mcp
+
+
+def _make_ctx():
+    from tigger.types import Config, RunContext
+    cfg = Config(base_url="http://localhost", model="test")
+    return RunContext(config=cfg, messages=[], system_prompt="")
+
+
+def test_mcp_cmd_no_servers(capsys):
+    registry = ToolRegistry()
+    cmd_mcp("", _make_ctx(), connections=[], registry=registry)
+    out = capsys.readouterr().out
+    assert "No MCP servers connected" in out
+
+
+def test_mcp_cmd_with_servers(capsys):
+    class _FakeTransport:
+        _url = "http://example.com"
+        def send(self, method, params): return {}
+        def close(self): pass
+    registry = ToolRegistry()
+    from tigger.types import ToolDef
+    registry.register(ToolDef(
+        name="mcp__srv1__tool_a", description="test", parameters={}, func=lambda a: "", read_only=False
+    ))
+    registry.register(ToolDef(
+        name="mcp__srv1__tool_b", description="test", parameters={}, func=lambda a: "", read_only=False
+    ))
+    conn = McpConnection(
+        name="srv1",
+        transport=_FakeTransport(),
+        server_info={"name": "srv1", "version": "2.0"},
+        capabilities={"tools": {}},
+    )
+    cmd_mcp("", _make_ctx(), connections=[conn], registry=registry)
+    out = capsys.readouterr().out
+    assert "srv1" in out
+    assert "2 tools" in out
+    assert "v2.0" in out
+
+
+def test_mcp_cmd_unknown_version(capsys):
+    class _FakeTransport:
+        def send(self, method, params): return {}
+        def close(self): pass
+    conn = McpConnection(name="bare", transport=_FakeTransport())
+    cmd_mcp("", _make_ctx(), connections=[conn], registry=ToolRegistry())
+    out = capsys.readouterr().out
+    assert "unknown" in out
