@@ -1,5 +1,8 @@
-import json, os, pathlib, tempfile
-from tigger.mcp import load_mcp_config, McpServerConfig, McpTransportError, McpConnection
+import json, os, pathlib, sys, tempfile
+from tigger.mcp import (
+    load_mcp_config, McpServerConfig, McpTransportError, McpConnection,
+    StdioTransport,
+)
 from tigger.resolve import resolve_mcp_configs
 from tigger.tools import ToolRegistry
 
@@ -161,3 +164,100 @@ def test_resolve_mcp_configs_malformed_json(tmp_path, capsys):
     assert configs == []
     captured = capsys.readouterr()
     assert "Warning" in captured.err
+
+
+# ── Unit 3: StdioTransport ───────────────────────────────────────────────
+
+# A tiny Python script that acts as a JSON-RPC echo server on stdin/stdout.
+_ECHO_SERVER = r"""
+import json, sys
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    req = json.loads(line)
+    if "id" not in req:
+        continue  # notification — no response
+    resp = {"jsonrpc": "2.0", "id": req["id"], "result": {"echo": req.get("method")}}
+    sys.stdout.write(json.dumps(resp) + "\n")
+    sys.stdout.flush()
+"""
+
+
+def test_stdio_transport_send_receive():
+    t = StdioTransport([sys.executable, "-c", _ECHO_SERVER])
+    try:
+        result = t.send("test/ping", {})
+        assert result == {"echo": "test/ping"}
+    finally:
+        t.close()
+
+
+def test_stdio_transport_notification():
+    t = StdioTransport([sys.executable, "-c", _ECHO_SERVER])
+    try:
+        result = t.send("notifications/initialized", {})
+        assert result == {}
+    finally:
+        t.close()
+
+
+def test_stdio_transport_dead_process():
+    t = StdioTransport([sys.executable, "-c", "pass"])
+    import time; time.sleep(0.2)  # let process exit
+    try:
+        t.send("test/ping", {})
+        assert False, "Expected McpTransportError"
+    except McpTransportError:
+        pass
+    finally:
+        t.close()
+
+
+def test_stdio_transport_malformed_json():
+    # Server that writes non-JSON
+    bad_server = r"""
+import sys
+line = sys.stdin.readline()
+sys.stdout.write("not json\n")
+sys.stdout.flush()
+"""
+    t = StdioTransport([sys.executable, "-c", bad_server])
+    try:
+        t.send("test/ping", {})
+        assert False, "Expected McpTransportError"
+    except McpTransportError as e:
+        assert "invalid JSON" in str(e)
+    finally:
+        t.close()
+
+
+def test_stdio_transport_close_already_dead():
+    t = StdioTransport([sys.executable, "-c", "pass"])
+    import time; time.sleep(0.2)
+    t.close()  # should not raise
+
+
+def test_stdio_transport_close_terminates():
+    # Long-running process
+    t = StdioTransport([sys.executable, "-c", "import time; time.sleep(60)"])
+    t.close()
+    assert t.proc.poll() is not None
+
+
+def test_stdio_transport_env_merge(monkeypatch):
+    # Server that prints the value of TEST_MCP_VAR
+    env_server = r"""
+import json, os, sys
+line = sys.stdin.readline()
+req = json.loads(line)
+val = os.environ.get("TEST_MCP_VAR", "missing")
+sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": req["id"], "result": {"val": val}}) + "\n")
+sys.stdout.flush()
+"""
+    t = StdioTransport([sys.executable, "-c", env_server], env={"TEST_MCP_VAR": "hello"})
+    try:
+        result = t.send("test/env", {})
+        assert result["val"] == "hello"
+    finally:
+        t.close()

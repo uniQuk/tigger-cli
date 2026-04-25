@@ -63,6 +63,70 @@ def load_mcp_config(path: pathlib.Path) -> list[McpServerConfig]:
 _id_counter = itertools.count(2)  # 0 = initialize, 1 = tools/list
 
 
+class StdioTransport:
+    """MCP transport over subprocess stdin/stdout."""
+
+    def __init__(self, command: list[str], env: dict[str, str] | None = None) -> None:
+        merged_env = {**os.environ, **(env or {})}
+        self.proc = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=merged_env,
+        )
+        self._lock = threading.Lock()
+
+    def send(self, method: str, params: dict) -> dict:
+        is_notification = method.startswith("notifications/")
+        msg: dict = {"jsonrpc": "2.0", "method": method, "params": params}
+        if not is_notification:
+            msg["id"] = next(_id_counter)
+        line = json.dumps(msg) + "\n"
+
+        with self._lock:
+            try:
+                if self.proc.poll() is not None:
+                    raise McpTransportError(f"stdio process exited (code {self.proc.returncode})")
+                self.proc.stdin.write(line.encode())
+                self.proc.stdin.flush()
+                if is_notification:
+                    return {}
+                # Use a timer thread for portable timeout instead of select.select
+                timed_out = threading.Event()
+                def _timeout():
+                    timed_out.set()
+                timer = threading.Timer(_CONNECT_TIMEOUT, _timeout)
+                timer.daemon = True
+                timer.start()
+                resp_line = self.proc.stdout.readline()
+                timer.cancel()
+                if timed_out.is_set() or not resp_line:
+                    raise McpTransportError("stdio read timed out")
+                resp = json.loads(resp_line)
+            except McpTransportError:
+                raise
+            except (BrokenPipeError, OSError) as exc:
+                raise McpTransportError(f"stdio I/O error: {exc}") from exc
+            except json.JSONDecodeError as exc:
+                raise McpTransportError(f"stdio invalid JSON response: {exc}") from exc
+
+        if "error" in resp:
+            err = resp["error"]
+            raise McpTransportError(f"JSON-RPC error {err.get('code')}: {err.get('message')}")
+        return resp.get("result", {})
+
+    def close(self) -> None:
+        try:
+            self.proc.terminate()
+            self.proc.wait(timeout=3)
+        except Exception:
+            try:
+                self.proc.kill()
+            except Exception:
+                pass
+
+
 def _make_mcp_tool_func(server_name: str, tool_name: str, proc: subprocess.Popen):
     _lock = threading.Lock()
     def call(args: dict) -> str:
