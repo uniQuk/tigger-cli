@@ -72,16 +72,23 @@ def test_config_loads_mode_field():
     assert cfg.mode == "plan"
 
 
-def test_config_mode_defaults_to_ask():
+def test_config_mode_defaults_to_act():
     p = _write({"base_url": "http://x", "model": "m"})
     cfg = load_config(p)
-    assert cfg.mode == "ask"
+    assert cfg.mode == "act"
 
 
-def test_invalid_mode_raises():
-    p = _write({"base_url": "http://x", "model": "m", "mode": "yolo"})
-    with pytest.raises(ValueError, match="mode"):
-        load_config(p)
+def test_mode_ask_silently_maps_to_act():
+    p = _write({"base_url": "http://x", "model": "m", "mode": "ask"})
+    cfg = load_config(p)
+    assert cfg.mode == "act"
+
+
+def test_unknown_mode_accepted_for_deferred_validation():
+    """Unknown mode names are accepted by load_config; validated at startup."""
+    p = _write({"base_url": "http://x", "model": "m", "mode": "custom"})
+    cfg = load_config(p)
+    assert cfg.mode == "custom"
 
 
 # --- derive_provider_name tests ---

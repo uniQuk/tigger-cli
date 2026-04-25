@@ -397,7 +397,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(prog="tigger-code")
-    parser.add_argument("--mode", choices=["ask", "plan"], default=None)
+    parser.add_argument("--mode", default=None)
     parser.add_argument("--permission", choices=["ask", "allow", "bypass"], dest="permission", default=None)
     parser.add_argument("-c", "--continue", dest="resume", action="store_true",
                         help="Resume the most recent session")
@@ -406,9 +406,20 @@ def main() -> None:
     result = startup()
 
     if parsed.mode is not None:
-        result.ctx.config = dataclasses.replace(result.ctx.config, mode=parsed.mode)
+        from tigger.config import _MODE_RENAME
+        mode = _MODE_RENAME.get(parsed.mode, parsed.mode)
+        result.ctx.config = dataclasses.replace(result.ctx.config, mode=mode)
     if parsed.permission is not None:
         result.ctx.config = dataclasses.replace(result.ctx.config, permission_mode=parsed.permission)
+
+    # Validate mode against resolved mode names
+    mode_names = {m.name for m in result.ctx.modes}
+    if mode_names and result.ctx.config.mode not in mode_names:
+        ui.print_error(
+            f"Unknown mode {result.ctx.config.mode!r}. "
+            f"Available: {', '.join(sorted(mode_names))}. Falling back to 'act'."
+        )
+        result.ctx.config = dataclasses.replace(result.ctx.config, mode="act")
 
     # Session setup
     session_dir = project_session_dir(home_config_dir(), pathlib.Path.cwd().resolve())
