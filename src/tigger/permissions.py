@@ -29,5 +29,7 @@ def check(
         if tool.name == "bash":
             cmd = args.get("command", "")
             return _bash_command_is_safe(cmd, bash_safe_prefixes)
+        if tool.name in ("edit", "write", "remember"):
+            return True
         return False
     return False    # ask: caller must prompt the user

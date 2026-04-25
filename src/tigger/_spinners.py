@@ -225,7 +225,3 @@ def pick_message() -> str:
         msg = _stretch_noise(msg)
 
     return msg
-
-
-# Flat list kept for backwards compat.
-SPINNER_MESSAGES = _NOISES + _BEHAVIOUR + _TECH + _ABSURD + _CHAOS

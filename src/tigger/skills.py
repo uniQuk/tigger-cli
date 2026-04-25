@@ -53,15 +53,13 @@ class AgentDef:
 from tigger.types import ModeRef as ModeRef  # re-export for backward compat
 
 
-_parse_blocks = parse_blocks
-_parse_single = parse_single
 
 
 def load_skills(path: pathlib.Path) -> list[SkillDef]:
     """Load skills from a flat skills.md file (legacy/fallback)."""
     if not path.exists():
         return []
-    blocks = _parse_blocks(path.read_text())
+    blocks = parse_blocks(path.read_text())
     skills = []
     for b in blocks:
         fm = b["fm"]
@@ -92,7 +90,7 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
         skill_md = entry / "SKILL.md"
         if not skill_md.exists():
             continue
-        b = _parse_single(skill_md.read_text())
+        b = parse_single(skill_md.read_text())
         if not b:
             continue
         fm = b["fm"]
@@ -138,7 +136,7 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
 def load_agents(path: pathlib.Path) -> list[AgentDef]:
     if not path.exists():
         return []
-    blocks = _parse_blocks(path.read_text())
+    blocks = parse_blocks(path.read_text())
     agents = []
     for b in blocks:
         fm = b["fm"]
@@ -162,7 +160,7 @@ def load_agents_dir(agents_dir: pathlib.Path) -> list[AgentDef]:
     for entry in sorted(agents_dir.iterdir()):
         if not entry.is_file() or entry.suffix != ".md":
             continue
-        b = _parse_single(entry.read_text())
+        b = parse_single(entry.read_text())
         if not b:
             continue
         fm = b["fm"]
@@ -187,7 +185,7 @@ def load_modes_dir(modes_dir: pathlib.Path) -> list[ModeRef]:
     for entry in sorted(modes_dir.iterdir()):
         if not entry.is_file() or entry.suffix != ".md":
             continue
-        b = _parse_single(entry.read_text())
+        b = parse_single(entry.read_text())
         if not b:
             continue
         fm = b["fm"]

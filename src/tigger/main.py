@@ -13,7 +13,7 @@ from tigger.hooks import HookDef, RTK_HOOK_NAME, set_hook_enabled
 from tigger.skills import match_skill
 from tigger.resolve import (
     resolve_file, resolve_skills, resolve_agents, resolve_hooks, resolve_modes,
-    is_global_config, seed_global, INTERNAL_DIR,
+    is_global_config, seed_global,
 )
 from tigger.memory import read_memory, format_for_prompt
 from tigger.mcp import connect_all

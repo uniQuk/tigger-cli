@@ -30,8 +30,13 @@ def test_unknown_tool_ask_denied():
     assert check(t, "ask", {}, bash_safe_prefixes=[]) is False
 
 
-def test_unknown_tool_allow_denied():
+def test_write_tool_allow_approved():
     t = _tool(name="write")
+    assert check(t, "allow", {}, bash_safe_prefixes=[]) is True
+
+
+def test_unknown_tool_allow_denied():
+    t = _tool(name="some_unknown_tool")
     assert check(t, "allow", {}, bash_safe_prefixes=[]) is False
 
 

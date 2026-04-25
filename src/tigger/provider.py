@@ -86,31 +86,49 @@ def stream(
     collected_text = ""
     collected_tool_calls: list[dict] = []
     tool_call_signalled = False
+    input_tokens = 0
+    output_tokens = 0
 
-    response = client.chat.completions.create(**kwargs)
-    for chunk in response:
-        delta = chunk.choices[0].delta if chunk.choices else None
-        if delta is None:
-            continue
-        if delta.content:
-            collected_text += delta.content
-            yield TextChunk(content=delta.content)
-        if delta.tool_calls:
-            if not tool_call_signalled:
-                tool_call_signalled = True
-                yield ThinkingEvent()
-            for tc_chunk in delta.tool_calls:
-                idx = tc_chunk.index
-                while len(collected_tool_calls) <= idx:
-                    collected_tool_calls.append({"id": "", "function": {"name": "", "arguments": ""}})
-                if tc_chunk.id:
-                    collected_tool_calls[idx]["id"] = tc_chunk.id
-                if tc_chunk.function.name:
-                    collected_tool_calls[idx]["function"]["name"] += tc_chunk.function.name
-                if tc_chunk.function.arguments:
-                    collected_tool_calls[idx]["function"]["arguments"] += tc_chunk.function.arguments
+    # Request usage stats if the provider supports it; fall back without on error.
+    kwargs["stream_options"] = {"include_usage": True}
+    try:
+        response = client.chat.completions.create(**kwargs)
+    except Exception:
+        kwargs.pop("stream_options", None)
+        response = client.chat.completions.create(**kwargs)
+    try:
+        for chunk in response:
+            if chunk.usage:
+                input_tokens = chunk.usage.prompt_tokens or 0
+                output_tokens = chunk.usage.completion_tokens or 0
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta is None:
+                continue
+            if delta.content:
+                collected_text += delta.content
+                yield TextChunk(content=delta.content)
+            if delta.tool_calls:
+                if not tool_call_signalled:
+                    tool_call_signalled = True
+                    yield ThinkingEvent()
+                for tc_chunk in delta.tool_calls:
+                    idx = tc_chunk.index
+                    while len(collected_tool_calls) <= idx:
+                        collected_tool_calls.append({"id": "", "function": {"name": "", "arguments": ""}})
+                    if tc_chunk.id:
+                        collected_tool_calls[idx]["id"] = tc_chunk.id
+                    if tc_chunk.function.name:
+                        collected_tool_calls[idx]["function"]["name"] += tc_chunk.function.name
+                    if tc_chunk.function.arguments:
+                        collected_tool_calls[idx]["function"]["arguments"] += tc_chunk.function.arguments
+    except Exception:
+        if collected_text:
+            yield TextChunk(content="\n[response interrupted, retrying]\n")
+        raise
 
     yield AssistantMessage(
         content=collected_text,
         tool_calls=openai_tool_calls_to_records(collected_tool_calls),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )

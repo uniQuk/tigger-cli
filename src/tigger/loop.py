@@ -75,7 +75,10 @@ def run(
             content=assistant_msg.content,
             tool_calls=assistant_msg.tool_calls,
         ))
-        yield TurnDoneEvent(input_tokens=0, output_tokens=0)
+        yield TurnDoneEvent(
+            input_tokens=assistant_msg.input_tokens,
+            output_tokens=assistant_msg.output_tokens,
+        )
 
         if not assistant_msg.tool_calls:
             break

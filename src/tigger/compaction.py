@@ -19,28 +19,27 @@ except ImportError:
     _enc = None
 
 
-_TOKEN_CACHE_MAX = 64
-_token_cache: dict[tuple[int, int], int] = {}
+_token_cache: tuple[int, int, int] = (0, 0, 0)  # (len, char_total, token_count)
 
 
 def estimate_tokens(messages: list[Message]) -> int:
     """Token count via tiktoken (cl100k_base) if available, else chars/3.5.
 
-    Cached by (id, len) — cleared each compaction round so stale id() reuse
-    cannot return wrong values.
+    Cached by (message count, total chars) — a cheap fingerprint that avoids
+    the old id()-based key's correctness issues while still protecting the
+    toolbar repaint hot path from redundant tiktoken encoding.
     """
-    cache_key = (id(messages), len(messages))
-    cached = _token_cache.get(cache_key)
-    if cached is not None:
-        return cached
+    global _token_cache
+    n = len(messages)
+    chars = sum(len(m.content) for m in messages)
+    cached_n, cached_chars, cached_result = _token_cache
+    if n == cached_n and chars == cached_chars:
+        return cached_result
     if _enc is not None:
         result = sum(len(_enc.encode(m.content)) for m in messages)
     else:
-        total = sum(len(m.content) for m in messages)
-        result = int(total / 3.5)
-    if len(_token_cache) >= _TOKEN_CACHE_MAX:
-        _token_cache.clear()
-    _token_cache[cache_key] = result
+        result = int(chars / 3.5)
+    _token_cache = (n, chars, result)
     return result
 
 
@@ -153,7 +152,6 @@ def maybe_compact(
 
     Returns (possibly shorter message list, CompactResult).
     """
-    _token_cache.clear()
     tokens_before = estimate_tokens(messages)
     threshold = config.context_limit * 0.7
     if not force and tokens_before < threshold:

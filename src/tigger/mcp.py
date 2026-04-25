@@ -1,4 +1,5 @@
 from __future__ import annotations
+import itertools
 import json, pathlib, subprocess, threading
 from dataclasses import dataclass
 from tigger.tools import ToolRegistry, ToolDef
@@ -30,11 +31,14 @@ def load_mcp_config(path: pathlib.Path) -> list[McpServerConfig]:
     return configs
 
 
+_id_counter = itertools.count(2)  # 0 = initialize, 1 = tools/list
+
+
 def _make_mcp_tool_func(server_name: str, tool_name: str, proc: subprocess.Popen):
     _lock = threading.Lock()
     def call(args: dict) -> str:
         request = json.dumps({
-            "jsonrpc": "2.0", "id": 1,
+            "jsonrpc": "2.0", "id": next(_id_counter),
             "method": "tools/call",
             "params": {"name": tool_name, "arguments": args},
         }) + "\n"

@@ -73,6 +73,8 @@ class AssistantMessage:
     """Raw response from the provider before it's stored as a Message."""
     content: str
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 @dataclass
