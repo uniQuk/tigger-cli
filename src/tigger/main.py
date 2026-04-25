@@ -13,7 +13,7 @@ from tigger.hooks import HookDef, RTK_HOOK_NAME, set_hook_enabled
 from tigger.skills import match_skill
 from tigger.resolve import (
     resolve_file, resolve_skills, resolve_agents, resolve_hooks, resolve_modes,
-    is_global_config, seed_global,
+    resolve_mcp_configs, is_global_config, seed_global,
 )
 from tigger.memory import read_memory, format_for_prompt
 from tigger.mcp import connect_all
@@ -92,10 +92,10 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     registry = ToolRegistry()
     register_all(registry, memory_path=memory_path)
 
-    # 5. MCP — override semantics (first found wins)
-    mcp_path = resolve_file("mcp.json", project_dir, global_dir)
-    if mcp_path:
-        connect_all(registry, mcp_path)
+    # 5. MCP — 3-tier merge (project > global > internal), name-based shadowing
+    mcp_configs = resolve_mcp_configs(project_dir, global_dir)
+    if mcp_configs:
+        connect_all(registry, mcp_configs)
 
     # 6. Hooks — declarative markdown hooks from hooks/ directories (additive merge)
     hook_defs = resolve_hooks(project_dir, global_dir)

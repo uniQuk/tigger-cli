@@ -343,38 +343,71 @@ class SseTransport:
         self._client.close()
 
 
-def _make_mcp_tool_func(server_name: str, tool_name: str, proc: subprocess.Popen):
-    _lock = threading.Lock()
+def _make_mcp_tool_func(server_name: str, tool_name: str, transport: McpTransport):
     def call(args: dict) -> str:
-        request = json.dumps({
-            "jsonrpc": "2.0", "id": next(_id_counter),
-            "method": "tools/call",
-            "params": {"name": tool_name, "arguments": args},
-        }) + "\n"
-        with _lock:
-            try:
-                proc.stdin.write(request.encode())
-                proc.stdin.flush()
-                line = proc.stdout.readline()
-                resp = json.loads(line)
-                content = resp.get("result", {}).get("content", [])
-                return "\n".join(c.get("text", "") for c in content if c.get("type") == "text")
-            except Exception as exc:
-                return f"Error calling MCP tool {tool_name}: {exc}"
+        try:
+            result = transport.send("tools/call", {"name": tool_name, "arguments": args})
+            content = result.get("content", [])
+            return "\n".join(c.get("text", "") for c in content if c.get("type") == "text")
+        except McpTransportError as exc:
+            return f"Error calling MCP tool {tool_name}: {exc}"
     return call
 
 
-def connect_all(registry: ToolRegistry, path: pathlib.Path, *, require_consent: bool = False) -> None:
-    """Connect to all MCP servers in *path* and register their tools. Blocking, 3s timeout.
+# ── Module-level connection registry ─────────────────────────────────────
 
-    When *require_consent* is True, the user is prompted before launching each
-    MCP server subprocess.  Set to False for trusted workspaces or tests.
+_connections: list[McpConnection] = []
+_cleanup_registered = False
+
+
+def get_connections() -> list[McpConnection]:
+    """Return the list of active MCP connections (read-only access for /mcp command)."""
+    return _connections
+
+
+def _cleanup() -> None:
+    """Close all MCP transports. Registered via atexit on first connect_all call."""
+    for conn in _connections:
+        try:
+            conn.transport.close()
+        except Exception:
+            pass
+
+
+def _build_transport(cfg: McpServerConfig) -> McpTransport:
+    """Construct the appropriate transport for a server config."""
+    if cfg.transport == "stdio":
+        if not cfg.command:
+            raise McpTransportError(f"stdio transport requires 'command' for server {cfg.name!r}")
+        return StdioTransport(cfg.command, env=cfg.env or None)
+    elif cfg.transport == "http":
+        if not cfg.url:
+            raise McpTransportError(f"http transport requires 'url' for server {cfg.name!r}")
+        return StreamableHttpTransport(cfg.url)
+    elif cfg.transport == "sse":
+        if not cfg.url:
+            raise McpTransportError(f"sse transport requires 'url' for server {cfg.name!r}")
+        return SseTransport(cfg.url)
+    else:
+        raise McpTransportError(f"Unknown transport {cfg.transport!r} for server {cfg.name!r}")
+
+
+def connect_all(
+    registry: ToolRegistry,
+    configs: list[McpServerConfig],
+    *,
+    require_consent: bool = False,
+) -> None:
+    """Connect to all MCP servers and register their tools.
+
+    When *require_consent* is True, the user is prompted before launching
+    MCP servers.  Set to False for trusted workspaces or tests.
     """
-    configs = load_mcp_config(path)
+    global _cleanup_registered
     if not configs:
         return
 
-    if require_consent and configs:
+    if require_consent:
         names = [c.name for c in configs]
         print(f"[mcp] Found MCP servers: {', '.join(names)}")
         try:
@@ -385,50 +418,61 @@ def connect_all(registry: ToolRegistry, path: pathlib.Path, *, require_consent: 
             print("[mcp] Skipped — MCP servers not launched.")
             return
 
+    import atexit
+    if not _cleanup_registered:
+        atexit.register(_cleanup)
+        _cleanup_registered = True
+
     for cfg in configs:
-        if cfg.transport == "stdio" and cfg.command:
-            try:
-                proc = subprocess.Popen(
-                    cfg.command,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
+        try:
+            transport = _build_transport(cfg)
+
+            # Handshake: initialize
+            init_result = transport.send("initialize", {
+                "protocolVersion": _PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": "tigger-code", "version": "0.1.0"},
+            })
+
+            server_info = init_result.get("serverInfo")
+            capabilities = init_result.get("capabilities")
+            server_protocol = init_result.get("protocolVersion")
+
+            if server_protocol and server_protocol != _PROTOCOL_VERSION:
+                print(
+                    f"[mcp] Warning: {cfg.name} uses protocol {server_protocol} "
+                    f"(client: {_PROTOCOL_VERSION})"
                 )
-                init = json.dumps({
-                    "jsonrpc": "2.0", "id": 0,
-                    "method": "initialize",
-                    "params": {"protocolVersion": "2024-11-05", "capabilities": {}},
-                }) + "\n"
-                proc.stdin.write(init.encode())
-                proc.stdin.flush()
 
-                import select
-                ready, _, _ = select.select([proc.stdout], [], [], _CONNECT_TIMEOUT)
-                if not ready:
-                    print(f"[mcp] Warning: {cfg.name} timed out — skipping")
-                    proc.kill()
-                    continue
+            # Send required initialized notification
+            transport.send("notifications/initialized", {})
 
-                proc.stdout.readline()  # consume initialize response
+            # Register tools if server advertises tool capability
+            if capabilities and "tools" in capabilities:
+                try:
+                    tools_result = transport.send("tools/list", {})
+                    for tool in tools_result.get("tools", []):
+                        full_name = f"mcp__{cfg.name}__{tool['name']}"
+                        registry.register(ToolDef(
+                            name=full_name,
+                            description=tool.get("description", ""),
+                            parameters=tool.get("inputSchema", {"type": "object", "properties": {}}),
+                            func=_make_mcp_tool_func(cfg.name, tool["name"], transport),
+                            read_only=False,
+                        ))
+                except McpTransportError as exc:
+                    print(f"[mcp] Warning: {cfg.name} tools/list failed: {exc}")
 
-                # Send required `initialized` notification before any further requests.
-                notif = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
-                proc.stdin.write(notif.encode())
-                proc.stdin.flush()
+            conn = McpConnection(
+                name=cfg.name,
+                transport=transport,
+                server_info=server_info,
+                capabilities=capabilities,
+                protocol_version=server_protocol,
+            )
+            _connections.append(conn)
 
-                list_req = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"
-                proc.stdin.write(list_req.encode())
-                proc.stdin.flush()
-                tools_line = proc.stdout.readline()
-                tools_resp = json.loads(tools_line)
-                for tool in tools_resp.get("result", {}).get("tools", []):
-                    full_name = f"mcp__{cfg.name}__{tool['name']}"
-                    registry.register(ToolDef(
-                        name=full_name,
-                        description=tool.get("description", ""),
-                        parameters=tool.get("inputSchema", {"type": "object", "properties": {}}),
-                        func=_make_mcp_tool_func(cfg.name, tool["name"], proc),
-                        read_only=False,
-                    ))
-            except Exception as exc:
-                print(f"[mcp] Warning: failed to connect to {cfg.name}: {exc}")
+        except McpTransportError as exc:
+            print(f"[mcp] Warning: failed to connect to {cfg.name}: {exc}")
+        except Exception as exc:
+            print(f"[mcp] Warning: failed to connect to {cfg.name}: {exc}")

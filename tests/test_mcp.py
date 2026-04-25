@@ -5,6 +5,7 @@ import pytest
 from tigger.mcp import (
     load_mcp_config, McpServerConfig, McpTransportError, McpConnection,
     StdioTransport, StreamableHttpTransport, SseTransport, _parse_sse_events,
+    connect_all, _connections, _make_mcp_tool_func, get_connections,
 )
 from tigger.resolve import resolve_mcp_configs
 from tigger.tools import ToolRegistry
@@ -496,3 +497,158 @@ def test_sse_transport_init_no_endpoint():
         client_instance.stream.return_value = ctx
         with pytest.raises(McpTransportError, match="endpoint event not received"):
             SseTransport("http://localhost:8080", timeout=5.0)
+
+
+# ── Unit 6: Transport-agnostic connect_all + lifecycle ───────────────────
+
+# A tiny MCP server script for integration tests
+_MCP_SERVER = r"""
+import json, sys
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    req = json.loads(line)
+    if "id" not in req:
+        continue
+    method = req["method"]
+    if method == "initialize":
+        resp = {"jsonrpc": "2.0", "id": req["id"], "result": {
+            "serverInfo": {"name": "test-srv", "version": "0.1"},
+            "capabilities": {"tools": {}},
+            "protocolVersion": "2025-03-26",
+        }}
+    elif method == "tools/list":
+        resp = {"jsonrpc": "2.0", "id": req["id"], "result": {"tools": [
+            {"name": "greet", "description": "Say hello", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}}},
+        ]}}
+    elif method == "tools/call":
+        name = req["params"]["arguments"].get("name", "world")
+        resp = {"jsonrpc": "2.0", "id": req["id"], "result": {"content": [{"type": "text", "text": f"Hello {name}"}]}}
+    else:
+        resp = {"jsonrpc": "2.0", "id": req["id"], "result": {}}
+    sys.stdout.write(json.dumps(resp) + "\n")
+    sys.stdout.flush()
+"""
+
+
+@pytest.fixture(autouse=True)
+def _clear_connections():
+    """Clear module-level connections before each test."""
+    _connections.clear()
+    yield
+    _connections.clear()
+
+
+def test_connect_all_stdio():
+    registry = ToolRegistry()
+    configs = [McpServerConfig(name="test", transport="stdio", command=[sys.executable, "-c", _MCP_SERVER])]
+    connect_all(registry, configs)
+    assert len(get_connections()) == 1
+    conn = get_connections()[0]
+    assert conn.name == "test"
+    assert conn.server_info == {"name": "test-srv", "version": "0.1"}
+    assert conn.protocol_version == "2025-03-26"
+    # Check tool was registered
+    tool_names = [t.name for t in registry.all()]
+    assert "mcp__test__greet" in tool_names
+
+
+def test_connect_all_registers_callable_tool():
+    registry = ToolRegistry()
+    configs = [McpServerConfig(name="test", transport="stdio", command=[sys.executable, "-c", _MCP_SERVER])]
+    connect_all(registry, configs)
+    tool = next(t for t in registry.all() if t.name == "mcp__test__greet")
+    result = tool.func({"name": "Alice"})
+    assert result == "Hello Alice"
+
+
+def test_connect_all_no_tools_capability():
+    """Server without tools capability — no tools/list sent."""
+    server = r"""
+import json, sys
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    req = json.loads(line)
+    if "id" not in req:
+        continue
+    resp = {"jsonrpc": "2.0", "id": req["id"], "result": {
+        "serverInfo": {"name": "no-tools"},
+        "capabilities": {},
+        "protocolVersion": "2025-03-26",
+    }}
+    sys.stdout.write(json.dumps(resp) + "\n")
+    sys.stdout.flush()
+"""
+    registry = ToolRegistry()
+    configs = [McpServerConfig(name="bare", transport="stdio", command=[sys.executable, "-c", server])]
+    connect_all(registry, configs)
+    assert len(get_connections()) == 1
+    assert len(registry.all()) == 0
+
+
+def test_connect_all_protocol_version_mismatch(capsys):
+    server = r"""
+import json, sys
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    req = json.loads(line)
+    if "id" not in req:
+        continue
+    resp = {"jsonrpc": "2.0", "id": req["id"], "result": {
+        "serverInfo": {"name": "old"},
+        "capabilities": {},
+        "protocolVersion": "2024-11-05",
+    }}
+    sys.stdout.write(json.dumps(resp) + "\n")
+    sys.stdout.flush()
+"""
+    registry = ToolRegistry()
+    configs = [McpServerConfig(name="old-srv", transport="stdio", command=[sys.executable, "-c", server])]
+    connect_all(registry, configs)
+    assert len(get_connections()) == 1
+    captured = capsys.readouterr()
+    assert "protocol" in captured.out.lower()
+
+
+def test_connect_all_skips_failed_server(capsys):
+    registry = ToolRegistry()
+    configs = [McpServerConfig(name="bad", transport="stdio", command=["nonexistent-binary-xyz"])]
+    connect_all(registry, configs)
+    assert len(get_connections()) == 0
+    captured = capsys.readouterr()
+    assert "Warning" in captured.out
+
+
+def test_connect_all_empty_configs():
+    registry = ToolRegistry()
+    connect_all(registry, [])
+    assert len(get_connections()) == 0
+
+
+def test_make_mcp_tool_func_catches_transport_error():
+    class _FailTransport:
+        def send(self, method, params):
+            raise McpTransportError("boom")
+        def close(self):
+            pass
+    func = _make_mcp_tool_func("srv", "tool1", _FailTransport())
+    result = func({})
+    assert "Error calling MCP tool tool1" in result
+    assert "boom" in result
+
+
+def test_cleanup_closes_all():
+    from tigger.mcp import _cleanup
+    closed = []
+    class _TrackingTransport:
+        def send(self, method, params): return {}
+        def close(self): closed.append(True)
+    _connections.append(McpConnection(name="a", transport=_TrackingTransport()))
+    _connections.append(McpConnection(name="b", transport=_TrackingTransport()))
+    _cleanup()
+    assert len(closed) == 2
