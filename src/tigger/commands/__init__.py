@@ -4,7 +4,7 @@ import sys
 from functools import partial
 from tigger.types import RunContext
 from tigger.tools import ToolRegistry
-from tigger.hooks import HookRegistry
+from tigger.hooks import HookDef, HookRegistry
 from tigger.skills import AgentDef, ModeRef, SkillDef
 from tigger.commands import misc, agent as agent_cmd, compact as compact_cmd, skills as skills_cmd
 from tigger.commands import memory as mem_cmd
@@ -12,6 +12,7 @@ from tigger.commands import provider as provider_cmd
 from tigger.commands import summary as summary_cmd
 from tigger.commands import init as init_cmd
 from tigger.commands import rtk as rtk_cmd
+from tigger.commands import status as status_cmd
 
 
 COMMAND_DESCRIPTIONS: dict[str, str] = {
@@ -23,16 +24,18 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
     "memory": "View, search, or delete memory entries",
     "remember": "Save a note to memory",
     "compact": "Compact conversation history",
-    "skills": "List loaded skills",
+    "skills": "List or preview loaded skills",
     "agent": "Run or list agents",
     "provider": "Manage providers",
     "summary": "Save session summary to markdown",
     "init": "Scaffold project files in .tigger/",
     "rtk": "RTK token optimization (on/off/gain)",
+    "status": "Show resolved runtime configuration",
     "help": "Show this help",
 }
 
 COMMAND_HELP: dict[str, str] = {
+    "skills": "Usage:\n  /skills              — list loaded skills\n  /skills preview <n>  — show fully rendered prompt for a skill",
     "model": "Usage:\n  /model              — interactive picker\n  /model <name>       — switch by model name\n  /model prov/model   — switch by provider/model",
     "mode": "Usage: /mode [name]\n  Show current mode and available modes, or switch to a mode by name.\n  Modes are loaded from .tigger/modes/ directories.",
     "permission": "Usage: /permission <ask|allow|bypass>",
@@ -43,6 +46,7 @@ COMMAND_HELP: dict[str, str] = {
     "summary": "Usage: /summary\n  Save a structured summary of the current session to .tigger/summaries/.",
     "init": "Usage: /init [--global]\n  Create template files in .tigger/: system.md, skills/, agents/, hooks/, modes/.\n  --global  Scaffold ~/.tigger/ instead of the project directory.\n  Existing files are never overwritten.",
     "rtk": "Usage:\n  /rtk                  — show RTK status\n  /rtk on               — enable RTK proxy\n  /rtk off              — disable RTK proxy\n  /rtk gain             — show project token savings\n  /rtk gain --history   — per-command savings history\n  /rtk gain --graph     — daily savings graph\n\nRTK (Rust Token Killer) proxies shell commands to reduce token output by 60-90%.\n/rtk gain is scoped to the current project by default.\nhttps://github.com/rtk-ai/rtk",
+    "status": "Usage: /status\n  Print the resolved runtime configuration: config path, provider/model,\n  loaded skills (with tier annotations), agents, and active hooks.",
     "help": "Usage: /help [command] [--all]\n  Show help for a specific command, or list all commands.\n  --all  Include internal (bundled) skills and agents.",
 }
 
@@ -57,10 +61,13 @@ def load_builtin_commands(
     provider_fn,
     summary_dir: pathlib.Path | None = None,
     modes: list[ModeRef] | None = None,
+    hook_defs: list[HookDef] | None = None,
 ) -> dict:
     """Return a dict mapping command name → handler callable with (args, ctx) signature."""
     if modes is None:
         modes = []
+    if hook_defs is None:
+        hook_defs = []
     d: dict = {
         "clear":      misc.cmd_clear,
         "tokens":     misc.cmd_tokens,
@@ -69,13 +76,15 @@ def load_builtin_commands(
         "permission": misc.cmd_permission,
         "memory":     partial(mem_cmd.cmd_memory, memory_path=memory_path),
         "remember":   partial(mem_cmd.cmd_remember, memory_path=memory_path),
-        "compact":    partial(compact_cmd.cmd_compact, provider_fn=provider_fn),
+        "compact":    partial(compact_cmd.cmd_compact, provider_fn=provider_fn,
+                             summaries_dir=(summary_dir / "summaries") if summary_dir else None),
         "skills":     partial(skills_cmd.cmd_skills, skills=skills),
         "agent":      partial(agent_cmd.cmd_agent, agents=agents, registry=registry, hooks=hooks, provider_fn=provider_fn),
         "provider":   partial(provider_cmd.cmd_provider, config_path=config_path),
         "summary":    partial(summary_cmd.cmd_summary, tigger_dir=summary_dir or memory_path.parent, provider_fn=provider_fn),
         "init":       init_cmd.cmd_init,
         "rtk":        rtk_cmd.cmd_rtk,
+        "status":     partial(status_cmd.cmd_status, config_path=config_path, skills=skills, agents=agents, hook_defs=hook_defs, memory_path=memory_path),
     }
 
     # Register dynamic mode commands: /<mode_name> switches to that mode
