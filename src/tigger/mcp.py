@@ -1,18 +1,40 @@
 from __future__ import annotations
 import itertools
-import json, pathlib, subprocess, threading
-from dataclasses import dataclass
+import json, os, pathlib, subprocess, threading
+from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
 from tigger.tools import ToolRegistry, ToolDef
 
 _CONNECT_TIMEOUT = 3.0
+_PROTOCOL_VERSION = "2025-03-26"
+
+
+class McpTransportError(Exception):
+    """Raised by transports on network, protocol, or parse failures."""
+
+
+@runtime_checkable
+class McpTransport(Protocol):
+    def send(self, method: str, params: dict) -> dict: ...
+    def close(self) -> None: ...
+
+
+@dataclass
+class McpConnection:
+    name: str
+    transport: McpTransport
+    server_info: dict | None = None
+    capabilities: dict | None = None
+    protocol_version: str | None = None
 
 
 @dataclass
 class McpServerConfig:
     name: str
-    transport: str              # "stdio" | "http"
+    transport: str              # "stdio" | "sse" | "http"
     command: list[str] | None = None
     url: str | None = None
+    env: dict[str, str] = field(default_factory=dict)
 
 
 def load_mcp_config(path: pathlib.Path) -> list[McpServerConfig]:
@@ -22,11 +44,18 @@ def load_mcp_config(path: pathlib.Path) -> list[McpServerConfig]:
         data = json.load(f)
     configs = []
     for name, srv in data.get("servers", {}).items():
+        command = srv.get("command")
+        if command:
+            command = [os.path.expandvars(c) for c in command]
+        url = srv.get("url")
+        if url:
+            url = os.path.expandvars(url)
         configs.append(McpServerConfig(
             name=name,
             transport=srv.get("transport", "stdio"),
-            command=srv.get("command"),
-            url=srv.get("url"),
+            command=command,
+            url=url,
+            env=srv.get("env", {}),
         ))
     return configs
 

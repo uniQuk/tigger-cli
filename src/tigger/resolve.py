@@ -1,11 +1,13 @@
 """3-tier resource resolution: project .tigger/ > user ~/.tigger/ > package internal/."""
 from __future__ import annotations
 
+import json
 import pathlib
 import shutil
 
 from tigger._constants import home_config_dir
 from tigger.hooks import HookDef, load_hooks_dir
+from tigger.mcp import McpServerConfig, load_mcp_config
 from tigger.skills import AgentDef, ModeRef, SkillDef, load_agents, load_agents_dir, load_modes_dir, load_skills_dir
 
 INTERNAL_DIR = pathlib.Path(__file__).parent / "internal"
@@ -211,4 +213,30 @@ def resolve_modes(
             continue
         for mode in load_modes_dir(tier_dir):
             seen[mode.name] = mode
+    return list(seen.values())
+
+
+def resolve_mcp_configs(
+    project_dir: pathlib.Path | None,
+    global_dir: pathlib.Path | None,
+    internal_dir: pathlib.Path | None = None,
+) -> list[McpServerConfig]:
+    """Merge MCP configs across tiers. Project shadows global shadows internal by name."""
+    if internal_dir is None:
+        internal_dir = INTERNAL_DIR
+    seen: dict[str, McpServerConfig] = {}
+    for tier_dir in [
+        internal_dir if internal_dir else None,
+        global_dir,
+        project_dir,
+    ]:
+        if tier_dir is None:
+            continue
+        mcp_path = tier_dir / "mcp.json"
+        try:
+            for cfg in load_mcp_config(mcp_path):
+                seen[cfg.name] = cfg
+        except (json.JSONDecodeError, OSError) as exc:
+            import sys
+            print(f"[mcp] Warning: failed to load {mcp_path}: {exc}", file=sys.stderr)
     return list(seen.values())
