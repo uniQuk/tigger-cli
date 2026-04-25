@@ -177,7 +177,7 @@ class StreamableHttpTransport:
             headers["Mcp-Session-Id"] = self._session_id
 
         try:
-            resp = self._client.post(f"{self._url}/mcp", json=msg, headers=headers)
+            resp = self._client.post(self._url, json=msg, headers=headers)
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
