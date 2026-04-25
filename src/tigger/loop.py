@@ -1,4 +1,5 @@
 from __future__ import annotations
+import pathlib
 from typing import Callable, Generator
 from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, AssistantMessage,
@@ -28,6 +29,7 @@ def run(
     hooks: HookRegistry,
     provider_fn: Callable,
     hook_defs: list | None = None,
+    summaries_dir: pathlib.Path | None = None,
 ) -> Generator[Event, None, None]:
     """Drive a full multi-turn agent exchange. Yields events; mutates ctx.messages in place."""
     ctx.messages.append(Message(role="user", content=query))
@@ -38,7 +40,8 @@ def run(
     max_retries = ctx.config.max_retries
 
     while True:
-        ctx.messages, _ = maybe_compact(ctx.messages, ctx.config, provider_fn)
+        ctx.messages, _ = maybe_compact(ctx.messages, ctx.config, provider_fn,
+                                        summaries_dir=summaries_dir)
 
         tools_schemas = [
             s for s in registry.schemas()
@@ -205,7 +208,7 @@ def run_forked(
 
     result_parts = []
     for event in run(query, forked, sub_registry, hooks, provider_fn=provider_fn,
-                      hook_defs=hook_defs):
+                      hook_defs=hook_defs, summaries_dir=None):
         if isinstance(event, TextChunk):
             result_parts.append(event.content)
 

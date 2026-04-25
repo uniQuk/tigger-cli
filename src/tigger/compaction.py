@@ -1,4 +1,6 @@
 from __future__ import annotations
+import datetime
+import pathlib
 from typing import Callable, NamedTuple
 from tigger.types import Message, Config, TextChunk
 
@@ -95,11 +97,40 @@ def summarize_old(
     return [Message(role="user", content=f"[Conversation summary]\n{summary}")] + recent, len(old)
 
 
+def persist_summary(summary: str, summaries_dir: pathlib.Path) -> pathlib.Path:
+    """Write a compaction summary to disk and return the file path."""
+    summaries_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+    out_path = summaries_dir / f"{timestamp}.md"
+    out_path.write_text(summary)
+    return out_path
+
+
+def load_recent_summary(summaries_dir: pathlib.Path, max_age_hours: int = 24) -> str | None:
+    """Return the content of the most recent summary if it's within *max_age_hours*, else None."""
+    if not summaries_dir.is_dir():
+        return None
+    files = sorted(summaries_dir.glob("*.md"), reverse=True)
+    if not files:
+        return None
+    latest = files[0]
+    # Parse timestamp from filename: YYYY-MM-DD-HHMMSS.md
+    try:
+        ts = datetime.datetime.strptime(latest.stem, "%Y-%m-%d-%H%M%S")
+    except ValueError:
+        return None
+    age = datetime.datetime.now() - ts
+    if age.total_seconds() > max_age_hours * 3600:
+        return None
+    return latest.read_text()
+
+
 def maybe_compact(
     messages: list[Message],
     config: Config,
     provider_fn: Callable | None,
     force: bool = False,
+    summaries_dir: pathlib.Path | None = None,
 ) -> tuple[list[Message], CompactResult]:
     """Compact if above 70% of context_limit (or forced).
 
@@ -120,6 +151,11 @@ def maybe_compact(
     summarized = 0
     if provider_fn is not None:
         messages, summarized = summarize_old(messages, config, provider_fn)
+        # Persist the summary snapshot to disk when a summaries directory is configured.
+        if summarized > 0 and summaries_dir is not None:
+            # The summary text is in the first message's content, after the prefix.
+            summary_text = messages[0].content.removeprefix("[Conversation summary]\n")
+            persist_summary(summary_text, summaries_dir)
     tokens_after = estimate_tokens(messages)
     return messages, CompactResult(snipped=snipped, summarized=summarized,
                                    tokens_before=tokens_before,
