@@ -19,12 +19,22 @@ except ImportError:
     _enc = None
 
 
+_token_cache: dict[tuple[int, int], int] = {}
+
+
 def estimate_tokens(messages: list[Message]) -> int:
     """Token count via tiktoken (cl100k_base) if available, else chars/3.5."""
+    cache_key = (id(messages), len(messages))
+    cached = _token_cache.get(cache_key)
+    if cached is not None:
+        return cached
     if _enc is not None:
-        return sum(len(_enc.encode(m.content)) for m in messages)
-    total = sum(len(m.content) for m in messages)
-    return int(total / 3.5)
+        result = sum(len(_enc.encode(m.content)) for m in messages)
+    else:
+        total = sum(len(m.content) for m in messages)
+        result = int(total / 3.5)
+    _token_cache[cache_key] = result
+    return result
 
 
 def _split_old_recent(messages: list[Message]) -> tuple[list[Message], list[Message]]:
@@ -94,7 +104,7 @@ def summarize_old(
         if isinstance(chunk, TextChunk):
             parts.append(chunk.content)
     summary = "".join(parts)
-    return [Message(role="user", content=f"[Conversation summary]\n{summary}")] + recent, len(old)
+    return [Message(role="system", content=f"[Conversation summary]\n{summary}")] + recent, len(old)
 
 
 def persist_summary(summary: str, summaries_dir: pathlib.Path) -> pathlib.Path:

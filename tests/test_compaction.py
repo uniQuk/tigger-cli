@@ -107,6 +107,7 @@ def test_summarize_old_calls_provider_with_correct_signature():
     assert isinstance(call_args[0], str)
     assert isinstance(call_args[1], list)
     assert call_args[2] == []            # no tools passed
+    assert result[0].role == "system"
     assert result[0].content.startswith("[Conversation summary]")
     assert "summary text" in result[0].content
     assert summarized == 6  # 75% of 8 = 6 old messages
@@ -164,6 +165,32 @@ def test_summarize_old_uses_structured_prompt():
     assert "<recent_actions>" in prompt
     assert "<current_plan>" in prompt
     assert "</state_snapshot>" in prompt
+
+
+def test_estimate_tokens_cached_on_same_list():
+    """Two calls with same list return same result (cache hit)."""
+    msgs = [_msg("user", "hello world this is a test")]
+    t1 = estimate_tokens(msgs)
+    t2 = estimate_tokens(msgs)
+    assert t1 == t2
+
+
+def test_estimate_tokens_invalidated_on_append():
+    """Appending a message changes len(), invalidating the cache."""
+    msgs = [_msg("user", "hello")]
+    t1 = estimate_tokens(msgs)
+    msgs.append(_msg("assistant", "world with more tokens"))
+    t2 = estimate_tokens(msgs)
+    assert t2 > t1
+
+
+def test_estimate_tokens_invalidated_on_replacement():
+    """Replacing the list entirely (new id) gives fresh count."""
+    msgs = [_msg("user", "hello")]
+    t1 = estimate_tokens(msgs)
+    msgs2 = [_msg("user", "hello"), _msg("assistant", "world with more tokens")]
+    t2 = estimate_tokens(msgs2)
+    assert t2 > t1
 
 
 def test_maybe_compact_with_summarize():

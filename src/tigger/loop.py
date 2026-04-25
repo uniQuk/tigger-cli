@@ -137,6 +137,27 @@ def run(
                     ))
                     continue
                 pre_hook_feedback = _hook_result.feedback
+                # Re-validate permissions if a transform hook mutated the args.
+                if _hook_result.transformed:
+                    re_permitted = permission_check(
+                        tool,
+                        ctx.config.permission_mode,
+                        tc.args,
+                        bash_safe_prefixes=ctx.config.bash_safe_prefixes,
+                    )
+                    if not re_permitted:
+                        perm_event = PermissionEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
+                        yield perm_event
+                        re_permitted = perm_event.granted
+                    if not re_permitted:
+                        yield ToolEndEvent(call_id=tc.call_id, name=tc.name, output="(denied)", permitted=False)
+                        ctx.messages.append(Message(
+                            role="tool",
+                            content="(tool call denied by user)",
+                            tool_call_id=tc.call_id,
+                            name=tc.name,
+                        ))
+                        continue
 
             yield ToolStartEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
             output = registry.execute(tc.name, tc.args)

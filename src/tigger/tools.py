@@ -11,6 +11,13 @@ from tigger.types import ToolDef
 
 _32KB = 32 * 1024
 
+_DEFAULT_EXCLUDES = {".git", "node_modules", ".venv", "__pycache__", ".egg-info"}
+
+
+def _is_excluded(path: pathlib.Path) -> bool:
+    """Return True if any component of *path* is in the default exclude set."""
+    return bool(_DEFAULT_EXCLUDES.intersection(path.parts))
+
 
 def _safe_path(p: pathlib.Path) -> pathlib.Path | None:
     """Resolve *p* and return it only if it lies within the current workspace."""
@@ -86,15 +93,20 @@ def _glob_tool(args: dict) -> str:
     if safe_base is None:
         return f"Error: access denied — path is outside the workspace: {base}"
     matches = _glob.glob(str(safe_base / pattern), recursive=True)
-    # Filter results to workspace-contained paths only
+    # Filter results to workspace-contained paths only, skip default excludes
+    # unless user provided an explicit path into an excluded directory.
     cwd = pathlib.Path.cwd().resolve()
+    skip_excludes = not _is_excluded(base_path)
     safe_matches = []
     for m in sorted(matches):
+        mp = pathlib.Path(m)
         try:
-            pathlib.Path(m).resolve().relative_to(cwd)
-            safe_matches.append(m)
+            mp.resolve().relative_to(cwd)
         except ValueError:
-            pass
+            continue
+        if skip_excludes and _is_excluded(mp):
+            continue
+        safe_matches.append(m)
     total = len(safe_matches)
     if total > _GLOB_MAX_RESULTS:
         safe_matches = safe_matches[:_GLOB_MAX_RESULTS]
@@ -116,6 +128,7 @@ def _grep(args: dict) -> str:
     if safe_base is None:
         return f"Error: access denied — path is outside the workspace: {path}"
     cwd = pathlib.Path.cwd().resolve()
+    skip_excludes = not _is_excluded(pathlib.Path(path))
     results = []
     # Use pathlib.glob() so patterns like src/**/*.py work correctly.
     for p in safe_base.glob(glob_pat):
@@ -125,6 +138,8 @@ def _grep(args: dict) -> str:
         try:
             p.resolve().relative_to(cwd)
         except ValueError:
+            continue
+        if skip_excludes and _is_excluded(p):
             continue
         try:
             for i, line in enumerate(p.read_text(errors="replace").splitlines(), 1):

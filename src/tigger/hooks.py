@@ -6,7 +6,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 
-from tigger.skills import _parse_single
+from tigger.parsing import parse_single
 
 RTK_HOOK_NAME = "_rtk-rewrite"
 
@@ -42,7 +42,7 @@ def load_hooks_dir(hooks_dir: pathlib.Path) -> list[HookDef]:
     for entry in sorted(hooks_dir.iterdir()):
         if not entry.is_file() or entry.suffix != ".md":
             continue
-        b = _parse_single(entry.read_text())
+        b = parse_single(entry.read_text())
         if not b:
             continue
         fm = b["fm"]

@@ -33,3 +33,33 @@ def test_unknown_tool_ask_denied():
 def test_unknown_tool_allow_denied():
     t = _tool(name="write")
     assert check(t, "allow", {}, bash_safe_prefixes=[]) is False
+
+
+# --- Shell metacharacter injection coverage ---
+
+import pytest
+
+_METACHARACTERS = [";", "|", "&", "`", "$", "\n", "\\", "(", ")", "{", "}", "<", ">"]
+
+
+@pytest.mark.parametrize("char", _METACHARACTERS)
+def test_shell_metachar_blocks_safe_prefix(char):
+    """Each shell metacharacter individually blocks a command even with a safe prefix."""
+    t = _tool(name="bash")
+    cmd = f"git log {char} echo pwned"
+    assert check(t, "allow", {"command": cmd}, bash_safe_prefixes=["git log"]) is False
+
+
+def test_safe_prefix_no_metachar_passes():
+    t = _tool(name="bash")
+    assert check(t, "allow", {"command": "git log --oneline"}, bash_safe_prefixes=["git log"]) is True
+
+
+def test_exact_safe_prefix_passes():
+    t = _tool(name="bash")
+    assert check(t, "allow", {"command": "git log"}, bash_safe_prefixes=["git log"]) is True
+
+
+def test_empty_safe_prefixes_denies_all():
+    t = _tool(name="bash")
+    assert check(t, "allow", {"command": "ls"}, bash_safe_prefixes=[]) is False

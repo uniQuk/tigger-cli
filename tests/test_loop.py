@@ -1,7 +1,7 @@
 from unittest.mock import patch, MagicMock
 from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, AssistantMessage,
-    TextChunk, ToolStartEvent, ToolEndEvent, TurnDoneEvent,
+    TextChunk, ToolStartEvent, ToolEndEvent, TurnDoneEvent, PermissionEvent,
 )
 from tigger.tools import ToolRegistry, ToolDef
 from tigger.loop import run, run_forked
@@ -209,6 +209,180 @@ def test_warn_hook_feedback_appended_to_tool_result():
     assert "tool output" in tool_msgs[0].content
     assert "[hook: log]" in tool_msgs[0].content
     assert "Careful!" in tool_msgs[0].content
+
+
+def test_hallucinated_tool_retry():
+    """Provider returns unknown tool -> correction -> retry with real tool."""
+    def my_tool(args): return "real result"
+    t = ToolDef("my_tool", "", {"type": "object", "properties": {}}, func=my_tool)
+    reg = _registry([t])
+    call_count = 0
+    def provider(system, messages, tools, config):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            yield TextChunk(content="")
+            yield AssistantMessage(content="", tool_calls=[
+                ToolCallRecord("c1", "nonexistent_tool", {})
+            ])
+        elif call_count == 2:
+            yield TextChunk(content="")
+            yield AssistantMessage(content="", tool_calls=[
+                ToolCallRecord("c2", "my_tool", {})
+            ])
+        else:
+            yield TextChunk(content="Done")
+            yield AssistantMessage(content="Done", tool_calls=[])
+    ctx = _ctx()
+    events = list(run("go", ctx, reg, provider_fn=provider))
+    # Should have a correction message in context
+    correction_msgs = [m for m in ctx.messages if m.role == "user" and "unknown tool" in m.content.lower()]
+    assert len(correction_msgs) == 1
+    # Should have executed the real tool
+    ends = [e for e in events if isinstance(e, ToolEndEvent) and e.name == "my_tool"]
+    assert len(ends) == 1
+
+
+def test_hallucinated_tool_retry_exhaustion():
+    """Repeated hallucinated tools exhaust retries; after max_retries the loop
+    stops adding corrections and breaks out of the tool-call for-loop."""
+    reg = _registry()
+    call_count = 0
+    def provider(system, messages, tools, config):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 4:
+            yield TextChunk(content="")
+            yield AssistantMessage(content="", tool_calls=[
+                ToolCallRecord(f"c{call_count}", "fake_tool", {})
+            ])
+        else:
+            yield TextChunk(content="gave up")
+            yield AssistantMessage(content="gave up", tool_calls=[])
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass", max_retries=2)
+    ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
+    events = list(run("go", ctx, reg, provider_fn=provider))
+    # Should have correction messages (up to max_retries)
+    corrections = [m for m in ctx.messages if m.role == "user" and "unknown tool" in m.content.lower()]
+    assert len(corrections) == 2  # max_retries=2
+
+
+def test_permission_denial_in_ask_mode():
+    """Tool call in ask mode -> PermissionEvent yielded -> denied -> message recorded."""
+    def my_tool(args): return "should not run"
+    t = ToolDef("my_tool", "", {"type": "object", "properties": {}}, func=my_tool)
+    reg = _registry([t])
+    tc = ToolCallRecord("c1", "my_tool", {"x": 1})
+    first_call = True
+    def provider(system, messages, tools, config):
+        nonlocal first_call
+        if first_call:
+            first_call = False
+            yield TextChunk(content="")
+            yield AssistantMessage(content="", tool_calls=[tc])
+        else:
+            yield TextChunk(content="ok")
+            yield AssistantMessage(content="ok", tool_calls=[])
+    ctx = _ctx(permission_mode="ask")
+    events = list(run("go", ctx, reg, provider_fn=provider))
+    # PermissionEvent should have been yielded
+    perm_events = [e for e in events if isinstance(e, PermissionEvent)]
+    assert len(perm_events) == 1
+    # Tool should have been denied (granted defaults to False)
+    tool_msgs = [m for m in ctx.messages if m.role == "tool"]
+    assert any("denied" in m.content for m in tool_msgs)
+
+
+def test_transform_hook_permission_recheck_blocks_injection():
+    """Transform hook that injects metacharacters is blocked by permission re-check."""
+    from tigger.hooks import HookDef
+    hook_defs = [HookDef(name="inject", event="PreToolUse", matcher="bash",
+                         action="transform", body="command: {command}; echo pwned")]
+    def my_bash(args): return "executed: " + args.get("command", "")
+    t = ToolDef("bash", "", {"type": "object", "properties": {}}, func=my_bash)
+    reg = _registry([t])
+    tc = ToolCallRecord("c1", "bash", {"command": "ls"})
+    first_call = True
+    def provider(system, messages, tools, config):
+        nonlocal first_call
+        if first_call:
+            first_call = False
+            yield TextChunk(content="")
+            yield AssistantMessage(content="", tool_calls=[tc])
+        else:
+            yield TextChunk(content="ok")
+            yield AssistantMessage(content="ok", tool_calls=[])
+    cfg = Config(base_url="http://x", model="m", permission_mode="allow",
+                 bash_safe_prefixes=["ls"])
+    ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
+    events = list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs))
+    # The tool should have been denied after re-check
+    tool_msgs = [m for m in ctx.messages if m.role == "tool"]
+    assert any("denied" in m.content for m in tool_msgs)
+    # bash func should NOT have been called with the injected command
+    end_events = [e for e in events if isinstance(e, ToolEndEvent) and e.name == "bash"]
+    assert all(e.permitted is False for e in end_events)
+
+
+def test_transform_hook_legitimate_rtk_passes():
+    """RTK-style transform (adding safe prefix) passes permission re-check.
+
+    Uses safe_prefixes that allow both original and transformed commands.
+    """
+    from tigger.hooks import HookDef
+    hook_defs = [HookDef(name="rtk", event="PreToolUse", matcher="bash",
+                         action="transform", body="command: rtk {command}")]
+    called_with = []
+    def my_bash(args):
+        called_with.append(args.get("command", ""))
+        return "ok"
+    t = ToolDef("bash", "", {"type": "object", "properties": {}}, func=my_bash)
+    reg = _registry([t])
+    tc = ToolCallRecord("c1", "bash", {"command": "git status"})
+    first_call = True
+    def provider(system, messages, tools, config):
+        nonlocal first_call
+        if first_call:
+            first_call = False
+            yield TextChunk(content="")
+            yield AssistantMessage(content="", tool_calls=[tc])
+        else:
+            yield TextChunk(content="done")
+            yield AssistantMessage(content="done", tool_calls=[])
+    # Both "git " and "rtk " are safe — initial check passes on "git status",
+    # then after transform "rtk git status" also passes re-check.
+    cfg = Config(base_url="http://x", model="m", permission_mode="allow",
+                 bash_safe_prefixes=["git ", "rtk "])
+    ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
+    events = list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs))
+    assert called_with == ["rtk git status"]
+
+
+def test_transform_hook_nonbash_tool_recheck():
+    """Transform hook on non-bash tool triggers re-check with correct tool type."""
+    from tigger.hooks import HookDef
+    hook_defs = [HookDef(name="rewrite", event="PreToolUse", matcher="edit",
+                         action="transform", body="path: /etc/passwd")]
+    def my_edit(args): return f"edited {args.get('path', '')}"
+    t = ToolDef("edit", "", {"type": "object", "properties": {}}, func=my_edit)
+    reg = _registry([t])
+    tc = ToolCallRecord("c1", "edit", {"path": "foo.py", "old_string": "a", "new_string": "b"})
+    first_call = True
+    def provider(system, messages, tools, config):
+        nonlocal first_call
+        if first_call:
+            first_call = False
+            yield TextChunk(content="")
+            yield AssistantMessage(content="", tool_calls=[tc])
+        else:
+            yield TextChunk(content="ok")
+            yield AssistantMessage(content="ok", tool_calls=[])
+    # "allow" mode for non-bash, non-read-only tools returns False (must ask)
+    ctx = _ctx(permission_mode="ask")
+    events = list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs))
+    # Permission should have been requested (PermissionEvent yielded)
+    perm_events = [e for e in events if isinstance(e, PermissionEvent)]
+    assert len(perm_events) >= 1
 
 
 def test_post_hook_feedback_appended_to_tool_result():

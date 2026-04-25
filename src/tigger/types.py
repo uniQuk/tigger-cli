@@ -1,4 +1,5 @@
 from __future__ import annotations
+import pathlib
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable
@@ -84,6 +85,13 @@ class ToolDef:
 
 
 @dataclass
+class ModeRef:
+    name: str
+    body: str                                       # prompt fragment appended to system prompt
+    source_path: pathlib.Path | None = None
+
+
+@dataclass
 class RunContext:
     config: Config
     messages: list[Message]
@@ -92,7 +100,7 @@ class RunContext:
     allowed_tools: list[str] | None = None  # None = all tools
     turn: int = 0
     trust_level: TrustLevel = TrustLevel.READONLY
-    modes: list = field(default_factory=list)       # list[ModeRef] — resolved modes
+    modes: list[ModeRef] = field(default_factory=list)
 
 
 # ── Events yielded by the agent loop ──────────────────────────────────────

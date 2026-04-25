@@ -1,8 +1,9 @@
 from __future__ import annotations
 import pathlib
-import re
 import sys
 from dataclasses import dataclass, field
+
+from tigger.parsing import parse_blocks, parse_single
 
 
 @dataclass
@@ -49,54 +50,11 @@ class AgentDef:
     description: str = ""                           # when to spawn this agent
 
 
-@dataclass
-class ModeRef:
-    name: str
-    body: str                                       # prompt fragment appended to system prompt
-    source_path: pathlib.Path | None = None
+from tigger.types import ModeRef as ModeRef  # re-export for backward compat
 
 
-def _parse_blocks(text: str) -> list[dict]:
-    import yaml
-    blocks = []
-    parts = re.split(r"^---\s*$", text, flags=re.MULTILINE)
-    i = 1
-    while i + 1 < len(parts):
-        fm_text = parts[i].strip()
-        body = parts[i + 1].strip()
-        if fm_text:
-            try:
-                fm = yaml.safe_load(fm_text)
-                if isinstance(fm, dict):
-                    blocks.append({"fm": fm, "body": body})
-            except Exception:
-                pass
-        i += 2
-    return blocks
-
-
-def _parse_single(text: str) -> dict | None:
-    """Parse a single frontmatter document.
-
-    Only the first --- pair is treated as frontmatter. Everything after
-    the closing --- is body, even if it contains more --- lines (e.g.
-    YAML examples inside code blocks).
-    """
-    import yaml
-    m = re.match(r"^---\s*\n(.*?\n)---\s*$", text, flags=re.MULTILINE | re.DOTALL)
-    if not m:
-        return None
-    fm_text = m.group(1).strip()
-    body = text[m.end():].strip()
-    if not fm_text:
-        return None
-    try:
-        fm = yaml.safe_load(fm_text)
-        if isinstance(fm, dict):
-            return {"fm": fm, "body": body}
-    except Exception:
-        pass
-    return None
+_parse_blocks = parse_blocks
+_parse_single = parse_single
 
 
 def load_skills(path: pathlib.Path) -> list[SkillDef]:
