@@ -311,3 +311,23 @@ def test_glob_does_not_exclude_similarly_named_file(monkeypatch, tmp_path):
     register_all(r)
     result = r.execute("glob", {"pattern": "*.txt"})
     assert "node_modules.txt" in result
+
+
+def test_glob_does_not_exclude_file_named_like_excluded_dir(monkeypatch, tmp_path):
+    """A file literally named '.git' or '__pycache__' should not be excluded."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "__pycache__").write_text("I am a file, not a dir")
+    r = ToolRegistry()
+    register_all(r)
+    result = r.execute("glob", {"pattern": "__pycache__"})
+    assert "__pycache__" in result
+
+
+def test_grep_does_not_exclude_file_named_like_excluded_dir(monkeypatch, tmp_path):
+    """A file literally named '.git' should still be searchable."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".git").write_text("not a real git dir, just a file")
+    r = ToolRegistry()
+    register_all(r)
+    result = r.execute("grep", {"pattern": "not a real git"})
+    assert "not a real git" in result

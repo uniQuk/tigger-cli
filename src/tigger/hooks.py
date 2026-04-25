@@ -125,6 +125,7 @@ def evaluate_hooks(event: str, context: dict, hooks: list[HookDef]) -> HookResul
                 print(f"Warning: hook {hook.name!r} skipped — a transform already fired",
                       file=sys.stderr)
                 continue
+            # Lines mutate tool_args sequentially; caller re-validates permissions.
             tool_args = context.get("tool_args", {})
             for line in hook.body.splitlines():
                 line = line.strip()

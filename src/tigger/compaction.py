@@ -19,11 +19,16 @@ except ImportError:
     _enc = None
 
 
+_TOKEN_CACHE_MAX = 64
 _token_cache: dict[tuple[int, int], int] = {}
 
 
 def estimate_tokens(messages: list[Message]) -> int:
-    """Token count via tiktoken (cl100k_base) if available, else chars/3.5."""
+    """Token count via tiktoken (cl100k_base) if available, else chars/3.5.
+
+    Cached by (id, len) — cleared each compaction round so stale id() reuse
+    cannot return wrong values.
+    """
     cache_key = (id(messages), len(messages))
     cached = _token_cache.get(cache_key)
     if cached is not None:
@@ -33,6 +38,8 @@ def estimate_tokens(messages: list[Message]) -> int:
     else:
         total = sum(len(m.content) for m in messages)
         result = int(total / 3.5)
+    if len(_token_cache) >= _TOKEN_CACHE_MAX:
+        _token_cache.clear()
     _token_cache[cache_key] = result
     return result
 
@@ -146,6 +153,7 @@ def maybe_compact(
 
     Returns (possibly shorter message list, CompactResult).
     """
+    _token_cache.clear()
     tokens_before = estimate_tokens(messages)
     threshold = config.context_limit * 0.7
     if not force and tokens_before < threshold:

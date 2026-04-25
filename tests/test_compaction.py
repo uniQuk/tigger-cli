@@ -78,13 +78,9 @@ def test_estimate_tokens_uses_tiktoken_when_available():
 
 
 def test_estimate_tokens_fallback_when_tiktoken_missing(monkeypatch):
-    import builtins
-    real_import = builtins.__import__
-    def patched_import(name, *args, **kwargs):
-        if name == "tiktoken":
-            raise ImportError("not installed")
-        return real_import(name, *args, **kwargs)
-    monkeypatch.setattr(builtins, "__import__", patched_import)
+    from tigger import compaction
+    monkeypatch.setattr(compaction, "_enc", None)
+    # Use a fresh list so the cache doesn't mask the fallback path.
     msgs = [_msg("user", "hello")]
     t = estimate_tokens(msgs)
     assert t == int(len("hello") / 3.5)

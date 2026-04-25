@@ -15,7 +15,12 @@ _DEFAULT_EXCLUDES = {".git", "node_modules", ".venv", "__pycache__", ".egg-info"
 
 
 def _is_excluded(path: pathlib.Path) -> bool:
-    """Return True if any component of *path* is in the default exclude set."""
+    """Return True if any parent directory of *path* is in the default exclude set."""
+    return bool(_DEFAULT_EXCLUDES.intersection(path.parent.parts))
+
+
+def _is_excluded_dir(path: pathlib.Path) -> bool:
+    """Return True if *path* itself or any ancestor is in the default exclude set."""
     return bool(_DEFAULT_EXCLUDES.intersection(path.parts))
 
 
@@ -96,7 +101,7 @@ def _glob_tool(args: dict) -> str:
     # Filter results to workspace-contained paths only, skip default excludes
     # unless user provided an explicit path into an excluded directory.
     cwd = pathlib.Path.cwd().resolve()
-    skip_excludes = not _is_excluded(base_path)
+    skip_excludes = not _is_excluded_dir(base_path)
     safe_matches = []
     for m in sorted(matches):
         mp = pathlib.Path(m)
@@ -128,7 +133,7 @@ def _grep(args: dict) -> str:
     if safe_base is None:
         return f"Error: access denied — path is outside the workspace: {path}"
     cwd = pathlib.Path.cwd().resolve()
-    skip_excludes = not _is_excluded(pathlib.Path(path))
+    skip_excludes = not _is_excluded_dir(pathlib.Path(path))
     results = []
     # Use pathlib.glob() so patterns like src/**/*.py work correctly.
     for p in safe_base.glob(glob_pat):
@@ -208,7 +213,11 @@ def _strip_html(html: str) -> str:
 
 
 def _is_private_or_local(hostname: str) -> bool:
-    """Return True if *hostname* resolves to a private, loopback, or link-local address."""
+    """Return True if *hostname* resolves to a private, loopback, or link-local address.
+
+    Note: TOCTOU risk — hostname is resolved again by urlopen, so DNS rebinding
+    can bypass this check.  Full mitigation requires a custom opener.
+    """
     if not hostname:
         return True
     # Check well-known local hostnames first.
