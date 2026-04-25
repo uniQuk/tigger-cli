@@ -1,6 +1,8 @@
 from __future__ import annotations
 import itertools
-import json, os, pathlib, subprocess, threading
+import json, os, pathlib, queue, subprocess, threading
+
+import httpx
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 from tigger.tools import ToolRegistry, ToolDef
@@ -125,6 +127,99 @@ class StdioTransport:
                 self.proc.kill()
             except Exception:
                 pass
+
+
+def _parse_sse_events(text: str) -> list[dict[str, str]]:
+    """Parse SSE text into a list of dicts with 'event' and 'data' keys."""
+    events = []
+    current: dict[str, str] = {}
+    for line in text.split("\n"):
+        if line == "":
+            if current:
+                events.append(current)
+                current = {}
+        elif line.startswith("event:"):
+            current["event"] = line[6:].strip()
+        elif line.startswith("data:"):
+            prev = current.get("data", "")
+            current["data"] = (prev + "\n" + line[5:].strip()) if prev else line[5:].strip()
+    if current:
+        events.append(current)
+    return events
+
+
+class StreamableHttpTransport:
+    """MCP transport over Streamable HTTP (2025-03-26 standard)."""
+
+    def __init__(self, url: str) -> None:
+        self._url = url.rstrip("/")
+        self._client = httpx.Client(timeout=30.0)
+        self._session_id: str | None = None
+
+    def send(self, method: str, params: dict) -> dict:
+        is_notification = method.startswith("notifications/")
+        msg: dict = {"jsonrpc": "2.0", "method": method, "params": params}
+        if not is_notification:
+            msg["id"] = next(_id_counter)
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
+
+        try:
+            resp = self._client.post(f"{self._url}/mcp", json=msg, headers=headers)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise McpTransportError(f"HTTP {exc.response.status_code}: {exc.response.text}") from exc
+        except httpx.HTTPError as exc:
+            raise McpTransportError(f"HTTP error: {exc}") from exc
+
+        # Capture session ID from initialize response
+        session_id = resp.headers.get("mcp-session-id")
+        if session_id:
+            self._session_id = session_id
+
+        if is_notification:
+            return {}
+
+        content_type = resp.headers.get("content-type", "")
+        if "text/event-stream" in content_type:
+            return self._parse_sse_response(resp.text, msg["id"])
+        else:
+            # application/json
+            try:
+                data = resp.json()
+            except Exception as exc:
+                raise McpTransportError(f"HTTP invalid JSON response: {exc}") from exc
+            if "error" in data:
+                err = data["error"]
+                raise McpTransportError(f"JSON-RPC error {err.get('code')}: {err.get('message')}")
+            return data.get("result", {})
+
+    def _parse_sse_response(self, text: str, request_id: int) -> dict:
+        """Extract JSON-RPC result from an SSE response body."""
+        for event in _parse_sse_events(text):
+            data = event.get("data", "")
+            if not data:
+                continue
+            try:
+                parsed = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            if parsed.get("id") == request_id:
+                if "error" in parsed:
+                    err = parsed["error"]
+                    raise McpTransportError(
+                        f"JSON-RPC error {err.get('code')}: {err.get('message')}"
+                    )
+                return parsed.get("result", {})
+        raise McpTransportError("No matching JSON-RPC response in SSE stream")
+
+    def close(self) -> None:
+        self._client.close()
 
 
 def _make_mcp_tool_func(server_name: str, tool_name: str, proc: subprocess.Popen):

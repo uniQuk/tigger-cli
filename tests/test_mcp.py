@@ -1,7 +1,10 @@
 import json, os, pathlib, sys, tempfile
+from unittest.mock import patch, MagicMock
+import httpx
+import pytest
 from tigger.mcp import (
     load_mcp_config, McpServerConfig, McpTransportError, McpConnection,
-    StdioTransport,
+    StdioTransport, StreamableHttpTransport, _parse_sse_events,
 )
 from tigger.resolve import resolve_mcp_configs
 from tigger.tools import ToolRegistry
@@ -261,3 +264,120 @@ sys.stdout.flush()
         assert result["val"] == "hello"
     finally:
         t.close()
+
+
+# ── Unit 4: StreamableHttpTransport ──────────────────────────────────────
+
+def _mock_json_response(data, status_code=200, headers=None):
+    """Create a mock httpx.Response with JSON content."""
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = status_code
+    resp.headers = headers or {"content-type": "application/json"}
+    resp.json.return_value = data
+    resp.text = json.dumps(data)
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+def _mock_sse_response(events_text, status_code=200, headers=None):
+    """Create a mock httpx.Response with SSE content."""
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = status_code
+    resp.headers = headers or {"content-type": "text/event-stream"}
+    resp.text = events_text
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+def test_parse_sse_events():
+    text = "event: message\ndata: {\"id\": 1}\n\nevent: done\ndata: ok\n\n"
+    events = _parse_sse_events(text)
+    assert len(events) == 2
+    assert events[0] == {"event": "message", "data": '{"id": 1}'}
+    assert events[1] == {"event": "done", "data": "ok"}
+
+
+def test_streamable_http_json_response():
+    t = StreamableHttpTransport("http://localhost:8080")
+    resp_data = {"jsonrpc": "2.0", "id": 99, "result": {"tools": []}}
+    mock_resp = _mock_json_response(resp_data)
+    with patch.object(t._client, "post", return_value=mock_resp):
+        # We need to match the id that will be generated
+        result = t.send("tools/list", {})
+    assert result == {"tools": []}
+
+
+def test_streamable_http_sse_response():
+    t = StreamableHttpTransport("http://localhost:8080")
+    # The transport will assign an id via _id_counter; we don't know it ahead of
+    # time, so we patch _parse_sse_response to accept any id.
+    sse_text = 'event: message\ndata: {"jsonrpc":"2.0","id":999,"result":{"ok":true}}\n\n'
+    mock_resp = _mock_sse_response(sse_text)
+    with patch.object(t._client, "post", return_value=mock_resp):
+        with patch.object(t, "_parse_sse_response", return_value={"ok": True}):
+            result = t.send("tools/list", {})
+    assert result == {"ok": True}
+
+
+def test_streamable_http_session_id():
+    t = StreamableHttpTransport("http://localhost:8080")
+    resp_data = {"jsonrpc": "2.0", "id": 0, "result": {"serverInfo": {}}}
+    mock_resp = _mock_json_response(
+        resp_data,
+        headers={"content-type": "application/json", "mcp-session-id": "abc-123"},
+    )
+    with patch.object(t._client, "post", return_value=mock_resp):
+        t.send("initialize", {"protocolVersion": "2025-03-26"})
+    assert t._session_id == "abc-123"
+
+    # Next request should include the session id in headers
+    mock_resp2 = _mock_json_response({"jsonrpc": "2.0", "id": 1, "result": {"tools": []}})
+    with patch.object(t._client, "post", return_value=mock_resp2) as mock_post:
+        t.send("tools/list", {})
+    call_headers = mock_post.call_args[1]["headers"]
+    assert call_headers["Mcp-Session-Id"] == "abc-123"
+
+
+def test_streamable_http_notification():
+    t = StreamableHttpTransport("http://localhost:8080")
+    mock_resp = _mock_json_response({}, headers={"content-type": "application/json"})
+    with patch.object(t._client, "post", return_value=mock_resp):
+        result = t.send("notifications/initialized", {})
+    assert result == {}
+
+
+def test_streamable_http_network_error():
+    t = StreamableHttpTransport("http://localhost:8080")
+    with patch.object(t._client, "post", side_effect=httpx.ConnectError("refused")):
+        with pytest.raises(McpTransportError, match="HTTP error"):
+            t.send("test/ping", {})
+
+
+def test_streamable_http_404():
+    t = StreamableHttpTransport("http://localhost:8080")
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.status_code = 404
+    mock_resp.text = "Not Found"
+    mock_resp.headers = {"content-type": "text/plain"}
+    mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "404", request=MagicMock(), response=mock_resp
+    )
+    with patch.object(t._client, "post", return_value=mock_resp):
+        with pytest.raises(McpTransportError, match="HTTP 404"):
+            t.send("test/ping", {})
+
+
+def test_streamable_http_jsonrpc_error():
+    t = StreamableHttpTransport("http://localhost:8080")
+    resp_data = {"jsonrpc": "2.0", "id": 0, "error": {"code": -32600, "message": "Invalid"}}
+    mock_resp = _mock_json_response(resp_data)
+    with patch.object(t._client, "post", return_value=mock_resp):
+        with pytest.raises(McpTransportError, match="JSON-RPC error -32600"):
+            t.send("test/ping", {})
+
+
+def test_streamable_http_close():
+    t = StreamableHttpTransport("http://localhost:8080")
+    with patch.object(t._client, "close") as mock_close:
+        t.close()
+    mock_close.assert_called_once()
