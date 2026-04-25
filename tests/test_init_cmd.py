@@ -14,7 +14,7 @@ def test_init_creates_files(tmp_path, monkeypatch, capsys):
     cmd_init("", _ctx())
     ai_dir = tmp_path / CONFIG_DIR
     assert (ai_dir / "system.md").exists()
-    assert (ai_dir / "hooks.py").exists()
+    assert (ai_dir / "hooks" / "example-hook.md").exists()
     assert (ai_dir / "skills" / "SKILL.md").exists()
     assert (ai_dir / "agents" / "example-agent.md").exists()
     assert (ai_dir / "modes" / "example-mode.md").exists()

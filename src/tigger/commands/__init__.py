@@ -41,7 +41,7 @@ COMMAND_HELP: dict[str, str] = {
     "agent": "Usage:\n  /agent             — list available agents\n  /agent <name> <q>  — run agent with query\n\nAgents are defined in .tigger/agents.md using YAML frontmatter:\n\n  ---\n  name: my-agent\n  tools: [read, glob, grep]\n  ---\n  System prompt for the agent.",
     "provider": "Usage:\n  /provider           — list providers\n  /provider add       — add a new provider",
     "summary": "Usage: /summary\n  Save a structured summary of the current session to .tigger/summaries/.",
-    "init": "Usage: /init [--global]\n  Create template files in .tigger/: system.md, hooks.py, skills/, agents/.\n  --global  Scaffold ~/.tigger/ instead of the project directory.\n  Existing files are never overwritten.",
+    "init": "Usage: /init [--global]\n  Create template files in .tigger/: system.md, skills/, agents/, hooks/, modes/.\n  --global  Scaffold ~/.tigger/ instead of the project directory.\n  Existing files are never overwritten.",
     "rtk": "Usage:\n  /rtk                  — show RTK status\n  /rtk on               — enable RTK proxy\n  /rtk off              — disable RTK proxy\n  /rtk gain             — show project token savings\n  /rtk gain --history   — per-command savings history\n  /rtk gain --graph     — daily savings graph\n\nRTK (Rust Token Killer) proxies shell commands to reduce token output by 60-90%.\n/rtk gain is scoped to the current project by default.\nhttps://github.com/rtk-ai/rtk",
     "help": "Usage: /help [command] [--all]\n  Show help for a specific command, or list all commands.\n  --all  Include internal (bundled) skills and agents.",
 }

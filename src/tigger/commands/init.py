@@ -11,21 +11,6 @@ _TEMPLATES = {
 
 Customise your system prompt here. This will be prepended to every conversation.
 ''',
-    "hooks.py": '''# Tigger Hooks
-# Uncomment and modify to add custom hooks.
-#
-# from tigger.hooks import on_before, on_after
-#
-# @on_before("bash")
-# def before_bash(call, ctx):
-#     """Called before bash tool executes."""
-#     return call
-#
-# @on_after("bash")
-# def after_bash(event, ctx):
-#     """Called after bash tool executes."""
-#     return event
-''',
 }
 
 _DIR_TEMPLATES = {
@@ -49,6 +34,16 @@ tools:
   - grep
 ---
 You are a helpful agent. Describe your purpose here.
+''',
+    },
+    "hooks": {
+        "example-hook.md": '''---
+name: example-hook
+event: PreToolUse
+matcher: ".*"
+action: warn
+---
+This is an example hook. Replace the matcher and body with your own logic.
 ''',
     },
     "modes": {
