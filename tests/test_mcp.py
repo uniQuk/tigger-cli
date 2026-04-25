@@ -4,7 +4,7 @@ import httpx
 import pytest
 from tigger.mcp import (
     load_mcp_config, McpServerConfig, McpTransportError, McpConnection,
-    StdioTransport, StreamableHttpTransport, _parse_sse_events,
+    StdioTransport, StreamableHttpTransport, SseTransport, _parse_sse_events,
 )
 from tigger.resolve import resolve_mcp_configs
 from tigger.tools import ToolRegistry
@@ -381,3 +381,118 @@ def test_streamable_http_close():
     with patch.object(t._client, "close") as mock_close:
         t.close()
     mock_close.assert_called_once()
+
+
+# ── Unit 5: SseTransport ────────────────────────────────────────────────
+
+class _FakeSseStream:
+    """Mock httpx streaming response for SSE tests."""
+
+    def __init__(self, lines: list[str]):
+        self._lines = lines
+        self._iter_idx = 0
+
+    def iter_lines(self):
+        for line in self._lines:
+            yield line
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+
+def _make_sse_transport(endpoint_url="/messages?sid=1", extra_lines=None):
+    """Create an SseTransport with mocked SSE stream that provides endpoint event."""
+    lines = [
+        "event: endpoint",
+        f"data: {endpoint_url}",
+        "",
+    ]
+    if extra_lines:
+        lines.extend(extra_lines)
+    fake_stream = _FakeSseStream(lines)
+
+    with patch("httpx.Client") as MockClient:
+        client_instance = MockClient.return_value
+        ctx = MagicMock()
+        ctx.__enter__ = MagicMock(return_value=fake_stream)
+        ctx.__exit__ = MagicMock(return_value=False)
+        client_instance.stream.return_value = ctx
+        t = SseTransport("http://localhost:8080", timeout=5.0)
+        # Replace client with a fresh mock for post calls
+        t._client = MagicMock()
+        return t
+
+
+def test_sse_transport_init_resolves_endpoint():
+    t = _make_sse_transport("/messages?sid=abc")
+    assert t._endpoint_url == "http://localhost:8080/messages?sid=abc"
+    t.close()
+
+
+def test_sse_transport_init_absolute_endpoint():
+    t = _make_sse_transport("http://other-host:9090/msg")
+    assert t._endpoint_url == "http://other-host:9090/msg"
+    t.close()
+
+
+def test_sse_transport_send_notification():
+    t = _make_sse_transport()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    t._client.post.return_value = mock_resp
+    result = t.send("notifications/initialized", {})
+    assert result == {}
+    t.close()
+
+
+def test_sse_transport_send_with_response():
+    t = _make_sse_transport()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    t._client.post.return_value = mock_resp
+
+    # Simulate the reader thread delivering a response
+    import threading
+    def _deliver():
+        import time; time.sleep(0.05)
+        # Find the pending queue and deliver a response
+        for msg_id, q in list(t._pending.items()):
+            q.put({"jsonrpc": "2.0", "id": msg_id, "result": {"tools": ["a"]}})
+            break
+    deliverer = threading.Thread(target=_deliver)
+    deliverer.start()
+
+    result = t.send("tools/list", {})
+    assert result == {"tools": ["a"]}
+    deliverer.join()
+    t.close()
+
+
+def test_sse_transport_post_failure():
+    t = _make_sse_transport()
+    t._client.post.side_effect = httpx.ConnectError("refused")
+    with pytest.raises(McpTransportError, match="SSE POST failed"):
+        t.send("tools/list", {})
+    t.close()
+
+
+def test_sse_transport_close_idempotent():
+    t = _make_sse_transport()
+    t.close()
+    t.close()  # should not raise
+
+
+def test_sse_transport_init_no_endpoint():
+    """SSE stream that never provides an endpoint event."""
+    fake_stream = _FakeSseStream(["event: other", "data: irrelevant", ""])
+    with patch("httpx.Client") as MockClient:
+        client_instance = MockClient.return_value
+        ctx = MagicMock()
+        ctx.__enter__ = MagicMock(return_value=fake_stream)
+        ctx.__exit__ = MagicMock(return_value=False)
+        client_instance.stream.return_value = ctx
+        with pytest.raises(McpTransportError, match="endpoint event not received"):
+            SseTransport("http://localhost:8080", timeout=5.0)

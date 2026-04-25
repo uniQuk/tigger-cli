@@ -222,6 +222,127 @@ class StreamableHttpTransport:
         self._client.close()
 
 
+class SseTransport:
+    """MCP transport over legacy SSE (2024-11-05 spec)."""
+
+    def __init__(self, url: str, *, timeout: float = 10.0) -> None:
+        self._client = httpx.Client(timeout=timeout)
+        self._endpoint_url: str | None = None
+        self._pending: dict[int, queue.Queue] = {}
+        self._stop_event = threading.Event()
+        self._reader_thread: threading.Thread | None = None
+
+        # Open GET /sse and wait for the endpoint event
+        try:
+            self._sse_response = self._client.stream("GET", f"{url.rstrip('/')}/sse")
+            self._sse_stream = self._sse_response.__enter__()
+        except httpx.HTTPError as exc:
+            raise McpTransportError(f"SSE connection failed: {exc}") from exc
+
+        # Read lines until we get event: endpoint
+        self._line_iter = self._sse_stream.iter_lines()
+        event_type = None
+        deadline = threading.Event()
+        timer = threading.Timer(timeout, deadline.set)
+        timer.daemon = True
+        timer.start()
+        for raw_line in self._line_iter:
+            if deadline.is_set():
+                timer.cancel()
+                raise McpTransportError("SSE endpoint event not received within timeout")
+            if raw_line.startswith("event:"):
+                event_type = raw_line[6:].strip()
+            elif raw_line.startswith("data:") and event_type == "endpoint":
+                endpoint = raw_line[5:].strip()
+                if not endpoint:
+                    raise McpTransportError("SSE endpoint URL is empty")
+                # Resolve relative URL against the SSE origin
+                if endpoint.startswith("/"):
+                    from urllib.parse import urlparse
+                    parsed = urlparse(url)
+                    self._endpoint_url = f"{parsed.scheme}://{parsed.netloc}{endpoint}"
+                else:
+                    self._endpoint_url = endpoint
+                break
+        timer.cancel()
+
+        if not self._endpoint_url:
+            raise McpTransportError("SSE endpoint event not received")
+
+        # Start background reader thread
+        self._reader_thread = threading.Thread(
+            target=self._reader_loop, daemon=True, name="mcp-sse-reader"
+        )
+        self._reader_thread.start()
+
+    def _reader_loop(self) -> None:
+        """Read SSE events and dispatch JSON-RPC responses to pending queues."""
+        event_type = None
+        try:
+            for raw_line in self._line_iter:
+                if self._stop_event.is_set():
+                    return
+                if raw_line.startswith("event:"):
+                    event_type = raw_line[6:].strip()
+                elif raw_line.startswith("data:") and event_type == "message":
+                    data = raw_line[5:].strip()
+                    try:
+                        parsed = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    msg_id = parsed.get("id")
+                    if msg_id is not None and msg_id in self._pending:
+                        self._pending[msg_id].put(parsed)
+                    event_type = None
+                elif raw_line == "":
+                    event_type = None
+        except Exception:
+            pass  # stream closed or errored — daemon thread will die
+
+    def send(self, method: str, params: dict) -> dict:
+        is_notification = method.startswith("notifications/")
+        msg: dict = {"jsonrpc": "2.0", "method": method, "params": params}
+        if not is_notification:
+            msg["id"] = next(_id_counter)
+
+        if not is_notification:
+            q: queue.Queue = queue.Queue(maxsize=1)
+            self._pending[msg["id"]] = q
+
+        try:
+            resp = self._client.post(self._endpoint_url, json=msg)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            if not is_notification:
+                self._pending.pop(msg["id"], None)
+            raise McpTransportError(f"SSE POST failed: {exc}") from exc
+
+        if is_notification:
+            return {}
+
+        try:
+            response = q.get(timeout=30.0)
+        except queue.Empty:
+            raise McpTransportError("SSE response timed out")
+        finally:
+            self._pending.pop(msg["id"], None)
+
+        if "error" in response:
+            err = response["error"]
+            raise McpTransportError(f"JSON-RPC error {err.get('code')}: {err.get('message')}")
+        return response.get("result", {})
+
+    def close(self) -> None:
+        self._stop_event.set()
+        if self._reader_thread and self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=2)
+        try:
+            self._sse_response.__exit__(None, None, None)
+        except Exception:
+            pass
+        self._client.close()
+
+
 def _make_mcp_tool_func(server_name: str, tool_name: str, proc: subprocess.Popen):
     _lock = threading.Lock()
     def call(args: dict) -> str:
