@@ -8,7 +8,10 @@ import shutil
 from tigger._constants import home_config_dir
 from tigger.hooks import HookDef, load_hooks_dir
 from tigger.mcp import McpServerConfig, load_mcp_config
-from tigger.skills import AgentDef, ModeRef, SkillDef, load_agents, load_agents_dir, load_modes_dir, load_skills_dir
+from tigger.skills import (
+    AgentDef, ModeRef, SkillDef,
+    load_agents, load_agents_dir, load_modes_dir, load_skills_dir,
+)
 
 INTERNAL_DIR = pathlib.Path(__file__).parent / "internal"
 

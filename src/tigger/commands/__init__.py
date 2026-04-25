@@ -7,13 +7,13 @@ from tigger.tools import ToolRegistry
 from tigger.hooks import HookDef
 from tigger.skills import AgentDef, ModeRef, SkillDef
 from tigger.commands import misc, agent as agent_cmd, compact as compact_cmd, skills as skills_cmd
+from tigger.commands import init as init_cmd
+from tigger.commands import mcp_cmd
 from tigger.commands import memory as mem_cmd
 from tigger.commands import provider as provider_cmd
-from tigger.commands import summary as summary_cmd
-from tigger.commands import init as init_cmd
 from tigger.commands import rtk as rtk_cmd
 from tigger.commands import status as status_cmd
-from tigger.commands import mcp_cmd
+from tigger.commands import summary as summary_cmd
 from tigger.mcp import get_connections as _get_mcp_connections
 
 
@@ -50,7 +50,7 @@ COMMAND_HELP: dict[str, str] = {
     "init": "Usage: /init [--global]\n  Create template files in .tigger/: system.md, skills/, agents/, hooks/, modes/.\n  --global  Scaffold ~/.tigger/ instead of the project directory.\n  Existing files are never overwritten.",
     "rtk": "Usage:\n  /rtk                  — show RTK status\n  /rtk on               — enable RTK proxy\n  /rtk off              — disable RTK proxy\n  /rtk gain             — show project token savings\n  /rtk gain --history   — per-command savings history\n  /rtk gain --graph     — daily savings graph\n\nRTK (Rust Token Killer) proxies shell commands to reduce token output by 60-90%.\n/rtk gain is scoped to the current project by default.\nhttps://github.com/rtk-ai/rtk",
     "status": "Usage: /status\n  Print the resolved runtime configuration: config path, provider/model,\n  loaded skills (with tier annotations), agents, and active hooks.",
-    "mcp": "Usage: /mcp\n  Show connected MCP servers: name, transport type, tool count, target, and server version.",
+    "mcp": "Usage: /mcp\n  Show connected MCP servers: name, transport, tool count,\n  target, and server version.",
     "help": "Usage: /help [command] [--all]\n  Show help for a specific command, or list all commands.\n  --all  Include internal (bundled) skills and agents.",
 }
 
@@ -88,7 +88,10 @@ def load_builtin_commands(
         "init":       init_cmd.cmd_init,
         "rtk":        partial(rtk_cmd.cmd_rtk, hook_defs=hook_defs),
         "status":     partial(status_cmd.cmd_status, config_path=config_path, skills=skills, agents=agents, hook_defs=hook_defs, memory_path=memory_path),
-        "mcp":        partial(mcp_cmd.cmd_mcp, connections=_get_mcp_connections(), registry=registry),
+        "mcp":        partial(
+            mcp_cmd.cmd_mcp,
+            connections=_get_mcp_connections(), registry=registry,
+        ),
     }
 
     # Register dynamic mode commands: /<mode_name> switches to that mode

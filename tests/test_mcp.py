@@ -1,11 +1,26 @@
-import json, os, pathlib, sys, tempfile
-from unittest.mock import patch, MagicMock
+import json
+import pathlib
+import sys
+import tempfile
+from unittest.mock import MagicMock, patch
+
 import httpx
 import pytest
+
+from tigger.commands.mcp_cmd import cmd_mcp
 from tigger.mcp import (
-    load_mcp_config, McpServerConfig, McpTransportError, McpConnection,
-    StdioTransport, StreamableHttpTransport, SseTransport, _parse_sse_events,
-    connect_all, _connections, _make_mcp_tool_func, get_connections,
+    McpConnection,
+    McpServerConfig,
+    McpTransportError,
+    SseTransport,
+    StdioTransport,
+    StreamableHttpTransport,
+    _connections,
+    _make_mcp_tool_func,
+    _parse_sse_events,
+    connect_all,
+    get_connections,
+    load_mcp_config,
 )
 from tigger.resolve import resolve_mcp_configs
 from tigger.tools import ToolRegistry
@@ -208,7 +223,8 @@ def test_stdio_transport_notification():
 
 def test_stdio_transport_dead_process():
     t = StdioTransport([sys.executable, "-c", "pass"])
-    import time; time.sleep(0.2)  # let process exit
+    import time
+    time.sleep(0.2)  # let process exit
     try:
         t.send("test/ping", {})
         assert False, "Expected McpTransportError"
@@ -237,8 +253,9 @@ sys.stdout.flush()
 
 
 def test_stdio_transport_close_already_dead():
+    import time
     t = StdioTransport([sys.executable, "-c", "pass"])
-    import time; time.sleep(0.2)
+    time.sleep(0.2)
     t.close()  # should not raise
 
 
@@ -394,8 +411,7 @@ class _FakeSseStream:
         self._iter_idx = 0
 
     def iter_lines(self):
-        for line in self._lines:
-            yield line
+        yield from self._lines
 
     def __enter__(self):
         return self
@@ -458,7 +474,8 @@ def test_sse_transport_send_with_response():
     # Simulate the reader thread delivering a response
     import threading
     def _deliver():
-        import time; time.sleep(0.05)
+        import time
+        time.sleep(0.05)
         # Find the pending queue and deliver a response
         for msg_id, q in list(t._pending.items()):
             q.put({"jsonrpc": "2.0", "id": msg_id, "result": {"tools": ["a"]}})
@@ -519,12 +536,13 @@ while True:
             "protocolVersion": "2025-03-26",
         }}
     elif method == "tools/list":
-        resp = {"jsonrpc": "2.0", "id": req["id"], "result": {"tools": [
-            {"name": "greet", "description": "Say hello", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}}},
-        ]}}
+        schema = {"type": "object", "properties": {"name": {"type": "string"}}}
+        tool = {"name": "greet", "description": "Say hello", "inputSchema": schema}
+        resp = {"jsonrpc": "2.0", "id": req["id"], "result": {"tools": [tool]}}
     elif method == "tools/call":
         name = req["params"]["arguments"].get("name", "world")
-        resp = {"jsonrpc": "2.0", "id": req["id"], "result": {"content": [{"type": "text", "text": f"Hello {name}"}]}}
+        content = [{"type": "text", "text": f"Hello {name}"}]
+        resp = {"jsonrpc": "2.0", "id": req["id"], "result": {"content": content}}
     else:
         resp = {"jsonrpc": "2.0", "id": req["id"], "result": {}}
     sys.stdout.write(json.dumps(resp) + "\n")
@@ -542,7 +560,8 @@ def _clear_connections():
 
 def test_connect_all_stdio():
     registry = ToolRegistry()
-    configs = [McpServerConfig(name="test", transport="stdio", command=[sys.executable, "-c", _MCP_SERVER])]
+    cmd = [sys.executable, "-c", _MCP_SERVER]
+    configs = [McpServerConfig(name="test", transport="stdio", command=cmd)]
     connect_all(registry, configs)
     assert len(get_connections()) == 1
     conn = get_connections()[0]
@@ -556,7 +575,8 @@ def test_connect_all_stdio():
 
 def test_connect_all_registers_callable_tool():
     registry = ToolRegistry()
-    configs = [McpServerConfig(name="test", transport="stdio", command=[sys.executable, "-c", _MCP_SERVER])]
+    cmd = [sys.executable, "-c", _MCP_SERVER]
+    configs = [McpServerConfig(name="test", transport="stdio", command=cmd)]
     connect_all(registry, configs)
     tool = next(t for t in registry.all() if t.name == "mcp__test__greet")
     result = tool.func({"name": "Alice"})
@@ -583,7 +603,8 @@ while True:
     sys.stdout.flush()
 """
     registry = ToolRegistry()
-    configs = [McpServerConfig(name="bare", transport="stdio", command=[sys.executable, "-c", server])]
+    cmd = [sys.executable, "-c", server]
+    configs = [McpServerConfig(name="bare", transport="stdio", command=cmd)]
     connect_all(registry, configs)
     assert len(get_connections()) == 1
     assert len(registry.all()) == 0
@@ -608,7 +629,8 @@ while True:
     sys.stdout.flush()
 """
     registry = ToolRegistry()
-    configs = [McpServerConfig(name="old-srv", transport="stdio", command=[sys.executable, "-c", server])]
+    cmd = [sys.executable, "-c", server]
+    configs = [McpServerConfig(name="old-srv", transport="stdio", command=cmd)]
     connect_all(registry, configs)
     assert len(get_connections()) == 1
     captured = capsys.readouterr()
@@ -656,8 +678,6 @@ def test_cleanup_closes_all():
 
 # ── Unit 7: /mcp status command ──────────────────────────────────────────
 
-from tigger.commands.mcp_cmd import cmd_mcp
-
 
 def _make_ctx():
     from tigger.types import Config, RunContext
@@ -679,11 +699,14 @@ def test_mcp_cmd_with_servers(capsys):
         def close(self): pass
     registry = ToolRegistry()
     from tigger.types import ToolDef
+    noop = lambda a: ""  # noqa: E731
     registry.register(ToolDef(
-        name="mcp__srv1__tool_a", description="test", parameters={}, func=lambda a: "", read_only=False
+        name="mcp__srv1__tool_a", description="test",
+        parameters={}, func=noop, read_only=False,
     ))
     registry.register(ToolDef(
-        name="mcp__srv1__tool_b", description="test", parameters={}, func=lambda a: "", read_only=False
+        name="mcp__srv1__tool_b", description="test",
+        parameters={}, func=noop, read_only=False,
     ))
     conn = McpConnection(
         name="srv1",

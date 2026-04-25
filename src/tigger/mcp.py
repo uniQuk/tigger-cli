@@ -1,11 +1,18 @@
 from __future__ import annotations
-import itertools
-import json, os, pathlib, queue, subprocess, threading
 
-import httpx
+import itertools
+import json
+import os
+import pathlib
+import queue
+import subprocess
+import threading
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
-from tigger.tools import ToolRegistry, ToolDef
+
+import httpx
+
+from tigger.tools import ToolDef, ToolRegistry
 
 _CONNECT_TIMEOUT = 3.0
 _PROTOCOL_VERSION = "2025-03-26"
@@ -173,7 +180,8 @@ class StreamableHttpTransport:
             resp = self._client.post(f"{self._url}/mcp", json=msg, headers=headers)
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise McpTransportError(f"HTTP {exc.response.status_code}: {exc.response.text}") from exc
+            code = exc.response.status_code
+            raise McpTransportError(f"HTTP {code}: {exc.response.text}") from exc
         except httpx.HTTPError as exc:
             raise McpTransportError(f"HTTP error: {exc}") from exc
 
@@ -453,10 +461,11 @@ def connect_all(
                     tools_result = transport.send("tools/list", {})
                     for tool in tools_result.get("tools", []):
                         full_name = f"mcp__{cfg.name}__{tool['name']}"
+                        default_schema = {"type": "object", "properties": {}}
                         registry.register(ToolDef(
                             name=full_name,
                             description=tool.get("description", ""),
-                            parameters=tool.get("inputSchema", {"type": "object", "properties": {}}),
+                            parameters=tool.get("inputSchema", default_schema),
                             func=_make_mcp_tool_func(cfg.name, tool["name"], transport),
                             read_only=False,
                         ))
