@@ -92,6 +92,7 @@ class RunContext:
     allowed_tools: list[str] | None = None  # None = all tools
     turn: int = 0
     trust_level: TrustLevel = TrustLevel.READONLY
+    modes: list = field(default_factory=list)       # list[ModeRef] — resolved modes
 
 
 # ── Events yielded by the agent loop ──────────────────────────────────────

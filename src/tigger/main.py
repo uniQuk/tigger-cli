@@ -12,7 +12,7 @@ from tigger.tools import ToolRegistry, register_all
 from tigger.hooks import HookDef, HookRegistry, load_hooks, load_hooks_dir
 from tigger.skills import match_skill
 from tigger.resolve import (
-    resolve_file, resolve_skills, resolve_agents, resolve_hooks,
+    resolve_file, resolve_skills, resolve_agents, resolve_hooks, resolve_modes,
     is_global_config, seed_global, INTERNAL_DIR,
 )
 from tigger.memory import read_memory, format_for_prompt
@@ -127,9 +127,10 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         return call
     hooks.before.setdefault("bash", []).append(_rtk_before_hook)
 
-    # 7-8. Skills + agents — 3-tier merge (project > global > internal)
+    # 7-8. Skills + agents + modes — 3-tier merge (project > global > internal)
     skills = resolve_skills(project_dir, global_dir)
     agents = resolve_agents(project_dir, global_dir)
+    modes = resolve_modes(project_dir, global_dir)
 
     # 9. System prompt + memory — override semantics
     _system_path = resolve_file("system.md", project_dir, global_dir, bundled_dir)
@@ -145,7 +146,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     system = (_base_system + ("\n\n" + memory_section if memory_section else "")).strip()
 
     # 10. Context
-    ctx = RunContext(config=config, messages=[], system_prompt=system, trust_level=trust_level)
+    ctx = RunContext(config=config, messages=[], system_prompt=system, trust_level=trust_level, modes=modes)
 
     # 11. Restrict tools for read-only trust level
     if trust_level == TrustLevel.READONLY:

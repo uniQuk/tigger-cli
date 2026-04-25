@@ -6,7 +6,7 @@ import shutil
 
 from tigger._constants import home_config_dir
 from tigger.hooks import HookDef, load_hooks_dir
-from tigger.skills import AgentDef, SkillDef, load_agents, load_agents_dir, load_skills_dir
+from tigger.skills import AgentDef, ModeRef, SkillDef, load_agents, load_agents_dir, load_modes_dir, load_skills_dir
 
 INTERNAL_DIR = pathlib.Path(__file__).parent / "internal"
 
@@ -72,9 +72,25 @@ def seed_global(global_dir: pathlib.Path, internal_dir: pathlib.Path | None = No
             shutil.copy2(agent_file, target)
             seeded = True
 
-    # Note: hooks.py is NOT seeded — hooks are executable code, not prompts.
-    # The internal hooks.py serves as a package-level fallback only.
-    # Users create their own hooks.py when they need custom hooks.
+    # Seed modes: copy each internal mode .md if not already present.
+    # Same underscore-prefix logic as agents above.
+    internal_modes = internal_dir / "modes"
+    if internal_modes.exists():
+        global_modes = global_dir / "modes"
+        global_modes.mkdir(parents=True, exist_ok=True)
+        for mode_file in sorted(internal_modes.iterdir()):
+            if not mode_file.is_file() or mode_file.suffix != ".md":
+                continue
+            target = global_modes / mode_file.name
+            if target.exists():
+                continue
+            # Check for non-prefixed version from prior seed
+            if mode_file.name.startswith("_"):
+                non_prefixed = global_modes / mode_file.name[1:]
+                if non_prefixed.exists():
+                    continue
+            shutil.copy2(mode_file, target)
+            seeded = True
 
     return seeded
 
@@ -174,4 +190,25 @@ def resolve_agents(
         for agent in load_agents_dir(agents_dir):
             tier_agents[agent.name] = agent
         seen.update(tier_agents)
+    return list(seen.values())
+
+
+def resolve_modes(
+    project_dir: pathlib.Path | None,
+    global_dir: pathlib.Path | None,
+    internal_dir: pathlib.Path | None = None,
+) -> list[ModeRef]:
+    """Merge modes across tiers. Project shadows global shadows internal by name."""
+    if internal_dir is None:
+        internal_dir = INTERNAL_DIR
+    seen: dict[str, ModeRef] = {}
+    for tier_dir in [
+        internal_dir / "modes" if internal_dir else None,
+        global_dir / "modes" if global_dir else None,
+        project_dir / "modes" if project_dir else None,
+    ]:
+        if tier_dir is None:
+            continue
+        for mode in load_modes_dir(tier_dir):
+            seen[mode.name] = mode
     return list(seen.values())
