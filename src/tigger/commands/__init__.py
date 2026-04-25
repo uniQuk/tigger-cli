@@ -1,10 +1,10 @@
 from __future__ import annotations
 import pathlib
+import sys
 from functools import partial
 from tigger.types import RunContext
 from tigger.tools import ToolRegistry
 from tigger.hooks import HookRegistry
-import sys
 from tigger.skills import AgentDef, ModeRef, SkillDef
 from tigger.commands import misc, agent as agent_cmd, compact as compact_cmd, skills as skills_cmd
 from tigger.commands import memory as mem_cmd
