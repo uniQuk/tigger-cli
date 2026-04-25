@@ -17,8 +17,8 @@ from tigger.resolve import (
 )
 from tigger.memory import read_memory, format_for_prompt
 from tigger.mcp import connect_all
-from tigger.compaction import estimate_tokens
-from tigger.types import ToolEndEvent, TurnDoneEvent
+from tigger.compaction import estimate_tokens, load_recent_summary
+from tigger.types import TextChunk, ToolEndEvent, TurnDoneEvent
 from tigger.loop import run, run_forked
 from tigger.commands import load_builtin_commands
 from tigger.input_processing import expand_file_refs
@@ -40,6 +40,7 @@ class StartupResult:
     hook_defs: list                   # new declarative hooks
     provider_fn: object
     config_path: pathlib.Path
+    summaries_dir: pathlib.Path | None = None
 
 
 def startup(config_path: pathlib.Path | None = None) -> StartupResult:
@@ -154,6 +155,12 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
 
     # Summary dir: project-scoped if available, else global.
     summary_dir = project_dir if project_dir is not None else global_dir
+    _summaries_dir = summary_dir / "summaries"
+
+    # 11b. Inject recent compaction summary as orientation context
+    _prev_summary = load_recent_summary(_summaries_dir)
+    if _prev_summary:
+        ctx.system_prompt = f"[Previous session context]\n{_prev_summary}\n\n{ctx.system_prompt}"
 
     commands = load_builtin_commands(
         memory_path=memory_path,
@@ -165,6 +172,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         provider_fn=_provider.stream,
         summary_dir=summary_dir,
         modes=modes,
+        hook_defs=hook_defs,
     )
 
     return StartupResult(
@@ -177,6 +185,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
         hook_defs=hook_defs,
         provider_fn=_provider.stream,
         config_path=config_path,
+        summaries_dir=_summaries_dir,
     )
 
 
@@ -219,6 +228,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
     hooks = result.hooks
     hook_defs = result.hook_defs
     provider_fn = result.provider_fn
+    summaries_dir = result.summaries_dir
 
     # Session tracking: how many messages existed before this REPL turn.
     _saved_count = len(ctx.messages)
@@ -365,7 +375,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
 
         try:
             event_gen = run(line, ctx, registry, hooks, provider_fn=provider_fn,
-                           hook_defs=hook_defs)
+                           hook_defs=hook_defs, summaries_dir=summaries_dir)
 
             with ui.Spinner(turn_start, token_counter=output_chars):
                 first_event = next(event_gen, None)
@@ -417,6 +427,8 @@ def main() -> None:
     parser.add_argument("--permission", choices=["ask", "allow", "bypass"], dest="permission", default=None)
     parser.add_argument("-c", "--continue", dest="resume", action="store_true",
                         help="Resume the most recent session")
+    parser.add_argument("--once", metavar="PROMPT",
+                        help="Run a single agent turn non-interactively and exit")
     parsed = parser.parse_args()
 
     result = startup()
@@ -436,6 +448,15 @@ def main() -> None:
             f"Available: {', '.join(sorted(mode_names))}. Falling back to 'act'."
         )
         result.ctx.config = dataclasses.replace(result.ctx.config, mode="act")
+
+    # --once: single non-interactive turn
+    if parsed.once is not None:
+        for event in run(parsed.once, result.ctx, result.registry, result.hooks,
+                         provider_fn=result.provider_fn, hook_defs=result.hook_defs):
+            if isinstance(event, TextChunk):
+                print(event.content, end="", flush=True)
+        print()
+        sys.exit(0)
 
     # Session setup
     session_dir = project_session_dir(home_config_dir(), pathlib.Path.cwd().resolve())
