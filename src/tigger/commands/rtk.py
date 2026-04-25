@@ -2,16 +2,8 @@ from __future__ import annotations
 import dataclasses
 import shutil
 import subprocess
+from tigger.hooks import RTK_HOOK_NAME, set_hook_enabled
 from tigger.types import RunContext
-
-
-def _set_rtk_hook(hook_defs: list | None, enabled: bool) -> None:
-    if not hook_defs:
-        return
-    for h in hook_defs:
-        if h.name == "_rtk-rewrite":
-            h.enabled = enabled
-            return
 
 
 def _rtk_available() -> bool:
@@ -37,13 +29,13 @@ def cmd_rtk(args: str, ctx: RunContext, hook_defs: list | None = None) -> None:
             print("rtk binary not found in PATH. Install from https://github.com/rtk-ai/rtk")
             return
         ctx.config = dataclasses.replace(ctx.config, rtk=True)
-        _set_rtk_hook(hook_defs, True)
+        set_hook_enabled(hook_defs, RTK_HOOK_NAME, True)
         print("RTK enabled — bash commands will be proxied through rtk.")
         return
 
     if sub == "off":
         ctx.config = dataclasses.replace(ctx.config, rtk=False)
-        _set_rtk_hook(hook_defs, False)
+        set_hook_enabled(hook_defs, RTK_HOOK_NAME, False)
         print("RTK disabled — bash commands run directly.")
         return
 

@@ -128,7 +128,7 @@ def test_recent_tools_populated_on_tool_start(monkeypatch):
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     ui_mod.recent_tools.clear()
     event = ToolStartEvent(call_id="c1", name="bash", args={"command": "ls"})
-    ui_mod.render_event(event, _make_ctx(), [0], [])
+    ui_mod.render_event(event, [0], [])
     assert "bash" in ui_mod.recent_tools
 
 
@@ -244,15 +244,14 @@ def test_render_event_buffers_tools_flushes_on_text(monkeypatch):
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
-    ctx = _make_ctx()
 
-    ui_mod.render_event(ToolStartEvent("c1", "read", {"path": "/a/b.py"}), ctx, [0], [])
-    ui_mod.render_event(ToolEndEvent("c1", "read", "ok"), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c1", "read", {"path": "/a/b.py"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c1", "read", "ok"), [0], [])
     # No output yet — buffered.
     mid = buf.getvalue()
     assert "tools" not in mid
 
-    ui_mod.render_event(TextChunk("hello"), ctx, [0], [])
+    ui_mod.render_event(TextChunk("hello"), [0], [])
     out = buf.getvalue()
     assert "tools" in out
     assert "b.py" in out
@@ -264,11 +263,10 @@ def test_render_event_flushes_on_turn_done(monkeypatch):
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
-    ctx = _make_ctx()
 
-    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "ls"}), ctx, [0], [])
-    ui_mod.render_event(ToolEndEvent("c1", "bash", "ok"), ctx, [0], [])
-    ui_mod.render_event(TurnDoneEvent(0, 0), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "ls"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c1", "bash", "ok"), [0], [])
+    ui_mod.render_event(TurnDoneEvent(0, 0), [0], [])
     out = buf.getvalue()
     assert "tools" in out
     assert "ls" in out
@@ -280,16 +278,15 @@ def test_render_event_batches_multiple_reads(monkeypatch):
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
-    ctx = _make_ctx()
 
     for i, name in enumerate(["a.py", "b.py", "c.py"]):
-        ui_mod.render_event(ToolStartEvent(f"c{i}", "read", {"path": f"/x/{name}"}), ctx, [0], [])
-        ui_mod.render_event(ToolEndEvent(f"c{i}", "read", "ok"), ctx, [0], [])
+        ui_mod.render_event(ToolStartEvent(f"c{i}", "read", {"path": f"/x/{name}"}), [0], [])
+        ui_mod.render_event(ToolEndEvent(f"c{i}", "read", "ok"), [0], [])
 
-    ui_mod.render_event(ToolStartEvent("c3", "grep", {"pattern": "foo"}), ctx, [0], [])
-    ui_mod.render_event(ToolEndEvent("c3", "grep", "ok"), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c3", "grep", {"pattern": "foo"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c3", "grep", "ok"), [0], [])
 
-    ui_mod.render_event(TextChunk("result"), ctx, [0], [])
+    ui_mod.render_event(TextChunk("result"), [0], [])
     out = buf.getvalue()
     assert "a.py, b.py, c.py" in out
     assert '"foo"' in out
@@ -301,10 +298,9 @@ def test_render_event_no_tools_no_block(monkeypatch):
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
-    ctx = _make_ctx()
 
-    ui_mod.render_event(TextChunk("hello"), ctx, [0], [])
-    ui_mod.render_event(TurnDoneEvent(0, 0), ctx, [0], [])
+    ui_mod.render_event(TextChunk("hello"), [0], [])
+    ui_mod.render_event(TurnDoneEvent(0, 0), [0], [])
     out = buf.getvalue()
     assert "tools" not in out
 
@@ -315,9 +311,8 @@ def test_render_event_no_inline_bullet(monkeypatch):
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
-    ctx = _make_ctx()
 
-    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "echo hi"}), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "echo hi"}), [0], [])
     out = buf.getvalue()
     assert "\u23fa" not in out  # ⏺ should not appear
 
@@ -328,10 +323,9 @@ def test_render_event_denied_still_inline(monkeypatch):
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
-    ctx = _make_ctx()
 
-    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "rm -rf /"}), ctx, [0], [])
-    ui_mod.render_event(ToolEndEvent("c1", "bash", "(denied)", permitted=False), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "rm -rf /"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c1", "bash", "(denied)", permitted=False), [0], [])
     out = buf.getvalue()
     assert "(denied)" in out
 
@@ -342,10 +336,9 @@ def test_render_event_error_still_inline(monkeypatch):
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
-    ctx = _make_ctx()
 
-    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "bad"}), ctx, [0], [])
-    ui_mod.render_event(ToolEndEvent("c1", "bash", "command not found", error=True), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "bad"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c1", "bash", "command not found", error=True), [0], [])
     out = buf.getvalue()
     assert "command not found" in out
 
@@ -357,9 +350,8 @@ def test_render_event_recent_tools_still_updated(monkeypatch):
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
     ui_mod.recent_tools.clear()
-    ctx = _make_ctx()
 
-    ui_mod.render_event(ToolStartEvent("c1", "read", {"path": "/a.py"}), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c1", "read", {"path": "/a.py"}), [0], [])
     assert "read" in ui_mod.recent_tools
 
 
@@ -376,9 +368,8 @@ def test_thinking_event_starts_spinner(monkeypatch):
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
     ui_mod._stop_activity()
-    ctx = _make_ctx()
 
-    ui_mod.render_event(ThinkingEvent(), ctx, [0], [])
+    ui_mod.render_event(ThinkingEvent(), [0], [])
     assert ui_mod._activity_status is not None
     ui_mod._stop_activity()
 
@@ -390,10 +381,9 @@ def test_thinking_event_flushes_tool_buffer(monkeypatch):
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
     ui_mod._stop_activity()
-    ctx = _make_ctx()
 
     _tool_buffer.extend([("read", "a.py"), ("read", "b.py")])
-    ui_mod.render_event(ThinkingEvent(), ctx, [0], [])
+    ui_mod.render_event(ThinkingEvent(), [0], [])
     out = buf.getvalue()
     assert "tools" in out
     assert "a.py, b.py" in out
@@ -408,11 +398,10 @@ def test_text_chunk_stops_thinking_spinner(monkeypatch):
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
     ui_mod._stop_activity()
-    ctx = _make_ctx()
 
-    ui_mod.render_event(ThinkingEvent(), ctx, [0], [])
+    ui_mod.render_event(ThinkingEvent(), [0], [])
     assert ui_mod._activity_status is not None
-    ui_mod.render_event(TextChunk("hello"), ctx, [0], [])
+    ui_mod.render_event(TextChunk("hello"), [0], [])
     assert ui_mod._activity_status is None
 
 
@@ -423,11 +412,10 @@ def test_tool_start_shows_counter(monkeypatch):
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
     ui_mod._stop_activity()
-    ctx = _make_ctx()
 
-    ui_mod.render_event(ToolStartEvent("c1", "read", {"path": "/a.py"}), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c1", "read", {"path": "/a.py"}), [0], [])
     assert ui_mod._activity_status is not None
-    ui_mod.render_event(ToolStartEvent("c2", "read", {"file_path": "/b.py"}), ctx, [0], [])
+    ui_mod.render_event(ToolStartEvent("c2", "read", {"file_path": "/b.py"}), [0], [])
     assert ui_mod._activity_status is not None
     ui_mod._stop_activity()
 

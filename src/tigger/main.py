@@ -9,7 +9,7 @@ import httpx
 from tigger.config import load_config, find_config, derive_provider_name
 from tigger.types import RunContext, TrustLevel
 from tigger.tools import ToolRegistry, register_all
-from tigger.hooks import HookDef
+from tigger.hooks import HookDef, RTK_HOOK_NAME, set_hook_enabled
 from tigger.skills import match_skill
 from tigger.resolve import (
     resolve_file, resolve_skills, resolve_agents, resolve_hooks, resolve_modes,
@@ -106,9 +106,7 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
 
     # 6b. RTK hook control — disable _rtk-rewrite hook if RTK is off
     if not config.rtk:
-        for h in hook_defs:
-            if h.name == "_rtk-rewrite":
-                h.enabled = False
+        set_hook_enabled(hook_defs, RTK_HOOK_NAME, False)
 
     # 7-8. Skills + agents + modes — 3-tier merge (project > global > internal)
     skills = resolve_skills(project_dir, global_dir)
@@ -219,7 +217,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
     # Falls back to plain input() if prompt_toolkit is unavailable.
     try:
         from prompt_toolkit import PromptSession
-        from prompt_toolkit.formatted_text import HTML, FormattedText
+        from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.history import FileHistory, InMemoryHistory
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.styles import Style as PTStyle
@@ -364,13 +362,13 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
                     stats.record_tool_end(first_event)
                 elif isinstance(first_event, TurnDoneEvent):
                     stats.turns += 1
-                ui.render_event(first_event, ctx, output_chars, text_buf)
+                ui.render_event(first_event, output_chars, text_buf)
                 for event in event_gen:
                     if isinstance(event, ToolEndEvent):
                         stats.record_tool_end(event)
                     elif isinstance(event, TurnDoneEvent):
                         stats.turns += 1
-                    ui.render_event(event, ctx, output_chars, text_buf)
+                    ui.render_event(event, output_chars, text_buf)
         except KeyboardInterrupt:
             ui._stop_activity()
             ui.print_info("\n(interrupted)")

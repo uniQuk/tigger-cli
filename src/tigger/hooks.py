@@ -8,9 +8,7 @@ from dataclasses import dataclass, field
 
 from tigger.skills import _parse_single
 
-# ---------------------------------------------------------------------------
-# New declarative hook system
-# ---------------------------------------------------------------------------
+RTK_HOOK_NAME = "_rtk-rewrite"
 
 VALID_EVENTS = {"PreToolUse", "PostToolUse", "SessionStart"}
 VALID_ACTIONS = {"block", "warn", "allow", "transform"}
@@ -146,3 +144,13 @@ def evaluate_hooks(event: str, context: dict, hooks: list[HookDef]) -> HookResul
             result.transformed = True
         # "allow" is a no-op
     return result
+
+
+def set_hook_enabled(hooks: list[HookDef] | None, name: str, enabled: bool) -> None:
+    """Find a hook by *name* and set its ``enabled`` flag."""
+    if not hooks:
+        return
+    for h in hooks:
+        if h.name == name:
+            h.enabled = enabled
+            return

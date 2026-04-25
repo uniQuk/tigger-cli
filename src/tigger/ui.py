@@ -13,7 +13,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.theme import Theme
 from tigger._spinners import pick_message
-from tigger.types import RunContext, TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent, ThinkingEvent
+from tigger.types import TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent, ThinkingEvent
 from tigger._constants import CONFIG_DIR, home_config_dir
 
 _THEME = Theme({
@@ -450,18 +450,6 @@ def _flush_tool_buffer() -> None:
     _tool_buffer.clear()
 
 
-def _fmt_args(args: dict) -> str:
-    if not args:
-        return ""
-    parts = []
-    for k, v in args.items():
-        sv = repr(v)
-        if len(sv) > 60:
-            sv = sv[:57] + "..."
-        parts.append(f"{k}={sv}")
-    return ", ".join(parts)
-
-
 def _flush_text(text_buf: list[str]) -> None:
     """Render accumulated model text as Rich Markdown and clear the buffer."""
     if text_buf:
@@ -469,7 +457,7 @@ def _flush_text(text_buf: list[str]) -> None:
         text_buf.clear()
 
 
-def render_event(event, ctx: RunContext, output_chars: list[int], text_buf: list[str]) -> None:
+def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
     """Render one agent event to the terminal.
 
     ``output_chars`` is a 1-element mutable list accumulating character count.
