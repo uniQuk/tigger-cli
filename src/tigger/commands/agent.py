@@ -1,6 +1,6 @@
 from __future__ import annotations
 import dataclasses
-from tigger.types import RunContext
+from tigger.types import Message, RunContext
 from tigger.skills import AgentDef
 from tigger.tools import ToolRegistry
 from tigger.hooks import HookRegistry
@@ -55,4 +55,9 @@ def cmd_agent(
     for event in run(query, agent_ctx, sub_registry, hooks, provider_fn=provider_fn):
         if isinstance(event, TextChunk):
             result_parts.append(event.content)
-    print("".join(result_parts))
+    result = "".join(result_parts)
+    print(result)
+    ctx.messages.append(Message(
+        role="user",
+        content=f"[Agent result from {agent_name}]:\n{result}",
+    ))
