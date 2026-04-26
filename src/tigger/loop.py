@@ -1,15 +1,23 @@
 from __future__ import annotations
+
 import pathlib
-from typing import Callable, Generator
-from tigger.types import (
-    Config, RunContext, Message, ToolCallRecord, AssistantMessage,
-    TextChunk, ToolStartEvent, ToolEndEvent, PermissionRequest, TurnDoneEvent,
-    ThinkingEvent,
-)
-from tigger.tools import ToolRegistry
+from collections.abc import Callable, Generator
+
+from tigger.compaction import maybe_compact
 from tigger.hooks import HookDef, evaluate_hooks
 from tigger.permissions import check as permission_check
-from tigger.compaction import maybe_compact
+from tigger.tools import ToolRegistry
+from tigger.types import (
+    AssistantMessage,
+    Message,
+    PermissionRequest,
+    RunContext,
+    TextChunk,
+    ThinkingEvent,
+    ToolEndEvent,
+    ToolStartEvent,
+    TurnDoneEvent,
+)
 
 Event = TextChunk | ToolStartEvent | ToolEndEvent | TurnDoneEvent | ThinkingEvent
 PermissionCallback = Callable[[PermissionRequest], bool]
@@ -21,6 +29,32 @@ def _active_mode_body(ctx: RunContext) -> str:
         if mode.name == ctx.config.mode:
             return mode.body
     return ""
+
+
+def _lazy_tools_prompt_line(registry: ToolRegistry) -> str:
+    """Build the per-turn prompt fragment listing lazy MCP tools by server.
+
+    Returns "" when no lazy tools are registered, so eager-only sessions see no overhead.
+    """
+    lazy = registry.lazy_tools()
+    if not lazy:
+        return ""
+    by_server: dict[str, list[str]] = {}
+    for t in lazy:
+        if t.name.startswith("mcp__"):
+            rest = t.name[len("mcp__"):]
+            if "__" in rest:
+                server, tool = rest.split("__", 1)
+            else:
+                server, tool = "_unknown", rest
+        else:
+            server, tool = "_native", t.name
+        by_server.setdefault(server, []).append(tool)
+    lines = [
+        f"Additional MCP tools available via mcp_promote('{server}'): {', '.join(tools)}"
+        for server, tools in sorted(by_server.items())
+    ]
+    return "\n".join(lines)
 
 
 def run(
@@ -53,6 +87,9 @@ def run(
         mode_body = _active_mode_body(ctx)
         if mode_body:
             system += "\n\n" + mode_body
+        lazy_line = _lazy_tools_prompt_line(registry)
+        if lazy_line:
+            system += "\n\n" + lazy_line
         stream = provider_fn(system, ctx.messages, tools_schemas, ctx.config)
         assistant_msg: AssistantMessage | None = None
 

@@ -16,6 +16,7 @@ from tigger.tools import ToolDef, ToolRegistry
 
 _CONNECT_TIMEOUT = 3.0
 _PROTOCOL_VERSION = "2025-03-26"
+_VALID_TIERS = {"eager", "lazy", "disabled"}
 
 
 class McpTransportError(Exception):
@@ -44,6 +45,18 @@ class McpServerConfig:
     command: list[str] | None = None
     url: str | None = None
     env: dict[str, str] = field(default_factory=dict)
+    tier: str = "eager"                                     # "eager" | "lazy" | "disabled"
+    tool_tiers: dict[str, str] = field(default_factory=dict)  # bare tool name -> tier
+
+
+def _coerce_tier(value: str | None, *, where: str) -> str:
+    """Validate a tier value, falling back to 'eager' with a warning if unknown."""
+    if value is None:
+        return "eager"
+    if value in _VALID_TIERS:
+        return value
+    print(f"[mcp] Warning: unknown tier {value!r} for {where}, defaulting to 'eager'")
+    return "eager"
 
 
 def load_mcp_config(path: pathlib.Path) -> list[McpServerConfig]:
@@ -59,12 +72,27 @@ def load_mcp_config(path: pathlib.Path) -> list[McpServerConfig]:
         url = srv.get("url")
         if url:
             url = os.path.expandvars(url)
+        tier = _coerce_tier(srv.get("tier"), where=f"server {name!r}")
+        raw_tool_tiers = srv.get("tools", {}) or {}
+        tool_tiers: dict[str, str] = {}
+        for tool_name, raw_t in raw_tool_tiers.items():
+            if raw_t in _VALID_TIERS:
+                tool_tiers[tool_name] = raw_t
+            else:
+                print(
+                    f"[mcp] Warning: unknown tier {raw_t!r} for "
+                    f"{name!r}.tools.{tool_name!r}, ignoring"
+                )
+        # Stdio default only applies when transport not specified AND we're connecting.
+        # Disabled servers may omit transport/command entirely; tolerate that.
         configs.append(McpServerConfig(
             name=name,
             transport=srv.get("transport", "stdio"),
             command=command,
             url=url,
             env=srv.get("env", {}),
+            tier=tier,
+            tool_tiers=tool_tiers,
         ))
     return configs
 
@@ -382,6 +410,20 @@ def _cleanup() -> None:
             pass
 
 
+class _DisabledTransport:
+    """Sentinel transport for servers configured as `tier: disabled`.
+
+    The connection is recorded so `/mcp` can still display the server, but no
+    subprocess is spawned and no network call is made.
+    """
+
+    def send(self, method: str, params: dict) -> dict:
+        raise McpTransportError("server is disabled")
+
+    def close(self) -> None:
+        return None
+
+
 def _build_transport(cfg: McpServerConfig) -> McpTransport:
     """Construct the appropriate transport for a server config."""
     if cfg.transport == "stdio":
@@ -432,6 +474,19 @@ def connect_all(
         _cleanup_registered = True
 
     for cfg in configs:
+        # Disabled servers: record a marker connection so /mcp can show them,
+        # but skip subprocess spawn / network connect / handshake entirely.
+        if cfg.tier == "disabled":
+            print(f"[mcp] Skipped disabled server: {cfg.name}")
+            _connections.append(McpConnection(
+                name=cfg.name,
+                transport=_DisabledTransport(),
+                server_info={"disabled": True},
+                capabilities=None,
+                protocol_version=None,
+            ))
+            continue
+
         try:
             transport = _build_transport(cfg)
 
@@ -459,15 +514,28 @@ def connect_all(
             if capabilities and "tools" in capabilities:
                 try:
                     tools_result = transport.send("tools/list", {})
-                    for tool in tools_result.get("tools", []):
+                    listed_tools = tools_result.get("tools", [])
+                    listed_names = {t["name"] for t in listed_tools}
+
+                    # Warn for per-tool override keys that don't match any real tool.
+                    for override_name in cfg.tool_tiers:
+                        if override_name not in listed_names:
+                            print(
+                                f"[mcp] Warning: {cfg.name} per-tool override "
+                                f"references unknown tool {override_name!r}; ignoring."
+                            )
+
+                    for tool in listed_tools:
                         full_name = f"mcp__{cfg.name}__{tool['name']}"
                         default_schema = {"type": "object", "properties": {}}
+                        effective_tier = cfg.tool_tiers.get(tool["name"], cfg.tier)
                         registry.register(ToolDef(
                             name=full_name,
                             description=tool.get("description", ""),
                             parameters=tool.get("inputSchema", default_schema),
                             func=_make_mcp_tool_func(cfg.name, tool["name"], transport),
                             read_only=False,
+                            tier=effective_tier,
                         ))
                 except McpTransportError as exc:
                     print(f"[mcp] Warning: {cfg.name} tools/list failed: {exc}")

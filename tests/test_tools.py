@@ -331,3 +331,78 @@ def test_grep_does_not_exclude_file_named_like_excluded_dir(monkeypatch, tmp_pat
     register_all(r)
     result = r.execute("grep", {"pattern": "not a real git"}).output
     assert "not a real git" in result
+
+
+# ── Tool tier (eager / lazy / disabled) ───────────────────────────────
+
+
+def _tiered_stub(name="ping", tier="eager"):
+    return ToolDef(
+        name=name, description="", parameters={},
+        func=lambda _: "pong", read_only=True, tier=tier,
+    )
+
+
+def test_tooldef_default_tier_is_eager():
+    t = ToolDef(name="x", description="", parameters={}, func=lambda _: "")
+    assert t.tier == "eager"
+
+
+def test_schemas_excludes_lazy_tools():
+    r = ToolRegistry()
+    r.register(_tiered_stub("eager_one", tier="eager"))
+    r.register(_tiered_stub("lazy_one", tier="lazy"))
+    names = [s["function"]["name"] for s in r.schemas()]
+    assert "eager_one" in names
+    assert "lazy_one" not in names
+
+
+def test_schemas_excludes_disabled_tools():
+    r = ToolRegistry()
+    r.register(_tiered_stub("eager_one", tier="eager"))
+    r.register(_tiered_stub("disabled_one", tier="disabled"))
+    names = [s["function"]["name"] for s in r.schemas()]
+    assert "eager_one" in names
+    assert "disabled_one" not in names
+
+
+def test_lazy_tools_returns_only_lazy():
+    r = ToolRegistry()
+    r.register(_tiered_stub("eager_one", tier="eager"))
+    r.register(_tiered_stub("lazy_one", tier="lazy"))
+    r.register(_tiered_stub("disabled_one", tier="disabled"))
+    lazy = r.lazy_tools()
+    names = [t.name for t in lazy]
+    assert names == ["lazy_one"]
+
+
+def test_lazy_tools_empty_when_none_registered():
+    r = ToolRegistry()
+    r.register(_tiered_stub("eager_one", tier="eager"))
+    assert r.lazy_tools() == []
+
+
+def test_execute_rejects_lazy_tool_with_promote_directive():
+    r = ToolRegistry()
+    r.register(_tiered_stub("mcp__playwright__navigate", tier="lazy"))
+    result = r.execute("mcp__playwright__navigate", {})
+    assert result.error is True
+    assert "mcp_promote" in result.output
+    assert "playwright" in result.output
+
+
+def test_execute_rejects_disabled_tool_with_disabled_message():
+    r = ToolRegistry()
+    r.register(_tiered_stub("mcp__experimental__bork", tier="disabled"))
+    result = r.execute("mcp__experimental__bork", {})
+    assert result.error is True
+    assert "disabled" in result.output.lower()
+
+
+def test_native_tools_default_to_eager():
+    r = ToolRegistry()
+    register_all(r)
+    for name in ("read", "glob", "grep", "write", "edit", "bash", "web_fetch"):
+        t = r.get(name)
+        assert t is not None
+        assert t.tier == "eager", f"{name} should default to eager"

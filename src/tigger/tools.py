@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import glob as _glob
 import ipaddress as _ipaddress
 import pathlib
@@ -7,6 +8,7 @@ import socket as _socket
 import subprocess
 import urllib.parse as _urlparse
 import urllib.request
+
 from tigger.types import ToolDef, ToolResult
 
 _32KB = 32 * 1024
@@ -35,6 +37,19 @@ def _safe_path(p: pathlib.Path) -> pathlib.Path | None:
         return None
 
 
+def _server_segment(name: str) -> str:
+    """Extract the server segment from an `mcp__<server>__<tool>` name.
+
+    Returns the literal name when the prefix is absent (native tools should
+    never reach the lazy/disabled gate, but we want a sensible fallback).
+    """
+    if name.startswith("mcp__"):
+        rest = name[len("mcp__"):]
+        if "__" in rest:
+            return rest.split("__", 1)[0]
+    return name
+
+
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, ToolDef] = {}
@@ -48,6 +63,10 @@ class ToolRegistry:
     def all(self) -> list[ToolDef]:
         return list(self._tools.values())
 
+    def lazy_tools(self) -> list[ToolDef]:
+        """Return tools whose tier is 'lazy' (registered but not shipped to the LLM)."""
+        return [t for t in self._tools.values() if t.tier == "lazy"]
+
     def schemas(self) -> list[dict]:
         return [
             {
@@ -59,12 +78,28 @@ class ToolRegistry:
                 },
             }
             for t in self._tools.values()
+            if t.tier == "eager"
         ]
 
     def execute(self, name: str, args: dict) -> ToolResult:
         tool = self._tools.get(name)
         if tool is None:
             return ToolResult(output=f"Error: unknown tool '{name}'", error=True)
+        if tool.tier == "lazy":
+            server = _server_segment(name)
+            return ToolResult(
+                output=(
+                    f"Error: tool '{name}' is lazy. "
+                    f"Call mcp_promote(server='{server}') first to load its schema."
+                ),
+                error=True,
+            )
+        if tool.tier == "disabled":
+            server = _server_segment(name)
+            return ToolResult(
+                output=f"Error: tool '{name}' belongs to a disabled server '{server}'. Re-enable in mcp.json and restart.",
+                error=True,
+            )
         try:
             output = tool.func(args)
             # Tool implementations signal in-band failures by prefixing "Error:".
@@ -264,6 +299,45 @@ def _web_fetch(args: dict) -> str:
         return f"Error: {exc}"
 
 
+def _make_mcp_promote(registry: ToolRegistry):
+    """Build the mcp_promote tool function bound to a specific registry.
+
+    Closure pattern mirrors `_remember` below — the tool needs registry access
+    to mutate ToolDef.tier in place.
+    """
+    def promote(args: dict) -> str:
+        server = (args.get("server") or "").strip()
+        if not server:
+            return "Error: missing 'server' argument"
+        prefix = f"mcp__{server}__"
+        matching = [t for t in registry.all() if t.name.startswith(prefix)]
+        if not matching:
+            return f"Error: no MCP server named {server!r}"
+        # Server-level disabled (R10): every tool is disabled → server itself is off.
+        # Per-tool disabled (R2 override) is intentional and left alone — only lazy gets promoted.
+        if all(t.tier == "disabled" for t in matching):
+            return (
+                f"Error: server {server!r} is disabled. Edit mcp.json and "
+                f"restart to re-enable."
+            )
+        promoted_names: list[str] = []
+        already_eager: list[str] = []
+        for t in matching:
+            if t.tier == "lazy":
+                t.tier = "eager"
+                promoted_names.append(t.name[len(prefix):])
+            elif t.tier == "eager":
+                already_eager.append(t.name[len(prefix):])
+        if promoted_names:
+            return (
+                f"Promoted {server!r}. {len(promoted_names)} tools now available: "
+                f"{', '.join(promoted_names)}"
+            )
+        return f"Server {server!r} is already eager ({len(already_eager)} tools)"
+
+    return promote
+
+
 def register_all(registry: ToolRegistry, *, memory_path: pathlib.Path | None = None) -> None:
     registry.register(ToolDef(
         name="read",
@@ -337,6 +411,26 @@ def register_all(registry: ToolRegistry, *, memory_path: pathlib.Path | None = N
             "required": ["command"],
         },
         func=_bash,
+    ))
+    registry.register(ToolDef(
+        name="mcp_promote",
+        description=(
+            "Promote a lazy MCP server so its tool schemas become available "
+            "next turn. Use when you see an MCP tool name in the system prompt "
+            "but its schema isn't loaded yet."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "server": {
+                    "type": "string",
+                    "description": "MCP server name (e.g. 'playwright', 'github')",
+                },
+            },
+            "required": ["server"],
+        },
+        func=_make_mcp_promote(registry),
+        read_only=True,
     ))
     registry.register(ToolDef(
         name="web_fetch",

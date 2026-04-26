@@ -415,3 +415,74 @@ def test_post_hook_feedback_appended_to_tool_result():
     tool_msgs = [m for m in ctx.messages if m.role == "tool"]
     assert "tool output" in tool_msgs[0].content
     assert "[hook: post-warn]" in tool_msgs[0].content
+
+
+# --- Lazy-tool surfacing in system prompt (Unit 5) ---
+
+
+def _lazy_tool(name: str) -> ToolDef:
+    return ToolDef(
+        name=name, description="", parameters={},
+        func=lambda _: "", read_only=False, tier="lazy",
+    )
+
+
+def test_no_lazy_tools_means_no_lazy_line():
+    """When no lazy tools are registered, the system prompt is unchanged."""
+    calls: list[str] = []
+
+    def provider(system, messages, tools, cfg):
+        calls.append(system)
+        yield TextChunk(content="ok")
+        yield AssistantMessage(content="ok", tool_calls=[])
+
+    ctx = _ctx()
+    list(run("hi", ctx, _registry(), provider_fn=provider))
+    assert calls[0] == "You are helpful."
+
+
+def test_lazy_tools_produce_per_server_prompt_line():
+    calls: list[str] = []
+
+    def provider(system, messages, tools, cfg):
+        calls.append(system)
+        yield TextChunk(content="ok")
+        yield AssistantMessage(content="ok", tool_calls=[])
+
+    reg = _registry([
+        _lazy_tool("mcp__playwright__navigate"),
+        _lazy_tool("mcp__playwright__click"),
+        _lazy_tool("mcp__github__search"),
+    ])
+    ctx = _ctx()
+    list(run("hi", ctx, reg, provider_fn=provider))
+    sys_prompt = calls[0]
+    assert "mcp_promote" in sys_prompt
+    assert "playwright" in sys_prompt
+    assert "github" in sys_prompt
+    assert "navigate" in sys_prompt
+    assert "click" in sys_prompt
+    assert "search" in sys_prompt
+
+
+def test_lazy_line_appended_after_mode_body():
+    from tigger.skills import ModeRef
+    calls: list[str] = []
+
+    def provider(system, messages, tools, cfg):
+        calls.append(system)
+        yield TextChunk(content="ok")
+        yield AssistantMessage(content="ok", tool_calls=[])
+
+    plan_mode = ModeRef(name="plan", body="You are in plan mode.")
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="plan")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="Base.", modes=[plan_mode])
+    reg = _registry([_lazy_tool("mcp__pw__navigate")])
+    list(run("hi", ctx, reg, provider_fn=provider))
+
+    sys_prompt = calls[0]
+    base_idx = sys_prompt.index("Base.")
+    mode_idx = sys_prompt.index("plan mode")
+    lazy_idx = sys_prompt.index("mcp_promote")
+    assert base_idx < mode_idx < lazy_idx
+

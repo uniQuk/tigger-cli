@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 import pathlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable
 
 
 class TrustLevel(str, Enum):
@@ -84,6 +85,7 @@ class ToolDef:
     parameters: dict                        # JSON Schema object
     func: Callable[[dict], str]
     read_only: bool = False
+    tier: str = "eager"                     # "eager" | "lazy" | "disabled"
 
 
 @dataclass
