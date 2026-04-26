@@ -46,6 +46,25 @@ class SkillDef:
         else:
             rendered = (self.body + f"\n\n---\n{args}") if args else self.body
 
+        # Prepend a location header so the model can resolve relative paths
+        # (e.g. `assets/template.html`) against the skill's actual folder,
+        # whether it lives in the project's .tigger/ or the user's ~/.tigger/.
+        location_lines: list[str] = []
+        if self.folder is not None:
+            location_lines.append(f"Skill folder: {self.folder.resolve()}")
+        if self.assets is not None:
+            location_lines.append(f"Assets folder: {self.assets.resolve()}")
+        if location_lines:
+            header = (
+                "## Skill location\n\n"
+                + "\n".join(location_lines)
+                + "\n\nResolve any relative paths in the instructions below "
+                "(e.g. `assets/template.html`) against the skill folder above. "
+                "Read templates from there; do not recreate the skill or copy "
+                "its files into the project source tree.\n"
+            )
+            rendered = header + "\n" + rendered
+
         # Prepend references if injection is enabled
         if self.inject_references and self.references:
             ref_sections = []

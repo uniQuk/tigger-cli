@@ -14,7 +14,10 @@ _client_cache: dict[tuple[str, str, int], OpenAI] = {}
 def _get_client(base_url: str, api_key: str, read_timeout: int) -> OpenAI:
     key = (base_url, api_key, read_timeout)
     if key not in _client_cache:
-        timeout = httpx.Timeout(connect=30, read=read_timeout, write=30, pool=30)
+        # read_timeout <= 0 disables the read ceiling entirely (useful for slow
+        # local models that can sit silent for long periods during thinking).
+        read = None if read_timeout <= 0 else read_timeout
+        timeout = httpx.Timeout(connect=30, read=read, write=30, pool=30)
         _client_cache[key] = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
     return _client_cache[key]
 
@@ -53,18 +56,19 @@ def messages_to_openai(messages: list[Message]) -> list[dict]:
 def openai_tool_calls_to_records(raw: list[dict]) -> list[ToolCallRecord]:
     records = []
     for tc in raw:
-        raw_args = tc.get("function", {}).get("arguments", "") or ""
+        fn = tc.get("function", {})
+        raw_args = fn.get("arguments", "") or ""
+        parse_error_bytes: int | None = None
         try:
             args = json.loads(raw_args) if raw_args else {}
         except json.JSONDecodeError:
-            # Truncated/malformed JSON (most often: response hit max_tokens
-            # mid-tool-call). Preserve the failure so the executor can return
-            # a useful error instead of silently passing empty args.
-            args = {"__parse_error__": True, "__raw_len__": len(raw_args)}
+            args = {}
+            parse_error_bytes = len(raw_args)
         records.append(ToolCallRecord(
             call_id=tc.get("id", ""),
-            name=tc.get("function", {}).get("name", ""),
+            name=fn.get("name", ""),
             args=args,
+            parse_error_bytes=parse_error_bytes,
         ))
     return records
 
@@ -84,9 +88,7 @@ def stream(
         temperature=config.temperature,
         stream=True,
     )
-    # max_tokens <= 0 means "let the provider decide" — omit the param entirely
-    # rather than send 0 (which LM Studio and others reject).
-    if config.max_tokens and config.max_tokens > 0:
+    if config.max_tokens > 0:
         kwargs["max_tokens"] = config.max_tokens
     if tools:
         kwargs["tools"] = tools
@@ -96,6 +98,7 @@ def stream(
     tool_call_signalled = False
     input_tokens = 0
     output_tokens = 0
+    finish_reason = ""
 
     # Request usage stats if the provider supports it; fall back without on error.
     kwargs["stream_options"] = {"include_usage": True}
@@ -109,7 +112,10 @@ def stream(
             if chunk.usage:
                 input_tokens = chunk.usage.prompt_tokens or 0
                 output_tokens = chunk.usage.completion_tokens or 0
-            delta = chunk.choices[0].delta if chunk.choices else None
+            choice = chunk.choices[0] if chunk.choices else None
+            if choice and choice.finish_reason:
+                finish_reason = choice.finish_reason
+            delta = choice.delta if choice else None
             if delta is None:
                 continue
             if delta.content:
@@ -139,4 +145,5 @@ def stream(
         tool_calls=openai_tool_calls_to_records(collected_tool_calls),
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        finish_reason=finish_reason,
     )

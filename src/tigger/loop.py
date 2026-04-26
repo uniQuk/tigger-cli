@@ -73,6 +73,8 @@ def run(
 
     retries = 0
     max_retries = ctx.config.max_retries
+    continuations = 0
+    max_continuations = 3  # cap auto-continue chain to avoid runaway loops
 
     while True:
         ctx.messages, _ = maybe_compact(ctx.messages, ctx.config, provider_fn,
@@ -123,6 +125,23 @@ def run(
         )
 
         if not assistant_msg.tool_calls:
+            # Auto-continue when the model was cut off mid-text by max_tokens.
+            # Inject a synthetic user prompt and let the next turn pick up.
+            if (
+                assistant_msg.finish_reason == "length"
+                and continuations < max_continuations
+            ):
+                continuations += 1
+                ctx.messages.append(Message(
+                    role="user",
+                    content=(
+                        "Your previous response was cut off by the output token "
+                        "limit. Continue exactly where you left off — do not "
+                        "repeat content already produced, do not summarise, do "
+                        "not add preamble. Resume the next character."
+                    ),
+                ))
+                continue
             break
 
         # Execute each tool call
@@ -213,7 +232,7 @@ def run(
                         continue
 
             yield ToolStartEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
-            result = registry.execute(tc.name, tc.args)
+            result = registry.execute(tc.name, tc.args, tc.parse_error_bytes)
             end_event = ToolEndEvent(
                 call_id=tc.call_id, name=tc.name, output=result.output,
                 error=result.error,

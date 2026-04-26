@@ -31,8 +31,8 @@ def test_openai_tool_calls_to_records():
 def test_openai_tool_calls_malformed_json():
     raw = [{"id": "c1", "function": {"name": "read", "arguments": "{bad json"}}]
     records = openai_tool_calls_to_records(raw)
-    assert records[0].args.get("__parse_error__") is True
-    assert records[0].args.get("__raw_len__") == len("{bad json")
+    assert records[0].args == {}
+    assert records[0].parse_error_bytes == len("{bad json")
 
 
 def test_get_client_returns_same_instance_for_same_key():

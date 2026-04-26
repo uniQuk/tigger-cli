@@ -176,7 +176,7 @@ def _resolve_read_timeout(value: object) -> int:
                 f"TIGGER_READ_TIMEOUT={env!r} is not an integer; using default",
                 stacklevel=2,
             )
-    if isinstance(value, int) and value > 0:
+    if isinstance(value, int) and value >= 0:
         return value
     return DEFAULT_READ_TIMEOUT
 

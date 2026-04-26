@@ -122,7 +122,7 @@ class ToolRegistry:
             if t.tier == "eager"
         ]
 
-    def execute(self, name: str, args: dict) -> ToolResult:
+    def execute(self, name: str, args: dict, parse_error_bytes: int | None = None) -> ToolResult:
         tool = self._tools.get(name)
         if tool is None:
             return ToolResult(output=f"Error: unknown tool '{name}'", error=True)
@@ -141,14 +141,13 @@ class ToolRegistry:
                 output=f"Error: tool '{name}' belongs to a disabled server '{server}'. Re-enable in mcp.json and restart.",
                 error=True,
             )
-        if args.get("__parse_error__"):
-            raw_len = args.get("__raw_len__", 0)
+        if parse_error_bytes is not None:
             return ToolResult(
                 output=(
                     f"Error: tool '{name}' arguments were truncated/malformed JSON "
-                    f"({raw_len} bytes received). The response likely hit max_tokens "
-                    f"mid-call. Retry with smaller content (e.g. write the file in "
-                    f"chunks via edit), or raise max_tokens in config."
+                    f"({parse_error_bytes} bytes received). The response likely hit "
+                    f"max_tokens mid-call. Retry with smaller content (e.g. write "
+                    f"the file in chunks via edit), or raise max_tokens in config."
                 ),
                 error=True,
             )
@@ -189,6 +188,11 @@ def _read(args: dict) -> str:
         return f"Error: access denied — path is outside the workspace: {args['path']}"
     if not safe.exists():
         return f"Error: file not found: {args['path']}"
+    if safe.is_dir():
+        return (
+            f"Error: path is a directory, not a file: {args['path']}. "
+            "Use the glob tool to list its contents."
+        )
     return safe.read_text(errors="replace")
 
 

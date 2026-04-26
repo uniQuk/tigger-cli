@@ -18,7 +18,7 @@ DEFAULT_MAX_TOKENS = 0  # 0 = omit param, let provider use its full output budge
 DEFAULT_MAX_DEPTH = 4
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_TEMPERATURE = 0.7
-DEFAULT_READ_TIMEOUT = 1800  # seconds; max gap between streamed SSE chunks
+DEFAULT_READ_TIMEOUT = 0  # 0 = no read timeout (recommended for local models)
 
 
 @dataclass(frozen=True)
@@ -69,6 +69,9 @@ class ToolCallRecord:
     call_id: str
     name: str
     args: dict
+    # Set when the streamed arguments JSON failed to parse — typically because
+    # the response hit max_tokens mid-tool-call and the JSON was truncated.
+    parse_error_bytes: int | None = None
 
 
 @dataclass
@@ -87,6 +90,7 @@ class AssistantMessage:
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0
+    finish_reason: str = ""  # "stop" | "length" | "tool_calls" | ""
 
 
 @dataclass

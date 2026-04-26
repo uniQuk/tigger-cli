@@ -185,7 +185,9 @@ def test_render_no_references_unchanged(tmp_path):
     _make_skill(tmp_path, "my-skill", _BASIC)
     skills = load_skills_dir(tmp_path)
     rendered = skills[0].render("/my-skill hello")
-    assert rendered == "Do the thing with hello."
+    assert "Do the thing with hello." in rendered
+    assert "Skill folder:" in rendered
+    assert str((tmp_path / "my-skill").resolve()) in rendered
 
 
 _NO_ARGS_PLACEHOLDER = textwrap.dedent("""\
@@ -207,8 +209,8 @@ def test_render_no_placeholder_appends_args(tmp_path):
 
 
 def test_render_no_placeholder_no_args_returns_body(tmp_path):
-    # If no args and no placeholder, just return the body unchanged
+    # If no args and no placeholder, body is preserved (location header may be prepended).
     _make_skill(tmp_path, "my-skill", _NO_ARGS_PLACEHOLDER)
     skills = load_skills_dir(tmp_path)
     rendered = skills[0].render("/my-skill")
-    assert rendered == "You are an expert. Follow these instructions carefully."
+    assert "You are an expert. Follow these instructions carefully." in rendered
