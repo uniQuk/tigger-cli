@@ -59,7 +59,7 @@ def load_skills(path: pathlib.Path) -> list[SkillDef]:
     """Load skills from a flat skills.md file (legacy/fallback)."""
     if not path.exists():
         return []
-    blocks = parse_blocks(path.read_text())
+    blocks = parse_blocks(path.read_text(), source=str(path))
     skills = []
     for b in blocks:
         fm = b["fm"]
@@ -90,7 +90,7 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
         skill_md = entry / "SKILL.md"
         if not skill_md.exists():
             continue
-        b = parse_single(skill_md.read_text())
+        b = parse_single(skill_md.read_text(), source=str(skill_md))
         if not b:
             continue
         fm = b["fm"]
@@ -136,7 +136,7 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
 def load_agents(path: pathlib.Path) -> list[AgentDef]:
     if not path.exists():
         return []
-    blocks = parse_blocks(path.read_text())
+    blocks = parse_blocks(path.read_text(), source=str(path))
     agents = []
     for b in blocks:
         fm = b["fm"]
@@ -160,7 +160,7 @@ def load_agents_dir(agents_dir: pathlib.Path) -> list[AgentDef]:
     for entry in sorted(agents_dir.iterdir()):
         if not entry.is_file() or entry.suffix != ".md":
             continue
-        b = parse_single(entry.read_text())
+        b = parse_single(entry.read_text(), source=str(entry))
         if not b:
             continue
         fm = b["fm"]
@@ -185,7 +185,7 @@ def load_modes_dir(modes_dir: pathlib.Path) -> list[ModeRef]:
     for entry in sorted(modes_dir.iterdir()):
         if not entry.is_file() or entry.suffix != ".md":
             continue
-        b = parse_single(entry.read_text())
+        b = parse_single(entry.read_text(), source=str(entry))
         if not b:
             continue
         fm = b["fm"]

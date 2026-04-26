@@ -1,9 +1,16 @@
 """Shared YAML frontmatter parsing utilities."""
 from __future__ import annotations
 import re
+import sys
+
+__all__ = ["parse_blocks", "parse_single"]
 
 
-def parse_blocks(text: str) -> list[dict]:
+def _warn_yaml_error(exc: Exception, source: str) -> None:
+    print(f"[parsing] YAML frontmatter error in {source}: {exc}", file=sys.stderr)
+
+
+def parse_blocks(text: str, *, source: str = "<input>") -> list[dict]:
     import yaml
     blocks = []
     parts = re.split(r"^---\s*$", text, flags=re.MULTILINE)
@@ -16,13 +23,13 @@ def parse_blocks(text: str) -> list[dict]:
                 fm = yaml.safe_load(fm_text)
                 if isinstance(fm, dict):
                     blocks.append({"fm": fm, "body": body})
-            except Exception:
-                pass
+            except yaml.YAMLError as exc:
+                _warn_yaml_error(exc, source)
         i += 2
     return blocks
 
 
-def parse_single(text: str) -> dict | None:
+def parse_single(text: str, *, source: str = "<input>") -> dict | None:
     """Parse a single frontmatter document.
 
     Only the first --- pair is treated as frontmatter. Everything after
@@ -41,6 +48,6 @@ def parse_single(text: str) -> dict | None:
         fm = yaml.safe_load(fm_text)
         if isinstance(fm, dict):
             return {"fm": fm, "body": body}
-    except Exception:
-        pass
+    except yaml.YAMLError as exc:
+        _warn_yaml_error(exc, source)
     return None

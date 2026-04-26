@@ -42,7 +42,7 @@ def load_hooks_dir(hooks_dir: pathlib.Path) -> list[HookDef]:
     for entry in sorted(hooks_dir.iterdir()):
         if not entry.is_file() or entry.suffix != ".md":
             continue
-        b = parse_single(entry.read_text())
+        b = parse_single(entry.read_text(), source=str(entry))
         if not b:
             continue
         fm = b["fm"]

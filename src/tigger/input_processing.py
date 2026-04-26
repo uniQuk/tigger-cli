@@ -1,9 +1,15 @@
 from __future__ import annotations
 import pathlib
 import re
+import sys
 
 _FILE_REF = re.compile(r"@(\S+)")
 _MAX_FILE_SIZE = 50 * 1024  # 50KB
+
+
+def _warn(msg: str) -> None:
+    """Route @file warnings to stderr so they don't pollute model input or REPL stdout."""
+    print(f"Warning: {msg}", file=sys.stderr)
 
 
 def _is_within_workspace(path: pathlib.Path) -> bool:
@@ -28,19 +34,19 @@ def expand_file_refs(line: str) -> str:
         path = pathlib.Path(path_str)
         # Reject absolute paths and ~ expansion outside workspace
         if path_str.startswith("/") or path_str.startswith("~"):
-            print(f"Warning: @file references must be relative to the workspace: {path_str}")
+            _warn(f"@file references must be relative to the workspace: {path_str}")
             return match.group(0)
         if not _is_within_workspace(path):
-            print(f"Warning: access denied — path is outside the workspace: {path_str}")
+            _warn(f"access denied — path is outside the workspace: {path_str}")
             return match.group(0)
         if not path.exists():
-            print(f"Warning: file not found: {path_str}")
+            _warn(f"file not found: {path_str}")
             return match.group(0)  # leave as-is
         if path.is_dir():
-            print(f"Warning: @file references must point to files, not directories: {path_str}")
+            _warn(f"@file references must point to files, not directories: {path_str}")
             return match.group(0)
         if path.stat().st_size > _MAX_FILE_SIZE:
-            print(f"Warning: {path_str} exceeds 50KB, truncating")
+            _warn(f"{path_str} exceeds 50KB, truncating")
             content = path.read_text(errors="replace")[:_MAX_FILE_SIZE]
         else:
             content = path.read_text(errors="replace")
