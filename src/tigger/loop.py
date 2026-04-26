@@ -248,10 +248,11 @@ def run_forked(
     provider_fn: Callable | None,
     hook_defs: list[HookDef] | None = None,
     permission_callback: PermissionCallback | None = None,
-) -> str:
-    """Run *query* in a forked context (isolated message history, depth+1). Returns result string."""
+) -> Generator[Event, None, None]:
+    """Run *query* in a forked context (isolated message history, depth+1). Yields events."""
     if ctx.depth >= ctx.config.max_depth:
-        return f"Error: max agent depth ({ctx.config.max_depth}) reached — cannot fork."
+        yield TextChunk(content=f"Error: max agent depth ({ctx.config.max_depth}) reached — cannot fork.")
+        return
 
     allowed = skill.tools if skill.tools else None
     forked = RunContext(
@@ -275,13 +276,9 @@ def run_forked(
         sub_registry = registry
 
     if provider_fn is None:
-        return "(no provider available for forked skill)"
+        yield TextChunk(content="(no provider available for forked skill)")
+        return
 
-    result_parts = []
-    for event in run(query, forked, sub_registry, provider_fn=provider_fn,
-                      hook_defs=hook_defs, summaries_dir=None,
-                      permission_callback=permission_callback):
-        if isinstance(event, TextChunk):
-            result_parts.append(event.content)
-
-    return "".join(result_parts)
+    yield from run(query, forked, sub_registry, provider_fn=provider_fn,
+                   hook_defs=hook_defs, summaries_dir=None,
+                   permission_callback=permission_callback)

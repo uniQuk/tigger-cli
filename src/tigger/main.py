@@ -326,17 +326,15 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         line = expand_file_refs(line)
 
         skill = match_skill(line, skills)
+        forked_skill = None
         if skill:
             if skill.context == "fork":
-                query = skill.render(line)
-                text = run_forked(query, skill, ctx, registry, provider_fn,
-                                  hook_defs=hook_defs)
-                print(text)
-                continue
+                forked_skill = skill
+                line = skill.render(line)
             else:
                 line = skill.render(line)
 
-        if line.startswith("/"):
+        if line.startswith("/") and not forked_skill:
             name, _, args = line[1:].partition(" ")
             handler = commands.get(name)
             if handler:
@@ -351,9 +349,14 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         text_buf: list[str] = []
 
         try:
-            event_gen = run(line, ctx, registry, provider_fn=provider_fn,
-                           hook_defs=hook_defs, summaries_dir=summaries_dir,
-                           permission_callback=ui.ask_permission)
+            if forked_skill:
+                event_gen = run_forked(line, forked_skill, ctx, registry,
+                                       provider_fn=provider_fn, hook_defs=hook_defs,
+                                       permission_callback=ui.ask_permission)
+            else:
+                event_gen = run(line, ctx, registry, provider_fn=provider_fn,
+                               hook_defs=hook_defs, summaries_dir=summaries_dir,
+                               permission_callback=ui.ask_permission)
 
             with ui.Spinner(turn_start, token_counter=output_chars):
                 first_event = next(event_gen, None)

@@ -73,7 +73,7 @@ def test_run_forked_depth_incremented():
 
     from tigger.skills import SkillDef
     skill = SkillDef(name="s", triggers=["/s"], tools=[], context="fork", body="do it")
-    run_forked("do it", skill, ctx, _registry(), provider_fn=capture_provider)
+    list(run_forked("do it", skill, ctx, _registry(), provider_fn=capture_provider))
     assert ctx.depth == 0           # original unchanged
 
 def test_depth_cap_prevents_infinite_fork():
@@ -81,8 +81,9 @@ def test_depth_cap_prevents_infinite_fork():
     cfg = Config(base_url="http://x", model="m", max_depth=1)
     ctx = RunContext(config=cfg, messages=[], system_prompt="", depth=1)
     skill = SkillDef(name="s", triggers=["/s"], tools=[], context="fork", body="do it")
-    result = run_forked("do it", skill, ctx, _registry(), provider_fn=None)
-    assert "depth" in result.lower()
+    events = list(run_forked("do it", skill, ctx, _registry(), provider_fn=None))
+    text = "".join(e.content for e in events if isinstance(e, TextChunk))
+    assert "depth" in text.lower()
 
 
 def test_plan_mode_injects_into_system_prompt():
