@@ -1,8 +1,10 @@
 from __future__ import annotations
+
 import dataclasses
-from tigger.types import Message, RunContext
+
 from tigger.skills import AgentDef
 from tigger.tools import ToolRegistry
+from tigger.types import Message, RunContext
 
 
 def cmd_agent(

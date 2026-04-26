@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 import pathlib
+
+from tigger._constants import home_config_dir
 from tigger.hooks import HookDef
 from tigger.resolve import INTERNAL_DIR
 from tigger.skills import AgentDef, SkillDef
 from tigger.types import RunContext
-from tigger._constants import home_config_dir
 
 
 def _tier_label(source: pathlib.Path | None) -> str:
@@ -43,7 +45,7 @@ def cmd_status(
         provider = derive_provider_name(cfg.base_url)
 
     # -- Config --
-    print(f"\n  Config")
+    print("\n  Config")
     print(f"    path:       {config_path}")
     print(f"    provider:   {provider}")
     print(f"    model:      {cfg.model}")
@@ -76,7 +78,10 @@ def cmd_status(
         for h in hook_defs:
             tier = _tier_label(h.source_path)
             enabled = "" if h.enabled else "  (disabled)"
-            print(f"    {h.name:<20} [{tier}]  {h.event} matcher={h.matcher} action={h.action}{enabled}")
+            print(
+                f"    {h.name:<20} [{tier}]  {h.event} "
+                f"matcher={h.matcher} action={h.action}{enabled}"
+            )
     else:
         print("    (none)")
 

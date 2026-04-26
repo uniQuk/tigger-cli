@@ -105,7 +105,10 @@ def run(
             if retries >= max_retries:
                 break
             retries += 1
-            ctx.messages.append(Message(role="user", content="Your last response was empty. Please try again."))
+            ctx.messages.append(Message(
+                role="user",
+                content="Your last response was empty. Please try again.",
+            ))
             continue
 
         # Record assistant turn
@@ -130,7 +133,10 @@ def run(
                 if retries >= max_retries:
                     break
                 retries += 1
-                correction = f"You used unknown tool '{tc.name}'. Available: {[t.name for t in registry.all()]}."
+                available = ", ".join(t.name for t in registry.all())
+                correction = (
+                    f"You used unknown tool '{tc.name}'. Available: {available}."
+                )
                 ctx.messages.append(Message(role="user", content=correction))
                 hallucinated = True
                 break
@@ -148,7 +154,9 @@ def run(
                     )
 
             if not permitted:
-                yield ToolEndEvent(call_id=tc.call_id, name=tc.name, output="(denied)", permitted=False)
+                yield ToolEndEvent(
+                    call_id=tc.call_id, name=tc.name, output="(denied)", permitted=False,
+                )
                 ctx.messages.append(Message(
                     role="tool",
                     content="(tool call denied by user)",
@@ -193,7 +201,9 @@ def run(
                             PermissionRequest(call_id=tc.call_id, name=tc.name, args=tc.args)
                         )
                     if not re_permitted:
-                        yield ToolEndEvent(call_id=tc.call_id, name=tc.name, output="(denied)", permitted=False)
+                        yield ToolEndEvent(
+                    call_id=tc.call_id, name=tc.name, output="(denied)", permitted=False,
+                )
                         ctx.messages.append(Message(
                             role="tool",
                             content="(tool call denied by user)",

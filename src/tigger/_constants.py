@@ -1,5 +1,6 @@
 """Single source of truth for app identity and paths."""
 from __future__ import annotations
+
 import pathlib
 
 APP_NAME = "tigger"

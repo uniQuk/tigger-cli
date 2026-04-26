@@ -1,8 +1,10 @@
 from __future__ import annotations
+
 import pathlib
-from tigger.types import RunContext
+
 from tigger._constants import CONFIG_DIR, home_config_dir
 from tigger.resolve import seed_global
+from tigger.types import RunContext
 
 # Templates for project-level .tigger/ scaffolding only.
 # Global (~/.tigger/) is seeded from internal skills/agents instead.

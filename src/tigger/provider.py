@@ -1,9 +1,12 @@
 from __future__ import annotations
+
 import json
-from typing import Generator
+from collections.abc import Generator
+
 import httpx
 from openai import OpenAI
-from tigger.types import Config, Message, AssistantMessage, ToolCallRecord, TextChunk, ThinkingEvent
+
+from tigger.types import AssistantMessage, Config, Message, TextChunk, ThinkingEvent, ToolCallRecord
 
 _client_cache: dict[tuple[str, str], OpenAI] = {}
 

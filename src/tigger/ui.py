@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import pathlib
 import random
 import shutil
@@ -8,13 +9,22 @@ import time
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.theme import Theme
-from tigger._spinners import pick_message
-from tigger.types import TextChunk, ToolStartEvent, ToolEndEvent, PermissionRequest, TurnDoneEvent, ThinkingEvent
+
 from tigger._constants import CONFIG_DIR, home_config_dir
+from tigger._spinners import pick_message
+from tigger.types import (
+    PermissionRequest,
+    TextChunk,
+    ThinkingEvent,
+    ToolEndEvent,
+    ToolStartEvent,
+    TurnDoneEvent,
+)
 
 _THEME = Theme({
     "markdown.code": "bold #ffb300",
@@ -147,7 +157,7 @@ def print_logo(provider: str | None = None, model: str | None = None, cwd: str |
     console.print()
     for cl in _CAT_LINES:
         console.print(f"      {cl}")
-    console.print(f"      [bold]Tigger — AI Agent[/bold]")
+    console.print("      [bold]Tigger — AI Agent[/bold]")
     if provider is not None and model is not None and cwd is not None:
         print_startup_info(provider, model, cwd, rtk=rtk)
     else:
@@ -278,7 +288,7 @@ def print_session_summary(
 
     if session_id:
         lines.append("")
-        lines.append(f"  [dim]Resume: tigger-code -c[/dim]")
+        lines.append("  [dim]Resume: tigger-code -c[/dim]")
 
     console.print()
     console.print(Panel(
@@ -482,7 +492,7 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
         # Only surface errors and denials — successful tool calls stay quiet.
         if not event.permitted:
             _stop_activity()
-            console.print(f"  [dim]⎿[/dim]  [yellow](denied)[/yellow]")
+            console.print("  [dim]⎿[/dim]  [yellow](denied)[/yellow]")
         elif event.error:
             _stop_activity()
             out = event.output[:120].replace("\n", " · ").rstrip(" · ")

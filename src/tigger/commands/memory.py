@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import pathlib
-from tigger.types import RunContext
+
 from tigger import memory as _mem
+from tigger.types import RunContext
 
 
 def cmd_memory(args: str, ctx: RunContext, memory_path: pathlib.Path) -> None:

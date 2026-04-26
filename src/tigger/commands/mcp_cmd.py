@@ -131,7 +131,8 @@ def _cmd_mcp_tier(
 
     if not matching_tools and matching_conn is None:
         valid_names = sorted({c.name for c in connections})
-        print(f"\n  Unknown server {server!r}. Connected servers: {', '.join(valid_names) or '(none)'}\n")
+        names_str = ", ".join(valid_names) or "(none)"
+        print(f"\n  Unknown server {server!r}. Connected servers: {names_str}\n")
         return
 
     # R10: disabled cannot be promoted at runtime. A server is "currently disabled"
@@ -220,9 +221,14 @@ def _print_server_tier(
     matching_conn = next((c for c in connections if c.name == server), None)
     if not matching_tools and matching_conn is None:
         valid_names = sorted({c.name for c in connections})
-        print(f"\n  Unknown server {server!r}. Connected: {', '.join(valid_names) or '(none)'}\n")
+        names_str = ", ".join(valid_names) or "(none)"
+        print(f"\n  Unknown server {server!r}. Connected: {names_str}\n")
         return
-    is_disabled = bool(matching_conn and matching_conn.server_info and matching_conn.server_info.get("disabled"))
+    is_disabled = bool(
+        matching_conn
+        and matching_conn.server_info
+        and matching_conn.server_info.get("disabled")
+    )
     if is_disabled:
         print(f"\n  {server}: disabled\n")
         return
@@ -230,7 +236,8 @@ def _print_server_tier(
     if len(tiers) == 1:
         print(f"\n  {server}: {next(iter(tiers))}\n")
     else:
-        breakdown = ", ".join(f"{t.name[len(f'mcp__{server}__'):]}={t.tier}" for t in matching_tools)
+        prefix = f"mcp__{server}__"
+        breakdown = ", ".join(f"{t.name[len(prefix):]}={t.tier}" for t in matching_tools)
         print(f"\n  {server}: mixed ({breakdown})\n")
 
 

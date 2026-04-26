@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 import json
 import pathlib
 import sys
-from tigger.types import TrustLevel
+
 from tigger._constants import home_config_dir
+from tigger.types import TrustLevel
 
 _DEFAULT_TRUSTED_FILE = home_config_dir() / "trusted_paths.json"
 

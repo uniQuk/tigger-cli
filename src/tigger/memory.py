@@ -1,11 +1,14 @@
 from __future__ import annotations
-import datetime, pathlib
+
+import datetime
+import pathlib
+
 
 def read_memory(path: pathlib.Path) -> list[str]:
     """Return last 50 non-empty lines from *path*. Returns [] if file missing."""
     if not path.exists():
         return []
-    lines = [l.rstrip() for l in path.read_text().splitlines() if l.strip()]
+    lines = [line.rstrip() for line in path.read_text().splitlines() if line.strip()]
     return lines[-50:]
 
 def append_memory(path: pathlib.Path, note: str) -> None:

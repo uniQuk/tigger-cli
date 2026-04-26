@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import dataclasses
-from tigger.types import RunContext
+
 from tigger.compaction import estimate_tokens
+from tigger.types import RunContext
 
 
 def cmd_help(

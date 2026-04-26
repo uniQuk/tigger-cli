@@ -3,10 +3,10 @@ from __future__ import annotations
 import pathlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class TrustLevel(str, Enum):
+class TrustLevel(StrEnum):
     ALWAYS = "always"
     READONLY = "readonly"
 

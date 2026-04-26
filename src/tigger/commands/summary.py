@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import datetime
 import pathlib
-from tigger.types import RunContext, Message, TextChunk
+
+from tigger.types import Message, RunContext, TextChunk
 
 
 def cmd_summary(args: str, ctx: RunContext, tigger_dir: pathlib.Path, provider_fn) -> None:

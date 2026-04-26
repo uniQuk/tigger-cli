@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 import json
 import pathlib
 import urllib.parse
 import warnings
+
+from tigger._constants import CONFIG_DIR, home_config_dir
 from tigger.types import (
     DEFAULT_CONTEXT_LIMIT,
     DEFAULT_MAX_DEPTH,
@@ -13,7 +16,6 @@ from tigger.types import (
     ModelConfig,
     ProviderConfig,
 )
-from tigger._constants import CONFIG_DIR, home_config_dir
 
 _PERM_RENAME: dict[str, str] = {"manual": "ask", "auto": "allow", "accept-all": "bypass"}
 _VALID_PERMISSION_MODES = {"ask", "allow", "bypass"}

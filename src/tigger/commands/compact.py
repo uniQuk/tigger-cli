@@ -1,12 +1,19 @@
 from __future__ import annotations
+
 import pathlib
 import time
-from tigger.types import RunContext
-from tigger.compaction import maybe_compact
+
 from tigger import ui
+from tigger.compaction import maybe_compact
+from tigger.types import RunContext
 
 
-def cmd_compact(args: str, ctx: RunContext, provider_fn, summaries_dir: pathlib.Path | None = None) -> None:
+def cmd_compact(
+    args: str,
+    ctx: RunContext,
+    provider_fn,
+    summaries_dir: pathlib.Path | None = None,
+) -> None:
     with ui.Spinner(time.time()):
         ctx.messages, result = maybe_compact(ctx.messages, ctx.config, provider_fn, force=True,
                                              summaries_dir=summaries_dir)

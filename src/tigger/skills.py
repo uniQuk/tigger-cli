@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 import pathlib
 import sys
 from dataclasses import dataclass, field
 
 from tigger.parsing import parse_blocks, parse_single
+from tigger.types import ModeRef as ModeRef  # re-export for backward compat
 
 __all__ = [
     "AgentDef",
@@ -61,11 +63,6 @@ class AgentDef:
     tools: list[str]
     model: str | None = None
     description: str = ""                           # when to spawn this agent
-
-
-from tigger.types import ModeRef as ModeRef  # re-export for backward compat
-
-
 
 
 def load_skills(path: pathlib.Path) -> list[SkillDef]:

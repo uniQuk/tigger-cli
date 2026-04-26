@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import dataclasses
 import shutil
 import subprocess
+
 from tigger.hooks import RTK_HOOK_NAME, set_hook_enabled
 from tigger.types import RunContext
 
@@ -54,11 +56,11 @@ def cmd_rtk(args: str, ctx: RunContext, hook_defs: list | None = None) -> None:
     print(f"  installed: {'yes' if installed else 'no'}")
     print(f"  enabled:   {'yes' if enabled else 'no'}")
     if not installed:
-        print(f"\n  Install RTK for 60-90% token savings on shell commands.")
-        print(f"  https://github.com/rtk-ai/rtk")
+        print("\n  Install RTK for 60-90% token savings on shell commands.")
+        print("  https://github.com/rtk-ai/rtk")
     elif not enabled:
-        print(f"\n  RTK is installed but not enabled. Run /rtk on to enable.")
-    print(f"\n  /rtk on|off          Toggle RTK proxy")
-    print(f"  /rtk gain            Show project token savings")
-    print(f"  /rtk gain --history  Per-command savings history")
-    print(f"  /rtk gain --graph    Daily savings graph")
+        print("\n  RTK is installed but not enabled. Run /rtk on to enable.")
+    print("\n  /rtk on|off          Toggle RTK proxy")
+    print("  /rtk gain            Show project token savings")
+    print("  /rtk gain --history  Per-command savings history")
+    print("  /rtk gain --graph    Daily savings graph")

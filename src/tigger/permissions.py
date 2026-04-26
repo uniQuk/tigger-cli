@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import re
+
 from tigger.types import ToolDef
 
 # Shell metacharacters that allow command chaining/injection after a safe prefix.

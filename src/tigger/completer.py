@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 import pathlib
 import re
+
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
+
 from tigger.skills import SkillDef
 
 

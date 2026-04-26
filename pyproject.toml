@@ -23,8 +23,21 @@ pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
-select = ["E", "F", "I", "UP"]
 target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# COMMAND_HELP and COMMAND_DESCRIPTIONS dicts are user-facing help text
+# where wrapping each entry across multiple lines hurts readability more
+# than it helps.
+"src/tigger/commands/__init__.py" = ["E501"]
+# Tool JSON Schema dicts and OpenAI-shaped tool definitions are
+# explicitly written long-form for grep-ability.
+"src/tigger/tools.py" = ["E501"]
+# OpenAI message-shape conversion uses long error/format strings.
+"src/tigger/provider.py" = ["E501"]
 
 [tool.mypy]
 strict = false

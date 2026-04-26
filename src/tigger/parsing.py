@@ -1,5 +1,6 @@
 """Shared YAML frontmatter parsing utilities."""
 from __future__ import annotations
+
 import re
 import sys
 

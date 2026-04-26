@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 import datetime
 import pathlib
-from typing import Callable, NamedTuple
-from tigger.types import Message, Config, TextChunk
+from collections.abc import Callable
+from typing import NamedTuple
+
+from tigger.types import Config, Message, TextChunk
 
 
 class CompactResult(NamedTuple):

@@ -1,10 +1,12 @@
 from __future__ import annotations
+
+import datetime
 import hashlib
 import json
 import pathlib
-import datetime
 import re
 from dataclasses import dataclass
+
 from tigger.types import Message, ToolCallRecord
 
 

@@ -20,7 +20,7 @@ class HookDef:
     event: str                          # PreToolUse | PostToolUse | SessionStart
     matcher: str = ".*"                 # regex matched against tool_name or session source
     action: str = "warn"                # block | warn | allow | transform
-    body: str = ""                      # message shown on warn/block; key:template lines for transform
+    body: str = ""                      # message shown on warn/block; transform templates
     enabled: bool = True
     source_path: pathlib.Path | None = None
     args_match: dict[str, str] = field(default_factory=dict)  # arg_name -> regex pattern
@@ -56,7 +56,11 @@ def load_hooks_dir(hooks_dir: pathlib.Path) -> list[HookDef]:
         if action not in VALID_ACTIONS:
             action = "warn"
         raw_args_match = fm.get("args_match", {})
-        args_match = {str(k): str(v) for k, v in raw_args_match.items()} if isinstance(raw_args_match, dict) else {}
+        args_match = (
+            {str(k): str(v) for k, v in raw_args_match.items()}
+            if isinstance(raw_args_match, dict)
+            else {}
+        )
         hooks.append(HookDef(
             name=name,
             event=event,

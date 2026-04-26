@@ -1,32 +1,46 @@
 # src/tigger/main.py
 from __future__ import annotations
+
 import dataclasses
 import pathlib
 import shutil
 import sys
 import time
+
 import httpx
-from tigger.config import load_config, find_config, derive_provider_name
-from tigger.types import RunContext, TrustLevel
-from tigger.tools import ToolRegistry, register_all
-from tigger.hooks import HookDef, RTK_HOOK_NAME, set_hook_enabled
-from tigger.skills import match_skill
-from tigger.resolve import (
-    resolve_file, resolve_skills, resolve_agents, resolve_hooks, resolve_modes,
-    resolve_mcp_configs, is_global_config, seed_global,
-)
-from tigger.memory import read_memory, format_for_prompt
-from tigger.mcp import connect_all
-from tigger.compaction import estimate_tokens, load_recent_summary
-from tigger.types import TextChunk, ToolEndEvent, TurnDoneEvent
-from tigger.loop import run, run_forked
-from tigger.commands import load_builtin_commands
-from tigger.input_processing import expand_file_refs
+
 from tigger import provider as _provider
 from tigger import trust as _trust
 from tigger import ui
 from tigger._constants import home_config_dir
-from tigger.sessions import save_message, load_session, list_sessions, new_session_id, project_session_dir
+from tigger.commands import load_builtin_commands
+from tigger.compaction import estimate_tokens, load_recent_summary
+from tigger.config import derive_provider_name, find_config, load_config
+from tigger.hooks import RTK_HOOK_NAME, HookDef, set_hook_enabled
+from tigger.input_processing import expand_file_refs
+from tigger.loop import run, run_forked
+from tigger.mcp import connect_all
+from tigger.memory import format_for_prompt, read_memory
+from tigger.resolve import (
+    is_global_config,
+    resolve_agents,
+    resolve_file,
+    resolve_hooks,
+    resolve_mcp_configs,
+    resolve_modes,
+    resolve_skills,
+    seed_global,
+)
+from tigger.sessions import (
+    list_sessions,
+    load_session,
+    new_session_id,
+    project_session_dir,
+    save_message,
+)
+from tigger.skills import match_skill
+from tigger.tools import ToolRegistry, register_all
+from tigger.types import RunContext, TextChunk, ToolEndEvent, TrustLevel, TurnDoneEvent
 
 
 @dataclasses.dataclass
@@ -247,6 +261,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         from prompt_toolkit.history import FileHistory, InMemoryHistory
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.styles import Style as PTStyle
+
         from tigger.completer import TiggerCompleter
 
         history_path = home_config_dir() / "history"
@@ -410,7 +425,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         except Exception as exc:
             if "TimeoutError" in type(exc).__name__ or "timed out" in str(exc).lower():
                 ui._stop_activity()
-                ui.print_error(f"Request timed out — is the model server running?")
+                ui.print_error("Request timed out — is the model server running?")
             else:
                 raise
             continue

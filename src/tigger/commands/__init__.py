@@ -1,21 +1,23 @@
 from __future__ import annotations
+
 import pathlib
 import sys
 from functools import partial
-from tigger.types import RunContext
-from tigger.tools import ToolRegistry
-from tigger.hooks import HookDef
-from tigger.skills import AgentDef, ModeRef, SkillDef
-from tigger.commands import misc, agent as agent_cmd, compact as compact_cmd, skills as skills_cmd
+
+from tigger.commands import agent as agent_cmd
+from tigger.commands import compact as compact_cmd
 from tigger.commands import init as init_cmd
-from tigger.commands import mcp_cmd
+from tigger.commands import mcp_cmd, misc
 from tigger.commands import memory as mem_cmd
 from tigger.commands import provider as provider_cmd
 from tigger.commands import rtk as rtk_cmd
+from tigger.commands import skills as skills_cmd
 from tigger.commands import status as status_cmd
 from tigger.commands import summary as summary_cmd
+from tigger.hooks import HookDef
 from tigger.mcp import get_connections as _get_mcp_connections
-
+from tigger.skills import AgentDef, ModeRef, SkillDef
+from tigger.tools import ToolRegistry
 
 COMMAND_DESCRIPTIONS: dict[str, str] = {
     "clear": "Clear message history",
