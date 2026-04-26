@@ -23,6 +23,24 @@ def test_load_minimal():
     assert cfg.api_key == "local"           # default applied
 
 
+def test_loader_defaults_match_dataclass():
+    """Loader fallbacks must agree with Config dataclass defaults (single source)."""
+    p = _write({"base_url": "http://x", "model": "m"})
+    cfg = load_config(p)
+    direct = Config(base_url="http://x", model="m")
+    assert cfg.context_limit == direct.context_limit == 128000
+    assert cfg.max_tokens == direct.max_tokens == 4096
+    assert cfg.max_depth == direct.max_depth == 4
+    assert cfg.max_retries == direct.max_retries == 2
+    assert cfg.temperature == direct.temperature == 0.7
+
+
+def test_user_context_override_wins():
+    p = _write({"base_url": "http://x", "model": "m", "context_limit": 8192})
+    cfg = load_config(p)
+    assert cfg.context_limit == 8192
+
+
 def test_load_overrides_defaults():
     p = _write({"base_url": "http://x", "model": "m",
                 "permission_mode": "bypass", "max_depth": 2})

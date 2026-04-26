@@ -17,7 +17,7 @@ def test_config_frozen():
 def test_config_defaults():
     cfg = Config(base_url="http://x", model="m")
     assert cfg.api_key == "local"
-    assert cfg.context_limit == 8192
+    assert cfg.context_limit == 128000
     assert cfg.permission_mode == "allow"   # was "auto"
     assert cfg.mode == "act"
     assert cfg.max_depth == 4

@@ -56,8 +56,8 @@ Create `.tigger/config.json` in your project or home directory:
   "base_url": "http://localhost:11434/v1",
   "model": "qwen2.5",
   "api_key": "local",
-  "context_limit": 8192,
-  "max_tokens": 2048,
+  "context_limit": 128000,
+  "max_tokens": 4096,
   "temperature": 0.7,
   "permission_mode": "allow",
   "max_depth": 4,
@@ -71,8 +71,8 @@ Create `.tigger/config.json` in your project or home directory:
 | `base_url` | OpenAI-compatible API endpoint | required |
 | `model` | Model name | required |
 | `api_key` | API key (`"local"` for local endpoints) | `"local"` |
-| `context_limit` | Max context window tokens | `8192` |
-| `max_tokens` | Max tokens per response | `2048` |
+| `context_limit` | Max context window tokens | `128000` |
+| `max_tokens` | Max tokens per response | `4096` |
 | `temperature` | Sampling temperature | `0.7` |
 | `permission_mode` | `ask` \| `allow` \| `bypass` | `"allow"` |
 | `max_depth` | Max sub-agent recursion depth | `4` |

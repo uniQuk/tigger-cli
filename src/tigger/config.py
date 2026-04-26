@@ -3,7 +3,16 @@ import json
 import pathlib
 import urllib.parse
 import warnings
-from tigger.types import Config, ModelConfig, ProviderConfig
+from tigger.types import (
+    DEFAULT_CONTEXT_LIMIT,
+    DEFAULT_MAX_DEPTH,
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    Config,
+    ModelConfig,
+    ProviderConfig,
+)
 from tigger._constants import CONFIG_DIR, home_config_dir
 
 _PERM_RENAME: dict[str, str] = {"manual": "ask", "auto": "allow", "accept-all": "bypass"}
@@ -139,13 +148,13 @@ def load_config(path: pathlib.Path) -> Config:
         api_key=active_prov.api_key,
         providers=providers,
         active_provider=active_provider,
-        context_limit=data.get("context_limit", 128000),
-        max_tokens=data.get("max_tokens", 4096),
-        temperature=data.get("temperature", 0.7),
+        context_limit=data.get("context_limit", DEFAULT_CONTEXT_LIMIT),
+        max_tokens=data.get("max_tokens", DEFAULT_MAX_TOKENS),
+        temperature=data.get("temperature", DEFAULT_TEMPERATURE),
         permission_mode=perm,
         mode=mode,
-        max_depth=data.get("max_depth", 4),
-        max_retries=data.get("max_retries", 2),
+        max_depth=data.get("max_depth", DEFAULT_MAX_DEPTH),
+        max_retries=data.get("max_retries", DEFAULT_MAX_RETRIES),
         bash_safe_prefixes=data.get("bash_safe_prefixes", []),
         rtk=data.get("rtk", False),
     )

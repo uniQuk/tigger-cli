@@ -11,6 +11,15 @@ class TrustLevel(str, Enum):
     READONLY = "readonly"
 
 
+# Default Config values — single source of truth, referenced by both
+# the Config dataclass and load_config().
+DEFAULT_CONTEXT_LIMIT = 128000
+DEFAULT_MAX_TOKENS = 4096
+DEFAULT_MAX_DEPTH = 4
+DEFAULT_MAX_RETRIES = 2
+DEFAULT_TEMPERATURE = 0.7
+
+
 @dataclass(frozen=True)
 class ModelConfig:
     """Per-model sampling overrides. None means use global default."""
@@ -42,13 +51,13 @@ class Config:
     api_key: str = "local"
     providers: dict[str, ProviderConfig] = field(default_factory=dict)
     active_provider: str = ""
-    context_limit: int = 8192
-    max_tokens: int = 2048
-    temperature: float = 0.7
+    context_limit: int = DEFAULT_CONTEXT_LIMIT
+    max_tokens: int = DEFAULT_MAX_TOKENS
+    temperature: float = DEFAULT_TEMPERATURE
     permission_mode: str = "allow"   # ask | allow | bypass
     mode: str = "act"                # act | plan | custom modes
-    max_depth: int = 4
-    max_retries: int = 2
+    max_depth: int = DEFAULT_MAX_DEPTH
+    max_retries: int = DEFAULT_MAX_RETRIES
     bash_safe_prefixes: list[str] = field(default_factory=list)
     rtk: bool = False
 
