@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import glob as _glob
 import ipaddress as _ipaddress
+import os
 import pathlib
 import re as _re
+import signal
 import socket as _socket
 import subprocess
 import urllib.parse as _urlparse
@@ -222,12 +224,36 @@ def _edit(args: dict) -> str:
     return f"Edited: {args['path']}"
 
 
+_BASH_TIMEOUT = 30
+_BASH_KILL_GRACE = 5
+
+
 def _bash(args: dict) -> str:
     cmd = args["command"]
-    result = subprocess.run(
-        cmd, shell=True, capture_output=True, text=True, timeout=30
+    # start_new_session puts the shell (and its grandchildren) in their own
+    # process group so a single killpg can reach the whole tree. Without it,
+    # a SIGTERM-ignoring child can keep the agent's communicate() blocked
+    # on an open pipe.
+    proc = subprocess.Popen(
+        cmd,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
     )
-    out = result.stdout + result.stderr
+    try:
+        out, _ = proc.communicate(timeout=_BASH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # Already exited between the timeout and the kill.
+        try:
+            out, _ = proc.communicate(timeout=_BASH_KILL_GRACE)
+        except subprocess.TimeoutExpired:
+            return f"Error: command did not exit after SIGKILL ({_BASH_TIMEOUT}s + {_BASH_KILL_GRACE}s)"
+        return f"Error: command timed out after {_BASH_TIMEOUT}s (killed)\n{out or ''}"
     return out or "(no output)"
 
 

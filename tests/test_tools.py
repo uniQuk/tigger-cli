@@ -406,3 +406,37 @@ def test_native_tools_default_to_eager():
         t = r.get(name)
         assert t is not None
         assert t.tier == "eager", f"{name} should default to eager"
+
+
+# ── _bash timeout escalation (F006) ─────────────────────────────────────
+
+def test_bash_happy_path():
+    from tigger.tools import _bash
+    out = _bash({"command": "echo hi"})
+    assert out.strip() == "hi"
+
+
+def test_bash_empty_command_returns_no_output_marker():
+    from tigger.tools import _bash
+    out = _bash({"command": "true"})
+    assert out == "(no output)"
+
+
+def test_bash_sigterm_ignoring_child_is_killed(monkeypatch):
+    """F006 regression: a child that ignores SIGTERM must be SIGKILL'd within
+    the grace window. Without process-group escalation this would hang."""
+    import time
+    from tigger.tools import _bash
+
+    # Shrink the timeout to keep the test fast. The escalation logic is
+    # what we're verifying, not the 30s default.
+    monkeypatch.setattr("tigger.tools._BASH_TIMEOUT", 1)
+    monkeypatch.setattr("tigger.tools._BASH_KILL_GRACE", 3)
+
+    start = time.monotonic()
+    out = _bash({"command": "trap '' TERM; sleep 60"})
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 5, f"bash hung for {elapsed:.1f}s; SIGKILL escalation failed"
+    assert out.startswith("Error: command timed out")
+    assert "killed" in out
