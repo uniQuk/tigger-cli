@@ -214,6 +214,10 @@ def _stretch_noise(msg: str) -> str:
 
 # ── Public API ──────────────────────────────────────────────────
 
+SPINNER_MESSAGES: list[str] = [*_NOISES, *_BEHAVIOUR, *_TECH, *_ABSURD, *_CHAOS]
+
+__all__ = ["SPINNER_MESSAGES", "pick_message"]
+
 
 def pick_message() -> str:
     """Pick a weighted random spinner message with occasional stretching."""
