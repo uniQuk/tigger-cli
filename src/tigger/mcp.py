@@ -381,12 +381,13 @@ class SseTransport:
 
 def _make_mcp_tool_func(server_name: str, tool_name: str, transport: McpTransport):
     def call(args: dict) -> str:
-        try:
-            result = transport.send("tools/call", {"name": tool_name, "arguments": args})
-            content = result.get("content", [])
-            return "\n".join(c.get("text", "") for c in content if c.get("type") == "text")
-        except McpTransportError as exc:
-            return f"Error calling MCP tool {tool_name}: {exc}"
+        # Let McpTransportError propagate. ToolRegistry.execute catches it
+        # and produces ToolResult(error=True). Returning the error string
+        # in-band here would make the registry mark the call as success
+        # because the message did not start with "Error:".
+        result = transport.send("tools/call", {"name": tool_name, "arguments": args})
+        content = result.get("content", [])
+        return "\n".join(c.get("text", "") for c in content if c.get("type") == "text")
     return call
 
 

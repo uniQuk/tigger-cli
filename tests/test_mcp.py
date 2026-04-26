@@ -807,16 +807,44 @@ def test_connect_all_disabled_recorded_in_connections():
     assert conns[0].server_info.get("disabled") is True
 
 
-def test_make_mcp_tool_func_catches_transport_error():
+def test_make_mcp_tool_func_propagates_transport_error():
+    """F010a regression: transport errors must raise so ToolRegistry.execute
+    can mark the call as error=True. Previously the wrapper returned an
+    'Error calling MCP tool …' string that the registry treated as success
+    because it did not start with 'Error:'."""
     class _FailTransport:
         def send(self, method, params):
             raise McpTransportError("boom")
         def close(self):
             pass
     func = _make_mcp_tool_func("srv", "tool1", _FailTransport())
-    result = func({})
-    assert "Error calling MCP tool tool1" in result
-    assert "boom" in result
+    with pytest.raises(McpTransportError, match="boom"):
+        func({})
+
+
+def test_mcp_tool_failure_surfaces_as_error_via_registry():
+    """End-to-end: a failing MCP tool registered with ToolRegistry must
+    produce ToolResult(error=True). This is the F010a regression."""
+    from tigger.tools import ToolRegistry
+    from tigger.types import ToolDef
+
+    class _FailTransport:
+        def send(self, method, params):
+            raise McpTransportError("backend down")
+        def close(self):
+            pass
+
+    registry = ToolRegistry()
+    registry.register(ToolDef(
+        name="mcp__srv__tool1",
+        description="test",
+        parameters={},
+        func=_make_mcp_tool_func("srv", "tool1", _FailTransport()),
+        read_only=True,
+    ))
+    result = registry.execute("mcp__srv__tool1", {})
+    assert result.error is True
+    assert "backend down" in result.output
 
 
 def test_cleanup_closes_all():
