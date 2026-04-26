@@ -352,7 +352,8 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
 
         try:
             event_gen = run(line, ctx, registry, provider_fn=provider_fn,
-                           hook_defs=hook_defs, summaries_dir=summaries_dir)
+                           hook_defs=hook_defs, summaries_dir=summaries_dir,
+                           permission_callback=ui.ask_permission)
 
             with ui.Spinner(turn_start, token_counter=output_chars):
                 first_event = next(event_gen, None)

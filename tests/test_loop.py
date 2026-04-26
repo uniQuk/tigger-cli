@@ -1,7 +1,7 @@
 from unittest.mock import patch, MagicMock
 from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, AssistantMessage,
-    TextChunk, ToolStartEvent, ToolEndEvent, TurnDoneEvent, PermissionEvent,
+    TextChunk, ToolStartEvent, ToolEndEvent, TurnDoneEvent, PermissionRequest,
 )
 from tigger.tools import ToolRegistry, ToolDef
 from tigger.loop import run, run_forked
@@ -284,11 +284,14 @@ def test_permission_denial_in_ask_mode():
             yield TextChunk(content="ok")
             yield AssistantMessage(content="ok", tool_calls=[])
     ctx = _ctx(permission_mode="ask")
-    events = list(run("go", ctx, reg, provider_fn=provider))
-    # PermissionEvent should have been yielded
-    perm_events = [e for e in events if isinstance(e, PermissionEvent)]
-    assert len(perm_events) == 1
-    # Tool should have been denied (granted defaults to False)
+    requests: list[PermissionRequest] = []
+    def cb(req):
+        requests.append(req)
+        return False  # deny
+    events = list(run("go", ctx, reg, provider_fn=provider, permission_callback=cb))
+    # Permission should have been requested via the callback
+    assert len(requests) == 1
+    # Tool should have been denied
     tool_msgs = [m for m in ctx.messages if m.role == "tool"]
     assert any("denied" in m.content for m in tool_msgs)
 
@@ -379,10 +382,14 @@ def test_transform_hook_nonbash_tool_recheck():
             yield AssistantMessage(content="ok", tool_calls=[])
     # "allow" mode for non-bash, non-read-only tools returns False (must ask)
     ctx = _ctx(permission_mode="ask")
-    events = list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs))
-    # Permission should have been requested (PermissionEvent yielded)
-    perm_events = [e for e in events if isinstance(e, PermissionEvent)]
-    assert len(perm_events) >= 1
+    requests: list[PermissionRequest] = []
+    def cb(req):
+        requests.append(req)
+        return False
+    events = list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs,
+                      permission_callback=cb))
+    # Permission should have been requested via the callback
+    assert len(requests) >= 1
 
 
 def test_post_hook_feedback_appended_to_tool_result():

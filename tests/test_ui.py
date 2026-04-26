@@ -1,6 +1,7 @@
 from io import StringIO
 from rich.console import Console
 from tigger._spinners import SPINNER_MESSAGES
+from tigger.types import PermissionRequest
 from tigger.ui import ask_permission
 
 
@@ -14,7 +15,7 @@ def test_ask_permission_returns_true_on_y(monkeypatch):
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     monkeypatch.setattr("builtins.input", lambda _: "y")
-    assert ask_permission("bash", {"command": "ls"}) is True
+    assert ask_permission(PermissionRequest("c", "bash", {"command": "ls"})) is True
 
 
 def test_ask_permission_returns_false_on_n(monkeypatch):
@@ -22,7 +23,7 @@ def test_ask_permission_returns_false_on_n(monkeypatch):
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     monkeypatch.setattr("builtins.input", lambda _: "n")
-    assert ask_permission("bash", {"command": "rm -rf /"}) is False
+    assert ask_permission(PermissionRequest("c", "bash", {"command": "rm -rf /"})) is False
 
 
 def test_ask_permission_returns_false_on_empty(monkeypatch):
@@ -30,7 +31,7 @@ def test_ask_permission_returns_false_on_empty(monkeypatch):
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     monkeypatch.setattr("builtins.input", lambda _: "")
-    assert ask_permission("write", {}) is False
+    assert ask_permission(PermissionRequest("c", "write", {})) is False
 
 
 from tigger.ui import format_duration
@@ -235,7 +236,7 @@ def test_flush_tool_buffer_truncates_long_batch(monkeypatch):
 
 # --- render_event integration tests ---
 
-from tigger.types import TextChunk, ToolEndEvent, TurnDoneEvent, PermissionEvent
+from tigger.types import TextChunk, ToolEndEvent, TurnDoneEvent
 
 
 def test_render_event_buffers_tools_flushes_on_text(monkeypatch):

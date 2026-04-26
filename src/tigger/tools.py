@@ -7,7 +7,7 @@ import socket as _socket
 import subprocess
 import urllib.parse as _urlparse
 import urllib.request
-from tigger.types import ToolDef
+from tigger.types import ToolDef, ToolResult
 
 _32KB = 32 * 1024
 
@@ -61,17 +61,21 @@ class ToolRegistry:
             for t in self._tools.values()
         ]
 
-    def execute(self, name: str, args: dict) -> str:
+    def execute(self, name: str, args: dict) -> ToolResult:
         tool = self._tools.get(name)
         if tool is None:
-            return f"Error: unknown tool '{name}'"
+            return ToolResult(output=f"Error: unknown tool '{name}'", error=True)
         try:
-            result = tool.func(args)
+            output = tool.func(args)
+            # Tool implementations signal in-band failures by prefixing "Error:".
+            # Centralize that detection here so callers don't parse strings.
+            error = output.startswith("Error:")
         except Exception as exc:
-            result = f"Error: {exc}"
-        if len(result) > _32KB:
-            result = result[:_32KB] + "\n[output truncated at 32KB]"
-        return result
+            output = f"Error: {exc}"
+            error = True
+        if len(output) > _32KB:
+            output = output[:_32KB] + "\n[output truncated at 32KB]"
+        return ToolResult(output=output, error=error)
 
 
 # ── Tool implementations ────────────────────────────────────────────────

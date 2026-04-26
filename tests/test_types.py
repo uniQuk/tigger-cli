@@ -1,7 +1,7 @@
 import dataclasses
 from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, ToolDef,
-    TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent,
+    TextChunk, ToolStartEvent, ToolEndEvent, PermissionRequest,
     TurnDoneEvent, AssistantMessage, TrustLevel, ProviderConfig,
     ModelConfig,
 )
@@ -46,8 +46,8 @@ def test_events():
     assert ToolStartEvent(call_id="c", name="read", args={}).name == "read"
     e = ToolEndEvent(call_id="c", name="read", output="data")
     assert not e.error and e.permitted
-    p = PermissionEvent(call_id="c", name="bash", args={})
-    assert not p.granted
+    p = PermissionRequest(call_id="c", name="bash", args={})
+    assert p.name == "bash"
     assert TurnDoneEvent(input_tokens=10, output_tokens=5).output_tokens == 5
 
 def test_assistant_message():

@@ -3,7 +3,7 @@ import pathlib
 from typing import Callable, Generator
 from tigger.types import (
     Config, RunContext, Message, ToolCallRecord, AssistantMessage,
-    TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent,
+    TextChunk, ToolStartEvent, ToolEndEvent, PermissionRequest, TurnDoneEvent,
     ThinkingEvent,
 )
 from tigger.tools import ToolRegistry
@@ -11,7 +11,8 @@ from tigger.hooks import HookDef, evaluate_hooks
 from tigger.permissions import check as permission_check
 from tigger.compaction import maybe_compact
 
-Event = TextChunk | ToolStartEvent | ToolEndEvent | PermissionEvent | TurnDoneEvent | ThinkingEvent
+Event = TextChunk | ToolStartEvent | ToolEndEvent | TurnDoneEvent | ThinkingEvent
+PermissionCallback = Callable[[PermissionRequest], bool]
 
 
 def _active_mode_body(ctx: RunContext) -> str:
@@ -29,6 +30,7 @@ def run(
     provider_fn: Callable,
     hook_defs: list[HookDef] | None = None,
     summaries_dir: pathlib.Path | None = None,
+    permission_callback: PermissionCallback | None = None,
 ) -> Generator[Event, None, None]:
     """Drive a full multi-turn agent exchange. Yields events; mutates ctx.messages in place."""
     ctx.messages.append(Message(role="user", content=query))
@@ -103,9 +105,10 @@ def run(
                 bash_safe_prefixes=ctx.config.bash_safe_prefixes,
             )
             if not permitted:
-                perm_event = PermissionEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
-                yield perm_event
-                permitted = perm_event.granted
+                if permission_callback is not None:
+                    permitted = permission_callback(
+                        PermissionRequest(call_id=tc.call_id, name=tc.name, args=tc.args)
+                    )
 
             if not permitted:
                 yield ToolEndEvent(call_id=tc.call_id, name=tc.name, output="(denied)", permitted=False)
@@ -148,10 +151,10 @@ def run(
                         tc.args,
                         bash_safe_prefixes=ctx.config.bash_safe_prefixes,
                     )
-                    if not re_permitted:
-                        perm_event = PermissionEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
-                        yield perm_event
-                        re_permitted = perm_event.granted
+                    if not re_permitted and permission_callback is not None:
+                        re_permitted = permission_callback(
+                            PermissionRequest(call_id=tc.call_id, name=tc.name, args=tc.args)
+                        )
                     if not re_permitted:
                         yield ToolEndEvent(call_id=tc.call_id, name=tc.name, output="(denied)", permitted=False)
                         ctx.messages.append(Message(
@@ -163,10 +166,10 @@ def run(
                         continue
 
             yield ToolStartEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
-            output = registry.execute(tc.name, tc.args)
+            result = registry.execute(tc.name, tc.args)
             end_event = ToolEndEvent(
-                call_id=tc.call_id, name=tc.name, output=output,
-                error=output.startswith("Error:"),
+                call_id=tc.call_id, name=tc.name, output=result.output,
+                error=result.error,
             )
 
             # Declarative hooks (PostToolUse) — warn after execution
@@ -207,6 +210,7 @@ def run_forked(
     registry: ToolRegistry,
     provider_fn: Callable | None,
     hook_defs: list[HookDef] | None = None,
+    permission_callback: PermissionCallback | None = None,
 ) -> str:
     """Run *query* in a forked context (isolated message history, depth+1). Returns result string."""
     if ctx.depth >= ctx.config.max_depth:
@@ -238,7 +242,8 @@ def run_forked(
 
     result_parts = []
     for event in run(query, forked, sub_registry, provider_fn=provider_fn,
-                      hook_defs=hook_defs, summaries_dir=None):
+                      hook_defs=hook_defs, summaries_dir=None,
+                      permission_callback=permission_callback):
         if isinstance(event, TextChunk):
             result_parts.append(event.content)
 

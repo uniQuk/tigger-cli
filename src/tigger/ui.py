@@ -13,7 +13,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.theme import Theme
 from tigger._spinners import pick_message
-from tigger.types import TextChunk, ToolStartEvent, ToolEndEvent, PermissionEvent, TurnDoneEvent, ThinkingEvent
+from tigger.types import TextChunk, ToolStartEvent, ToolEndEvent, PermissionRequest, TurnDoneEvent, ThinkingEvent
 from tigger._constants import CONFIG_DIR, home_config_dir
 
 _THEME = Theme({
@@ -300,9 +300,13 @@ def print_info(msg: str) -> None:
     console.print(f"[dim]{msg}[/dim]")
 
 
-def ask_permission(name: str, args: dict) -> bool:
-    """Prompt user to allow/deny a tool call. Returns True only if user types 'y'."""
-    console.print(f"\n[yellow]Allow[/yellow] [bold]{name}[/bold]({args})?", end=" ")
+def ask_permission(request: PermissionRequest) -> bool:
+    """Prompt user to allow/deny a tool call. Returns True only if user types 'y'.
+
+    Designed for use as the loop's ``permission_callback``.
+    """
+    _stop_activity()
+    console.print(f"\n[yellow]Allow[/yellow] [bold]{request.name}[/bold]({request.args})?", end=" ")
     answer = input("[y/N] ").strip().lower()
     return answer == "y"
 
@@ -483,9 +487,6 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
             _stop_activity()
             out = event.output[:120].replace("\n", " · ").rstrip(" · ")
             console.print(f"  [dim]⎿[/dim]  [red]{out}[/red]")
-    elif isinstance(event, PermissionEvent):
-        _stop_activity()
-        event.granted = ask_permission(event.name, event.args)
     elif isinstance(event, ThinkingEvent):
         _stop_activity()
         _flush_tool_buffer()

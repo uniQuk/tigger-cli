@@ -120,6 +120,13 @@ class ToolStartEvent:
 
 
 @dataclass
+class ToolResult:
+    """Outcome of a single ToolRegistry.execute() call."""
+    output: str
+    error: bool = False
+
+
+@dataclass
 class ToolEndEvent:
     call_id: str
     name: str
@@ -129,11 +136,12 @@ class ToolEndEvent:
 
 
 @dataclass
-class PermissionEvent:
+class PermissionRequest:
+    """Request the consumer to authorize a tool call. The loop awaits a bool
+    answer via the ``permission_callback`` passed to ``run()``."""
     call_id: str
     name: str
     args: dict
-    granted: bool = False
 
 
 @dataclass

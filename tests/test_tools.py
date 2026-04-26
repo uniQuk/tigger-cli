@@ -29,12 +29,12 @@ def test_schemas_returns_list():
 def test_execute_calls_func():
     r = ToolRegistry()
     r.register(_stub())
-    assert r.execute("ping", {}) == "pong"
+    assert r.execute("ping", {}).output == "pong"
 
 
 def test_execute_unknown_tool():
     r = ToolRegistry()
-    result = r.execute("nope", {})
+    result = r.execute("nope", {}).output
     assert "unknown tool" in result.lower()
 
 
@@ -42,7 +42,7 @@ def test_output_truncated_at_32kb():
     big = "x" * (33 * 1024)
     r = ToolRegistry()
     r.register(ToolDef("big", "", {}, func=lambda _: big))
-    out = r.execute("big", {})
+    out = r.execute("big", {}).output
     assert len(out) <= 32 * 1024 + 100   # allow for truncation message overhead
 
 
@@ -50,7 +50,7 @@ def test_execute_catches_exceptions():
     def boom(_): raise RuntimeError("exploded")
     r = ToolRegistry()
     r.register(ToolDef("boom", "", {}, func=boom))
-    result = r.execute("boom", {})
+    result = r.execute("boom", {}).output
     assert "exploded" in result
 
 
@@ -69,7 +69,7 @@ def test_read_tool(monkeypatch, tmp_path):
     p.write_text("hello")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("read", {"path": str(p)})
+    result = r.execute("read", {"path": str(p)}).output
     assert "hello" in result
 
 
@@ -77,7 +77,7 @@ def test_read_tool_missing_file(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("read", {"path": str(tmp_path / "no_such_file.txt")})
+    result = r.execute("read", {"path": str(tmp_path / "no_such_file.txt")}).output
     assert "not found" in result.lower() or "error" in result.lower()
 
 
@@ -85,7 +85,7 @@ def test_read_tool_blocks_path_traversal(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("read", {"path": "/etc/passwd"})
+    result = r.execute("read", {"path": "/etc/passwd"}).output
     assert "access denied" in result.lower() or "error" in result.lower()
 
 
@@ -95,7 +95,7 @@ def test_write_refuses_existing_file(monkeypatch, tmp_path):
     p.write_text("existing")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("write", {"path": str(p), "content": "new"})
+    result = r.execute("write", {"path": str(p), "content": "new"}).output
     assert "edit" in result.lower()
 
 
@@ -104,7 +104,7 @@ def test_write_creates_new_file(monkeypatch, tmp_path):
     p = tmp_path / "new.txt"
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("write", {"path": str(p), "content": "created"})
+    result = r.execute("write", {"path": str(p), "content": "created"}).output
     assert p.read_text() == "created"
     assert "error" not in result.lower()
 
@@ -113,7 +113,7 @@ def test_write_blocks_path_traversal(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("write", {"path": "/tmp/evil.txt", "content": "bad"})
+    result = r.execute("write", {"path": "/tmp/evil.txt", "content": "bad"}).output
     assert "access denied" in result.lower() or "error" in result.lower()
 
 
@@ -203,7 +203,7 @@ def test_grep_finds_pattern(monkeypatch, tmp_path):
     (tmp_path / "hello.py").write_text("def greet(): pass")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("grep", {"pattern": "greet"})
+    result = r.execute("grep", {"pattern": "greet"}).output
     assert "greet" in result
 
 
@@ -212,7 +212,7 @@ def test_grep_no_match(monkeypatch, tmp_path):
     (tmp_path / "hello.py").write_text("def greet(): pass")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("grep", {"pattern": "nonexistent_xyz"})
+    result = r.execute("grep", {"pattern": "nonexistent_xyz"}).output
     assert result == "(no matches)"
 
 
@@ -220,7 +220,7 @@ def test_grep_invalid_regex(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("grep", {"pattern": "[invalid"})
+    result = r.execute("grep", {"pattern": "[invalid"}).output
     assert "error" in result.lower()
 
 
@@ -230,7 +230,7 @@ def test_glob_finds_files(monkeypatch, tmp_path):
     (tmp_path / "b.txt").write_text("")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("glob", {"pattern": "*.py"})
+    result = r.execute("glob", {"pattern": "*.py"}).output
     assert "a.py" in result
     assert "b.txt" not in result
 
@@ -239,7 +239,7 @@ def test_glob_no_match(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("glob", {"pattern": "*.xyz"})
+    result = r.execute("glob", {"pattern": "*.xyz"}).output
     assert result == "(no matches)"
 
 
@@ -247,7 +247,7 @@ def test_glob_respects_workspace(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("glob", {"pattern": "*.py", "path": "/etc"})
+    result = r.execute("glob", {"pattern": "*.py", "path": "/etc"}).output
     assert "access denied" in result.lower() or "error" in result.lower()
 
 
@@ -261,7 +261,7 @@ def test_grep_skips_node_modules(monkeypatch, tmp_path):
     (tmp_path / "src.js").write_text("const needle = 2")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("grep", {"pattern": "needle"})
+    result = r.execute("grep", {"pattern": "needle"}).output
     assert "src.js" in result
     # Check that no result line comes from inside node_modules/
     for line in result.splitlines():
@@ -276,7 +276,7 @@ def test_glob_skips_venv(monkeypatch, tmp_path):
     (tmp_path / "app.py").write_text("")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("glob", {"pattern": "**/*.py"})
+    result = r.execute("glob", {"pattern": "**/*.py"}).output
     assert "app.py" in result
     for line in result.splitlines():
         assert "/.venv/" not in line
@@ -289,7 +289,7 @@ def test_grep_explicit_path_into_excluded(monkeypatch, tmp_path):
     (venv / "mod.py").write_text("needle_here")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("grep", {"pattern": "needle_here", "path": ".venv"})
+    result = r.execute("grep", {"pattern": "needle_here", "path": ".venv"}).output
     assert "needle_here" in result
 
 
@@ -300,7 +300,7 @@ def test_glob_explicit_path_into_excluded(monkeypatch, tmp_path):
     (nm / "pkg.js").write_text("")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("glob", {"pattern": "*.js", "path": "node_modules"})
+    result = r.execute("glob", {"pattern": "*.js", "path": "node_modules"}).output
     assert "pkg.js" in result
 
 
@@ -309,7 +309,7 @@ def test_glob_does_not_exclude_similarly_named_file(monkeypatch, tmp_path):
     (tmp_path / "node_modules.txt").write_text("")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("glob", {"pattern": "*.txt"})
+    result = r.execute("glob", {"pattern": "*.txt"}).output
     assert "node_modules.txt" in result
 
 
@@ -319,7 +319,7 @@ def test_glob_does_not_exclude_file_named_like_excluded_dir(monkeypatch, tmp_pat
     (tmp_path / "__pycache__").write_text("I am a file, not a dir")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("glob", {"pattern": "__pycache__"})
+    result = r.execute("glob", {"pattern": "__pycache__"}).output
     assert "__pycache__" in result
 
 
@@ -329,5 +329,5 @@ def test_grep_does_not_exclude_file_named_like_excluded_dir(monkeypatch, tmp_pat
     (tmp_path / ".git").write_text("not a real git dir, just a file")
     r = ToolRegistry()
     register_all(r)
-    result = r.execute("grep", {"pattern": "not a real git"})
+    result = r.execute("grep", {"pattern": "not a real git"}).output
     assert "not a real git" in result
