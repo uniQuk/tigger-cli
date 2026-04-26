@@ -78,7 +78,7 @@ def test_is_trusted_handles_corrupt_file(tmp_path, capsys):
     result = is_trusted(tmp_path, tf)
     assert result is False
     captured = capsys.readouterr()
-    assert "corrupt" in captured.err
+    assert "unreadable" in captured.err
     assert str(tf) in captured.err
 
 
@@ -88,4 +88,16 @@ def test_is_trusted_handles_empty_file(tmp_path, capsys):
     result = is_trusted(tmp_path, tf)
     assert result is False
     captured = capsys.readouterr()
-    assert "corrupt" in captured.err
+    assert "unreadable" in captured.err
+
+
+def test_write_trusted_recovers_from_corrupt_existing_file(tmp_path, capsys):
+    """A corrupt trusted_paths.json must not crash --trust; rewrite it instead."""
+    import json as _json
+    tf = tmp_path / "trusted_paths.json"
+    tf.write_text("{ corrupt")
+    write_trusted(tmp_path / "proj", tf)
+    data = _json.loads(tf.read_text())
+    assert str((tmp_path / "proj").resolve()) in data
+    captured = capsys.readouterr()
+    assert "rewriting" in captured.err

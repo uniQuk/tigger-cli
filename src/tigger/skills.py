@@ -235,8 +235,6 @@ def warn_on_command_collisions(
     warning messages (useful for testing). `command_names` is the list
     of built-in command names without the leading `/`.
     """
-    import sys
-
     command_triggers = {f"/{name}" for name in command_names}
     warnings: list[str] = []
     for skill in skills:

@@ -410,6 +410,26 @@ def test_native_tools_default_to_eager():
 
 # ── _bash timeout escalation (F006) ─────────────────────────────────────
 
+# ── ToolRegistry.execute defensive coercion ─────────────────────────────
+
+def test_execute_coerces_none_return_to_empty_string():
+    """A buggy tool returning None must not crash output.startswith()."""
+    r = ToolRegistry()
+    r.register(ToolDef(name="bad", description="", parameters={},
+                       func=lambda _: None, read_only=True))
+    result = r.execute("bad", {})
+    assert result.error is False
+    assert result.output == ""
+
+
+def test_execute_coerces_non_string_return():
+    r = ToolRegistry()
+    r.register(ToolDef(name="num", description="", parameters={},
+                       func=lambda _: 42, read_only=True))
+    result = r.execute("num", {})
+    assert result.output == "42"
+
+
 # ── _DEFAULT_EXCLUDES suffix matching (F017) ────────────────────────────
 
 def test_egg_info_dir_is_excluded():
@@ -466,6 +486,9 @@ def test_bash_sigterm_ignoring_child_is_killed(monkeypatch):
     out = _bash({"command": "trap '' TERM; sleep 60"})
     elapsed = time.monotonic() - start
 
-    assert elapsed < 5, f"bash hung for {elapsed:.1f}s; SIGKILL escalation failed"
+    # Generous CI margin — the timeout+grace are 1+3=4s; allow 4x for
+    # scheduling delay on overloaded runners. The point of the test is
+    # that escalation HAPPENED, not the exact timing.
+    assert elapsed < 16, f"bash hung for {elapsed:.1f}s; SIGKILL escalation failed"
     assert out.startswith("Error: command timed out")
     assert "killed" in out

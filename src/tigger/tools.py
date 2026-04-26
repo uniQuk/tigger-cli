@@ -115,6 +115,11 @@ class ToolRegistry:
             )
         try:
             output = tool.func(args)
+            # Defensive coerce: tool.func is typed as -> str but a buggy
+            # implementation could return None or another type, which would
+            # crash output.startswith below.
+            if not isinstance(output, str):
+                output = "" if output is None else str(output)
             # Tool implementations signal in-band failures by prefixing "Error:".
             # Centralize that detection here so callers don't parse strings.
             error = output.startswith("Error:")
