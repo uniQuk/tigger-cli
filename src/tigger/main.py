@@ -42,7 +42,19 @@ class StartupResult:
     summaries_dir: pathlib.Path | None = None
 
 
-def startup(config_path: pathlib.Path | None = None) -> StartupResult:
+def startup(
+    config_path: pathlib.Path | None = None,
+    *,
+    interactive: bool = True,
+    auto_trust: bool = False,
+) -> StartupResult:
+    """Run startup.
+
+    interactive: when False, skip the interactive trust prompt; assume
+    untrusted unless the workspace is already trusted or auto_trust is set.
+    auto_trust: when True, grant TrustLevel.ALWAYS without prompting (used
+    by --trust).
+    """
     # 1. Find and load config
     if config_path is None:
         config_path = find_config(pathlib.Path.cwd())
@@ -66,11 +78,20 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     cwd = pathlib.Path.cwd()
     trust_level = _trust.check_trust(cwd)
     if trust_level is None:
-        choice = ui.ask_trust_prompt(cwd)
-        if choice == "always":
+        if auto_trust:
+            # --trust flag: opt in without prompting.
             _trust.write_trusted(cwd, global_dir / "trusted_paths.json")
             trust_level = TrustLevel.ALWAYS
+        elif interactive:
+            choice = ui.ask_trust_prompt(cwd)
+            if choice == "always":
+                _trust.write_trusted(cwd, global_dir / "trusted_paths.json")
+                trust_level = TrustLevel.ALWAYS
+            else:
+                trust_level = TrustLevel.READONLY
         else:
+            # Non-interactive (e.g. piped --once) and no explicit --trust:
+            # auto-deny. Safer default than deadlocking on input().
             trust_level = TrustLevel.READONLY
 
     # 3. Logo + startup info
@@ -415,9 +436,19 @@ def main() -> None:
                         help="Resume the most recent session")
     parser.add_argument("--once", metavar="PROMPT",
                         help="Run a single agent turn non-interactively and exit")
+    parser.add_argument("--trust", action="store_true",
+                        help="Mark the current workspace as trusted without prompting")
     parsed = parser.parse_args()
 
-    result = startup()
+    # Detect interactive context: only prompt for trust when stdin is a TTY.
+    # A piped --once invocation in CI/scripts would otherwise deadlock on input().
+    is_interactive = sys.stdin.isatty()
+
+    try:
+        result = startup(interactive=is_interactive, auto_trust=parsed.trust)
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        ui.print_error(f"Startup failed: {exc}")
+        sys.exit(1)
 
     if parsed.mode is not None:
         from tigger.config import _MODE_RENAME

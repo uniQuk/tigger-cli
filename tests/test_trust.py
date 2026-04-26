@@ -69,3 +69,23 @@ def test_check_trust_returns_none_when_not_trusted(tmp_path):
     tf = tmp_path / "trusted_paths.json"
     result = check_trust(tmp_path / "unknown", trusted_file=tf)
     assert result is None
+
+
+def test_is_trusted_handles_corrupt_file(tmp_path, capsys):
+    """F019/F020 regression: a truncated trust file must not crash startup."""
+    tf = tmp_path / "trusted_paths.json"
+    tf.write_text("{not valid json")
+    result = is_trusted(tmp_path, tf)
+    assert result is False
+    captured = capsys.readouterr()
+    assert "corrupt" in captured.err
+    assert str(tf) in captured.err
+
+
+def test_is_trusted_handles_empty_file(tmp_path, capsys):
+    tf = tmp_path / "trusted_paths.json"
+    tf.write_text("")
+    result = is_trusted(tmp_path, tf)
+    assert result is False
+    captured = capsys.readouterr()
+    assert "corrupt" in captured.err

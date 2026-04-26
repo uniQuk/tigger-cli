@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import pathlib
+import sys
 from tigger.types import TrustLevel
 from tigger._constants import home_config_dir
 
@@ -8,10 +9,22 @@ _DEFAULT_TRUSTED_FILE = home_config_dir() / "trusted_paths.json"
 
 
 def is_trusted(cwd: pathlib.Path, trusted_file: pathlib.Path) -> bool:
-    """Return True if *cwd* or any parent is listed in *trusted_file*."""
+    """Return True if *cwd* or any parent is listed in *trusted_file*.
+
+    A corrupt or empty trust file is treated as untrusted (and a warning is
+    emitted to stderr) instead of raising — startup must never crash because
+    the user's trust file got truncated.
+    """
     if not trusted_file.exists():
         return False
-    trusted = json.loads(trusted_file.read_text())
+    try:
+        trusted = json.loads(trusted_file.read_text())
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(
+            f"[trust] {trusted_file} is corrupt ({exc}); treating as untrusted",
+            file=sys.stderr,
+        )
+        return False
     cwd = cwd.resolve()
     for t in trusted:
         try:
