@@ -18,6 +18,7 @@ DEFAULT_MAX_TOKENS = 4096
 DEFAULT_MAX_DEPTH = 4
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_TEMPERATURE = 0.7
+DEFAULT_READ_TIMEOUT = 1800  # seconds; max gap between streamed SSE chunks
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,7 @@ class Config:
     max_retries: int = DEFAULT_MAX_RETRIES
     bash_safe_prefixes: list[str] = field(default_factory=list)
     rtk: bool = False
+    read_timeout: int = DEFAULT_READ_TIMEOUT
 
 
 @dataclass

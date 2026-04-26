@@ -8,16 +8,14 @@ from openai import OpenAI
 
 from tigger.types import AssistantMessage, Config, Message, TextChunk, ThinkingEvent, ToolCallRecord
 
-_client_cache: dict[tuple[str, str], OpenAI] = {}
-
-# Short connect timeout, long read timeout for streaming (models may think for minutes).
-_DEFAULT_TIMEOUT = httpx.Timeout(connect=30, read=300, write=30, pool=30)
+_client_cache: dict[tuple[str, str, int], OpenAI] = {}
 
 
-def _get_client(base_url: str, api_key: str) -> OpenAI:
-    key = (base_url, api_key)
+def _get_client(base_url: str, api_key: str, read_timeout: int) -> OpenAI:
+    key = (base_url, api_key, read_timeout)
     if key not in _client_cache:
-        _client_cache[key] = OpenAI(base_url=base_url, api_key=api_key, timeout=_DEFAULT_TIMEOUT)
+        timeout = httpx.Timeout(connect=30, read=read_timeout, write=30, pool=30)
+        _client_cache[key] = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
     return _client_cache[key]
 
 
@@ -74,7 +72,7 @@ def stream(
     config: Config,
 ) -> Generator[TextChunk | AssistantMessage | ThinkingEvent, None, None]:
     """Stream a chat completion. Yields TextChunk during streaming, then AssistantMessage."""
-    client = _get_client(config.base_url, config.api_key)
+    client = _get_client(config.base_url, config.api_key, config.read_timeout)
     openai_messages = [{"role": "system", "content": system}] + messages_to_openai(messages)
     kwargs: dict = dict(
         model=config.model,

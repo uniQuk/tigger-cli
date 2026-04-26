@@ -11,11 +11,13 @@ from tigger.types import (
     DEFAULT_MAX_DEPTH,
     DEFAULT_MAX_RETRIES,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_READ_TIMEOUT,
     DEFAULT_TEMPERATURE,
     Config,
     ModelConfig,
     ProviderConfig,
 )
+import os
 
 _PERM_RENAME: dict[str, str] = {"manual": "ask", "auto": "allow", "accept-all": "bypass"}
 _VALID_PERMISSION_MODES = {"ask", "allow", "bypass"}
@@ -159,7 +161,24 @@ def load_config(path: pathlib.Path) -> Config:
         max_retries=data.get("max_retries", DEFAULT_MAX_RETRIES),
         bash_safe_prefixes=data.get("bash_safe_prefixes", []),
         rtk=data.get("rtk", False),
+        read_timeout=_resolve_read_timeout(data.get("read_timeout")),
     )
+
+
+def _resolve_read_timeout(value: object) -> int:
+    """Env var TIGGER_READ_TIMEOUT overrides config; config overrides default."""
+    env = os.environ.get("TIGGER_READ_TIMEOUT")
+    if env:
+        try:
+            return int(env)
+        except ValueError:
+            warnings.warn(
+                f"TIGGER_READ_TIMEOUT={env!r} is not an integer; using default",
+                stacklevel=2,
+            )
+    if isinstance(value, int) and value > 0:
+        return value
+    return DEFAULT_READ_TIMEOUT
 
 
 def find_config(start: pathlib.Path) -> pathlib.Path | None:
@@ -211,5 +230,6 @@ def write_config(path: pathlib.Path, config: Config) -> None:
         "max_retries": config.max_retries,
         "bash_safe_prefixes": config.bash_safe_prefixes,
         "rtk": config.rtk,
+        "read_timeout": config.read_timeout,
     }
     path.write_text(json.dumps(data, indent=2) + "\n")

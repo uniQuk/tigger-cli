@@ -36,13 +36,13 @@ def test_openai_tool_calls_malformed_json():
 
 def test_get_client_returns_same_instance_for_same_key():
     from tigger.provider import _get_client
-    c1 = _get_client("http://localhost", "key1")
-    c2 = _get_client("http://localhost", "key1")
+    c1 = _get_client("http://localhost", "key1", 1800)
+    c2 = _get_client("http://localhost", "key1", 1800)
     assert c1 is c2
 
 
 def test_get_client_different_keys_different_instances():
     from tigger.provider import _get_client
-    c1 = _get_client("http://localhost", "key1")
-    c2 = _get_client("http://localhost", "key2")
+    c1 = _get_client("http://localhost", "key1", 1800)
+    c2 = _get_client("http://localhost", "key2", 1800)
     assert c1 is not c2
