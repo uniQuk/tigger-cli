@@ -15,17 +15,28 @@ from tigger.types import ToolDef, ToolResult
 
 _32KB = 32 * 1024
 
-_DEFAULT_EXCLUDES = {".git", "node_modules", ".venv", "__pycache__", ".egg-info"}
+# Exact directory names to exclude.
+_DEFAULT_EXCLUDES = {".git", "node_modules", ".venv", "__pycache__"}
+# Suffix patterns — any path part ending with one of these is excluded.
+# `.egg-info` directories are typically named `<pkg>.egg-info`, so an exact
+# match never fires. The suffix check catches them.
+_DEFAULT_EXCLUDE_SUFFIXES = (".egg-info",)
+
+
+def _part_is_excluded(part: str) -> bool:
+    return part in _DEFAULT_EXCLUDES or any(
+        part.endswith(suffix) for suffix in _DEFAULT_EXCLUDE_SUFFIXES
+    )
 
 
 def _is_excluded(path: pathlib.Path) -> bool:
     """Return True if any parent directory of *path* is in the default exclude set."""
-    return bool(_DEFAULT_EXCLUDES.intersection(path.parent.parts))
+    return any(_part_is_excluded(p) for p in path.parent.parts)
 
 
 def _is_excluded_dir(path: pathlib.Path) -> bool:
     """Return True if *path* itself or any ancestor is in the default exclude set."""
-    return bool(_DEFAULT_EXCLUDES.intersection(path.parts))
+    return any(_part_is_excluded(p) for p in path.parts)
 
 
 def _safe_path(p: pathlib.Path) -> pathlib.Path | None:

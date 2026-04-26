@@ -410,6 +410,35 @@ def test_native_tools_default_to_eager():
 
 # ── _bash timeout escalation (F006) ─────────────────────────────────────
 
+# ── _DEFAULT_EXCLUDES suffix matching (F017) ────────────────────────────
+
+def test_egg_info_dir_is_excluded():
+    """F017 regression: pkgname.egg-info dirs were not being excluded
+    because the previous implementation used set-intersection on exact
+    directory names."""
+    from tigger.tools import _is_excluded_dir
+    assert _is_excluded_dir(pathlib.Path("tigger.egg-info")) is True
+    assert _is_excluded_dir(pathlib.Path("src/tigger.egg-info/PKG-INFO")) is True
+
+
+def test_bare_egg_info_dir_still_excluded():
+    from tigger.tools import _is_excluded_dir
+    assert _is_excluded_dir(pathlib.Path(".egg-info")) is True
+
+
+def test_egg_info_substring_in_filename_not_excluded():
+    """A regular file named foo.egg-info.txt is not a build artifact."""
+    from tigger.tools import _is_excluded_dir
+    assert _is_excluded_dir(pathlib.Path("foo.egg-info.txt")) is False
+
+
+def test_other_excludes_still_work():
+    from tigger.tools import _is_excluded_dir
+    assert _is_excluded_dir(pathlib.Path(".git/HEAD")) is True
+    assert _is_excluded_dir(pathlib.Path("node_modules/foo")) is True
+    assert _is_excluded_dir(pathlib.Path("src/main.py")) is False
+
+
 def test_bash_happy_path():
     from tigger.tools import _bash
     out = _bash({"command": "echo hi"})

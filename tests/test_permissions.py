@@ -68,3 +68,32 @@ def test_exact_safe_prefix_passes():
 def test_empty_safe_prefixes_denies_all():
     t = _tool(name="bash")
     assert check(t, "allow", {"command": "ls"}, bash_safe_prefixes=[]) is False
+
+
+# F038 regression: word-boundary check on safe prefix matching.
+
+def test_safe_prefix_requires_word_boundary():
+    t = _tool(name="bash")
+    prefixes = ["git log"]
+    # Exact match wins.
+    assert check(t, "allow", {"command": "git log"}, bash_safe_prefixes=prefixes) is True
+    # Followed by space-delimited args wins.
+    assert check(t, "allow", {"command": "git log --oneline"}, bash_safe_prefixes=prefixes) is True
+    # Same prefix, no word boundary — escalation attempt — must be rejected.
+    assert check(t, "allow", {"command": "git logfoo --oneline"}, bash_safe_prefixes=prefixes) is False
+
+
+def test_safe_prefix_metachar_guard_catches_chained_command():
+    """Even a valid prefix on a word boundary must not allow shell chaining."""
+    t = _tool(name="bash")
+    prefixes = ["git log"]
+    assert check(t, "allow", {"command": "git log; rm -rf /"}, bash_safe_prefixes=prefixes) is False
+    assert check(t, "allow", {"command": "git log && touch x"}, bash_safe_prefixes=prefixes) is False
+
+
+def test_safe_prefix_trailing_space_normalised():
+    """Legacy configs with trailing-space prefixes (e.g. 'git ') keep working."""
+    t = _tool(name="bash")
+    prefixes = ["git "]
+    assert check(t, "allow", {"command": "git status"}, bash_safe_prefixes=prefixes) is True
+    assert check(t, "allow", {"command": "gitfoo"}, bash_safe_prefixes=prefixes) is False
