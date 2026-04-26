@@ -14,7 +14,7 @@ class TrustLevel(StrEnum):
 # Default Config values — single source of truth, referenced by both
 # the Config dataclass and load_config().
 DEFAULT_CONTEXT_LIMIT = 128000
-DEFAULT_MAX_TOKENS = 4096
+DEFAULT_MAX_TOKENS = 0  # 0 = omit param, let provider use its full output budget
 DEFAULT_MAX_DEPTH = 4
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_TEMPERATURE = 0.7

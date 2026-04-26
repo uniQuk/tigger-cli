@@ -8,6 +8,7 @@ import sys
 import time
 
 import httpx
+import openai
 
 from tigger import provider as _provider
 from tigger import trust as _trust
@@ -421,6 +422,10 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ConnectError) as exc:
             ui._stop_activity()
             ui.print_error(f"Network error: {exc}")
+            continue
+        except openai.APIError as exc:
+            ui._stop_activity()
+            ui.print_error(f"Provider rejected request: {exc}")
             continue
         except Exception as exc:
             if "TimeoutError" in type(exc).__name__ or "timed out" in str(exc).lower():

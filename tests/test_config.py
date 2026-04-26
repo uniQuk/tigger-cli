@@ -29,7 +29,7 @@ def test_loader_defaults_match_dataclass():
     cfg = load_config(p)
     direct = Config(base_url="http://x", model="m")
     assert cfg.context_limit == direct.context_limit == 128000
-    assert cfg.max_tokens == direct.max_tokens == 4096
+    assert cfg.max_tokens == direct.max_tokens == 0
     assert cfg.max_depth == direct.max_depth == 4
     assert cfg.max_retries == direct.max_retries == 2
     assert cfg.temperature == direct.temperature == 0.7

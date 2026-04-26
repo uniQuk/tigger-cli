@@ -53,13 +53,17 @@ def messages_to_openai(messages: list[Message]) -> list[dict]:
 def openai_tool_calls_to_records(raw: list[dict]) -> list[ToolCallRecord]:
     records = []
     for tc in raw:
+        raw_args = tc.get("function", {}).get("arguments", "") or ""
         try:
-            args = json.loads(tc["function"]["arguments"])
-        except (json.JSONDecodeError, KeyError):
-            args = {}
+            args = json.loads(raw_args) if raw_args else {}
+        except json.JSONDecodeError:
+            # Truncated/malformed JSON (most often: response hit max_tokens
+            # mid-tool-call). Preserve the failure so the executor can return
+            # a useful error instead of silently passing empty args.
+            args = {"__parse_error__": True, "__raw_len__": len(raw_args)}
         records.append(ToolCallRecord(
             call_id=tc.get("id", ""),
-            name=tc["function"]["name"],
+            name=tc.get("function", {}).get("name", ""),
             args=args,
         ))
     return records
@@ -77,10 +81,13 @@ def stream(
     kwargs: dict = dict(
         model=config.model,
         messages=openai_messages,
-        max_tokens=config.max_tokens,
         temperature=config.temperature,
         stream=True,
     )
+    # max_tokens <= 0 means "let the provider decide" — omit the param entirely
+    # rather than send 0 (which LM Studio and others reject).
+    if config.max_tokens and config.max_tokens > 0:
+        kwargs["max_tokens"] = config.max_tokens
     if tools:
         kwargs["tools"] = tools
 

@@ -63,6 +63,34 @@ def _server_segment(name: str) -> str:
     return name
 
 
+# Aliases for tools whose schema names diverge from common conventions used by
+# other CLIs (Claude Code, Cursor, etc). The model often generalises across
+# tools, so accepting the alternate key avoids a hard failure on the first call.
+_ARG_ALIASES: dict[str, dict[str, str]] = {
+    "read":  {"file_path": "path"},
+    "write": {"file_path": "path"},
+    "edit":  {"file_path": "path"},
+    "glob":  {"file_path": "path"},
+    "grep":  {"file_path": "path"},
+}
+
+
+def _normalize_args(tool_name: str, args: dict) -> dict:
+    aliases = _ARG_ALIASES.get(tool_name)
+    if not aliases:
+        return args
+    out = dict(args)
+    for src, dst in aliases.items():
+        if src in out and dst not in out:
+            out[dst] = out.pop(src)
+    return out
+
+
+def _missing_required(tool: ToolDef, args: dict) -> list[str]:
+    required = tool.parameters.get("required", []) if isinstance(tool.parameters, dict) else []
+    return [k for k in required if k not in args]
+
+
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, ToolDef] = {}
@@ -111,6 +139,27 @@ class ToolRegistry:
             server = _server_segment(name)
             return ToolResult(
                 output=f"Error: tool '{name}' belongs to a disabled server '{server}'. Re-enable in mcp.json and restart.",
+                error=True,
+            )
+        if args.get("__parse_error__"):
+            raw_len = args.get("__raw_len__", 0)
+            return ToolResult(
+                output=(
+                    f"Error: tool '{name}' arguments were truncated/malformed JSON "
+                    f"({raw_len} bytes received). The response likely hit max_tokens "
+                    f"mid-call. Retry with smaller content (e.g. write the file in "
+                    f"chunks via edit), or raise max_tokens in config."
+                ),
+                error=True,
+            )
+        args = _normalize_args(name, args)
+        missing = _missing_required(tool, args)
+        if missing:
+            return ToolResult(
+                output=(
+                    f"Error: tool '{name}' missing required argument(s): "
+                    f"{', '.join(missing)}. Got keys: {sorted(args)}"
+                ),
                 error=True,
             )
         try:
