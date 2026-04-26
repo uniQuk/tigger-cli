@@ -12,7 +12,7 @@ dependencies = ["openai>=1.0", "pyyaml>=6.0", "rich>=13.0", "tiktoken>=0.7", "pr
 tigger-code = "tigger.main:main"
 
 [project.optional-dependencies]
-dev = ["ruff", "mypy", "pytest"]
+dev = ["ruff", "mypy", "pytest", "types-PyYAML>=6.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tigger"]
