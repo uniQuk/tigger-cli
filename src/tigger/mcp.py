@@ -554,3 +554,20 @@ def connect_all(
             print(f"[mcp] Warning: failed to connect to {cfg.name}: {exc}")
         except Exception as exc:
             print(f"[mcp] Warning: failed to connect to {cfg.name}: {exc}")
+
+
+def connect_new(registry: ToolRegistry, configs: list[McpServerConfig]) -> list[str]:
+    """Connect any servers in *configs* whose name isn't already in `_connections`.
+
+    Used by `/reload-plugins` to pick up newly added MCP entries without
+    touching servers already running. Returns the list of names actually
+    started. Removed-from-config servers are deliberately left connected for
+    the rest of the session — there is no per-server disconnect path today,
+    and killing live transports could orphan in-flight tool calls.
+    """
+    existing = {c.name for c in _connections}
+    new_configs = [c for c in configs if c.name not in existing]
+    if not new_configs:
+        return []
+    connect_all(registry, new_configs, require_consent=False)
+    return [c.name for c in new_configs]

@@ -14,13 +14,13 @@ from tigger import provider as _provider
 from tigger import trust as _trust
 from tigger import ui
 from tigger._constants import home_config_dir
-from tigger.commands import load_builtin_commands
+from tigger.commands import bind_reload_command, load_builtin_commands
 from tigger.compaction import estimate_tokens, load_recent_summary
 from tigger.config import derive_provider_name, find_config, load_config
 from tigger.hooks import RTK_HOOK_NAME, HookDef, set_hook_enabled
 from tigger.input_processing import expand_file_refs
 from tigger.loop import run, run_forked
-from tigger.mcp import connect_all
+from tigger.mcp import McpServerConfig, connect_all
 from tigger.memory import format_for_prompt, read_memory
 from tigger.resolve import (
     is_global_config,
@@ -55,6 +55,12 @@ class StartupResult:
     provider_fn: object
     config_path: pathlib.Path
     summaries_dir: pathlib.Path | None = None
+    # Fields below support in-session reload (`/reload-plugins`).
+    project_dir: pathlib.Path | None = None
+    global_dir: pathlib.Path | None = None
+    memory_path: pathlib.Path | None = None
+    summary_dir: pathlib.Path | None = None
+    mcp_configs: list[McpServerConfig] = dataclasses.field(default_factory=list)
 
 
 def startup(
@@ -195,7 +201,7 @@ def startup(
         hook_defs=hook_defs,
     )
 
-    return StartupResult(
+    result = StartupResult(
         ctx=ctx,
         commands=commands,
         skills=skills,
@@ -205,7 +211,14 @@ def startup(
         provider_fn=_provider.stream,
         config_path=config_path,
         summaries_dir=_summaries_dir,
+        project_dir=project_dir,
+        global_dir=global_dir,
+        memory_path=memory_path,
+        summary_dir=summary_dir,
+        mcp_configs=mcp_configs,
     )
+    bind_reload_command(commands, result)
+    return result
 
 
 def _toolbar(ctx: RunContext) -> str:

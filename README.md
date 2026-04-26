@@ -165,6 +165,7 @@ Type `exit` or `quit` to leave the REPL. Ctrl+C during a response interrupts it 
 | `/skills` | List loaded skills |
 | `/agent <name>` | Invoke a sub-agent by name |
 | `/rtk` | Show RTK status, toggle on/off, view token savings |
+| `/reload-plugins` | Re-discover skills, hooks, agents, modes, commands, and MCP config from disk without restarting (existing MCP servers stay running) |
 | `/clear` | Clear message history |
 | `exit` / `quit` | Exit the REPL |
 

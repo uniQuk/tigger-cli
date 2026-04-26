@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 import pathlib
+import sys
+import time
 from collections.abc import Callable, Generator
 
-from tigger.compaction import maybe_compact
+from tigger.compaction import estimate_tokens, maybe_compact
 from tigger.hooks import HookDef, evaluate_hooks
 from tigger.permissions import check as permission_check
 from tigger.tools import ToolRegistry
@@ -76,9 +79,32 @@ def run(
     continuations = 0
     max_continuations = 3  # cap auto-continue chain to avoid runaway loops
 
+    # Opt-in per-turn perf logging — set TIGGER_PERF=1 (or a path) to enable.
+    # Logs turn duration, token counts, and message-list size to stderr or a
+    # file. Helps diagnose why long runs (e.g. chunked-write recoveries) are
+    # slow: full-prompt reprocessing, compaction stalls, or model latency.
+    perf_env = os.environ.get("TIGGER_PERF", "").strip()
+    perf_log: object | None = None
+    perf_path: pathlib.Path | None = None
+    if perf_env:
+        if perf_env in {"1", "true", "stderr"}:
+            perf_log = sys.stderr
+        else:
+            perf_path = pathlib.Path(perf_env).expanduser()
+            perf_path.parent.mkdir(parents=True, exist_ok=True)
+        if perf_log is None and perf_path is not None and not perf_path.exists():
+            perf_path.write_text(
+                "ts\tturn\twall_s\tcompact_s\tinput_tokens\toutput_tokens\t"
+                "msgs\tprompt_chars\tfinish_reason\ttool_calls\tcontinuations\n"
+            )
+    perf_turn = 0
+
     while True:
+        turn_start = time.monotonic()
+        compact_start = time.monotonic()
         ctx.messages, _ = maybe_compact(ctx.messages, ctx.config, provider_fn,
                                         summaries_dir=summaries_dir)
+        compact_elapsed = time.monotonic() - compact_start
 
         tools_schemas = [
             s for s in registry.schemas()
@@ -123,6 +149,29 @@ def run(
             input_tokens=assistant_msg.input_tokens,
             output_tokens=assistant_msg.output_tokens,
         )
+
+        if perf_env:
+            perf_turn += 1
+            wall = time.monotonic() - turn_start
+            prompt_chars = sum(len(m.content) for m in ctx.messages)
+            local_tokens = (
+                assistant_msg.input_tokens
+                if assistant_msg.input_tokens
+                else estimate_tokens(ctx.messages)
+            )
+            row = (
+                f"{int(time.time())}\t{perf_turn}\t{wall:.2f}\t"
+                f"{compact_elapsed:.2f}\t{local_tokens}\t"
+                f"{assistant_msg.output_tokens}\t{len(ctx.messages)}\t"
+                f"{prompt_chars}\t{assistant_msg.finish_reason or '-'}\t"
+                f"{len(assistant_msg.tool_calls)}\t{continuations}\n"
+            )
+            if perf_log is not None:
+                perf_log.write(f"[perf] {row}")
+                perf_log.flush()
+            elif perf_path is not None:
+                with perf_path.open("a") as f:
+                    f.write(row)
 
         if not assistant_msg.tool_calls:
             # Auto-continue when the model was cut off mid-text by max_tokens.

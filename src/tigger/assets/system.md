@@ -162,7 +162,7 @@ You are Tigger, running inside tigger-code. Here is how you are configured and e
 
 ### Commands
 
-Built-in slash commands: `/help`, `/clear`, `/tokens`, `/model`, `/mode`, `/permission`, `/memory`, `/remember`, `/compact`, `/skills`, `/agent`, `/provider`, `/summary`, `/init`, `/rtk`, `/hookify`.
+Built-in slash commands: `/help`, `/clear`, `/tokens`, `/model`, `/mode`, `/permission`, `/memory`, `/remember`, `/compact`, `/skills`, `/agent`, `/provider`, `/summary`, `/init`, `/rtk`, `/reload-plugins`, `/hookify`.
 
 ### Configuration
 

@@ -10,6 +10,7 @@ from tigger.commands import init as init_cmd
 from tigger.commands import mcp_cmd, misc
 from tigger.commands import memory as mem_cmd
 from tigger.commands import provider as provider_cmd
+from tigger.commands import reload_plugins as reload_plugins_cmd
 from tigger.commands import rtk as rtk_cmd
 from tigger.commands import skills as skills_cmd
 from tigger.commands import status as status_cmd
@@ -36,6 +37,7 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
     "rtk": "RTK token optimization (on/off/gain)",
     "status": "Show resolved runtime configuration",
     "mcp": "Show connected MCP servers and tools",
+    "reload-plugins": "Reload skills, hooks, agents, commands, and MCP config from disk",
     "help": "Show this help",
 }
 
@@ -53,6 +55,7 @@ COMMAND_HELP: dict[str, str] = {
     "rtk": "Usage:\n  /rtk                  — show RTK status\n  /rtk on               — enable RTK proxy\n  /rtk off              — disable RTK proxy\n  /rtk gain             — show project token savings\n  /rtk gain --history   — per-command savings history\n  /rtk gain --graph     — daily savings graph\n\nRTK (Rust Token Killer) proxies shell commands to reduce token output by 60-90%.\n/rtk gain is scoped to the current project by default.\nhttps://github.com/rtk-ai/rtk",
     "status": "Usage: /status\n  Print the resolved runtime configuration: config path, provider/model,\n  loaded skills (with tier annotations), agents, and active hooks.",
     "mcp": "Usage: /mcp\n  Show connected MCP servers: name, transport, tool count,\n  target, and server version.",
+    "reload-plugins": "Usage: /reload-plugins\n  Re-discover skills, hooks, agents, modes, slash commands, and MCP\n  config from .tigger/ (project) and ~/.tigger/ (user) without restarting.\n  Already-running MCP subprocesses are left alone — only config is\n  refreshed; binary/env changes to a live MCP server still need a restart.",
     "help": "Usage: /help [command] [--all]\n  Show help for a specific command, or list all commands.\n  --all  Include internal (bundled) skills and agents.",
 }
 
@@ -113,3 +116,13 @@ def load_builtin_commands(
 
     d["help"] = partial(misc.cmd_help, commands=d, skills=skills, agents=agents)
     return d
+
+
+def bind_reload_command(commands: dict, result) -> None:
+    """Register `/reload-plugins`, which needs a back-reference to the live
+    `StartupResult`. Called once at startup and again after each reload, since
+    `load_builtin_commands` cannot inject `result` directly (it doesn't exist
+    yet when commands are first built)."""
+    commands["reload-plugins"] = partial(
+        reload_plugins_cmd.cmd_reload_plugins, result=result,
+    )

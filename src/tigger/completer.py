@@ -17,15 +17,19 @@ class TiggerCompleter(Completer):
         commands: dict,
         skills: list[SkillDef],
     ) -> None:
-        self._candidates: list[str] = []
-        # Built-in command names (without leading /)
-        self._candidates.extend(commands.keys())
-        # Skill triggers (strip leading / for matching, re-add on completion)
-        for skill in skills:
+        # Hold references, not snapshots — `/reload-plugins` mutates these
+        # containers in place and the completer must reflect the new state.
+        self._commands = commands
+        self._skills = skills
+
+    def _live_candidates(self) -> list[str]:
+        candidates: list[str] = list(self._commands.keys())
+        for skill in self._skills:
             for trigger in skill.triggers:
                 stripped = trigger.lstrip("/")
-                if stripped not in self._candidates:
-                    self._candidates.append(stripped)
+                if stripped not in candidates:
+                    candidates.append(stripped)
+        return candidates
 
     def get_completions(self, document: Document, complete_event):
         text = document.text_before_cursor
@@ -34,7 +38,7 @@ class TiggerCompleter(Completer):
         if text.startswith("/"):
             fragment = text[1:].lower()  # strip leading /
             seen: set[str] = set()
-            for candidate in self._candidates:
+            for candidate in self._live_candidates():
                 if fragment in candidate.lower() and candidate not in seen:
                     seen.add(candidate)
                     yield Completion(

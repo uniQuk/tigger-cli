@@ -1,6 +1,7 @@
+from prompt_toolkit.document import Document
+
 from tigger.completer import TiggerCompleter
 from tigger.skills import SkillDef
-from prompt_toolkit.document import Document
 
 
 def _completer(extra_skills: list[SkillDef] | None = None) -> TiggerCompleter:
@@ -36,6 +37,23 @@ def test_completer_matches_command_prefix():
 def test_completer_matches_skill_prefix():
     results = _completions(_completer(), "/ho")
     assert "/how" in results
+
+
+def test_completer_reflects_live_reload():
+    """After /reload-plugins mutates the commands dict and skills list in
+    place, the completer must surface the new entries without being
+    reconstructed."""
+    commands = {"clear": None}
+    skills: list[SkillDef] = []
+    completer = TiggerCompleter(commands, skills)
+    assert "/clear" in _completions(completer, "/cl")
+
+    # Simulate a reload mutating in place.
+    commands["reload-plugins"] = None
+    skills.append(SkillDef(name="new", triggers=["/newskill"], tools=[],
+                           context="inline", body=""))
+    assert "/reload-plugins" in _completions(completer, "/reload")
+    assert "/newskill" in _completions(completer, "/newskill")
 
 
 def test_completer_substring_match():
