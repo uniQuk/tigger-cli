@@ -59,11 +59,19 @@ def openai_tool_calls_to_records(raw: list[dict]) -> list[ToolCallRecord]:
         fn = tc.get("function", {})
         raw_args = fn.get("arguments", "") or ""
         parse_error_bytes: int | None = None
-        try:
-            args = json.loads(raw_args) if raw_args else {}
-        except json.JSONDecodeError:
+        if not raw_args:
+            # Empty arguments string almost always means the stream was cut
+            # off (max_tokens hit) before any args were emitted. Surface this
+            # as a parse error so the dispatcher returns the truncation hint
+            # instead of an unhelpful "missing required argument(s)".
             args = {}
-            parse_error_bytes = len(raw_args)
+            parse_error_bytes = 0
+        else:
+            try:
+                args = json.loads(raw_args)
+            except json.JSONDecodeError:
+                args = {}
+                parse_error_bytes = len(raw_args)
         records.append(ToolCallRecord(
             call_id=tc.get("id", ""),
             name=fn.get("name", ""),

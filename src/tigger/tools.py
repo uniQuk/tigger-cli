@@ -142,12 +142,17 @@ class ToolRegistry:
                 error=True,
             )
         if parse_error_bytes is not None:
+            detail = (
+                "no arguments were received before the stream ended"
+                if parse_error_bytes == 0
+                else f"{parse_error_bytes} bytes of arguments JSON received but failed to parse"
+            )
             return ToolResult(
                 output=(
-                    f"Error: tool '{name}' arguments were truncated/malformed JSON "
-                    f"({parse_error_bytes} bytes received). The response likely hit "
-                    f"max_tokens mid-call. Retry with smaller content (e.g. write "
-                    f"the file in chunks via edit), or raise max_tokens in config."
+                    f"Error: tool '{name}' call was cut off — {detail}. "
+                    "The response almost certainly hit max_tokens mid-call. "
+                    "Retry with smaller content (write the file in chunks "
+                    "via edit, or split the work), or raise max_tokens in config."
                 ),
                 error=True,
             )

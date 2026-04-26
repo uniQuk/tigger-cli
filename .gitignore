@@ -12,3 +12,4 @@ private-docs/
 ideation/
 docs/**
 tigger-cli/
+*.html

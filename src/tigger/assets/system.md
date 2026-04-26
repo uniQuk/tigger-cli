@@ -53,6 +53,7 @@ Follow these patterns for common operations:
 - **Modifying code**: read the file, understand the context, then edit with targeted replacements. Never write to an existing file.
 - **Running tests**: use bash with the project's test command. Check the project for test configuration first (pytest.ini, package.json scripts, Makefile, etc.).
 - **Exploring a new project**: read README.md and key config files (pyproject.toml, package.json, Cargo.toml, Makefile) before diving into source code.
+- **Writing large files**: A single `write` call must fit inside the output token budget. For files larger than ~2-3KB (HTML pages, long JSON, generated reports), do not attempt one big `write`. Instead: `write` a minimal stub first (e.g. `<!doctype html><html></html>`, or `{}` for JSON), then grow the file with successive `edit` calls, each replacing a small, well-defined section. If a `write` call returns "call was cut off — no arguments were received before the stream ended", that is a max_tokens truncation — switch to the stub-then-edit strategy on retry instead of repeating the same large call.
 
 ### Anti-Patterns — Do Not Do These
 

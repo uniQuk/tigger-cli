@@ -146,6 +146,7 @@ def run(
 
         # Execute each tool call
         hallucinated = False
+        truncated_call = False
         for tc in assistant_msg.tool_calls:
             tool = registry.get(tc.name)
             if tool is None:
@@ -260,9 +261,31 @@ def run(
                 name=tc.name,
             ))
 
+            if tc.parse_error_bytes is not None:
+                truncated_call = True
+
         if hallucinated:
             yield ThinkingEvent()
             continue
+
+        # If any tool call was cut off mid-stream by max_tokens, nudge the
+        # model toward a chunked-write strategy. Bounded by the same
+        # continuations cap as the text-truncation path.
+        if truncated_call and continuations < max_continuations:
+            continuations += 1
+            ctx.messages.append(Message(
+                role="user",
+                content=(
+                    "One of your tool calls was cut off by the output token "
+                    "limit before its arguments finished streaming. Do not "
+                    "retry the same large call. Instead: for new files, "
+                    "write a small stub first (e.g. an empty skeleton), then "
+                    "append the rest in successive `edit` calls. For existing "
+                    "files, use `edit` with targeted replacements rather than "
+                    "rewriting the whole file. Continue from where you left off."
+                ),
+            ))
+
         # normal round: loop back for model to process tool results
         yield ThinkingEvent()
 
