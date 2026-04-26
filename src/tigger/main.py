@@ -113,6 +113,11 @@ def startup(config_path: pathlib.Path | None = None) -> StartupResult:
     agents = resolve_agents(project_dir, global_dir)
     modes = resolve_modes(project_dir, global_dir)
 
+    # Warn on skill triggers that collide with built-in /-commands.
+    from tigger.commands import COMMAND_DESCRIPTIONS
+    from tigger.skills import warn_on_command_collisions
+    warn_on_command_collisions(skills, list(COMMAND_DESCRIPTIONS.keys()))
+
     # 9. System prompt + memory — override semantics
     _system_path = resolve_file("system.md", project_dir, global_dir, bundled_dir)
     if _system_path is None:

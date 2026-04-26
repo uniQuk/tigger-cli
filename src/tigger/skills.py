@@ -201,8 +201,43 @@ def load_modes_dir(modes_dir: pathlib.Path) -> list[ModeRef]:
 
 
 def match_skill(user_input: str, skills: list[SkillDef]) -> SkillDef | None:
+    """Match input to a skill by trigger.
+
+    A trigger matches when the input is exactly the trigger or starts
+    with `trigger + " "`. This prevents a trigger like `/m` from
+    shadowing a longer command like `/memory`.
+    """
+    stripped = user_input.rstrip()
     for skill in skills:
         for trigger in skill.triggers:
-            if user_input.startswith(trigger):
+            if stripped == trigger or user_input.startswith(trigger + " "):
                 return skill
     return None
+
+
+def warn_on_command_collisions(
+    skills: list[SkillDef],
+    command_names: list[str],
+) -> list[str]:
+    """Warn when a skill trigger collides with a built-in /-command.
+
+    Emits a stderr warning for each collision and returns the list of
+    warning messages (useful for testing). `command_names` is the list
+    of built-in command names without the leading `/`.
+    """
+    import sys
+
+    command_triggers = {f"/{name}" for name in command_names}
+    warnings: list[str] = []
+    for skill in skills:
+        for trigger in skill.triggers:
+            if trigger in command_triggers:
+                location = skill.folder if skill.folder is not None else skill.name
+                msg = (
+                    f"[skill] trigger {trigger!r} in {location} "
+                    f"collides with built-in command {trigger}; "
+                    f"the built-in will take precedence"
+                )
+                warnings.append(msg)
+                print(msg, file=sys.stderr)
+    return warnings
