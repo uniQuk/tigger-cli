@@ -26,6 +26,101 @@ def _get_client(base_url: str, api_key: str, read_timeout: int) -> OpenAI:
     return _client_cache[key]
 
 
+# Stub threshold for large file-write tool args. Content above this size is
+# replaced with a reference stub on the wire-send path (history retains the
+# full payload). 2048 chars matches the brainstorm decision: large enough
+# to avoid stubbing routine small writes, small enough to catch the dominant
+# 28KB-HTML-write case from tigger-perf3.tsv.
+_WRITE_STUB_THRESHOLD = 2048
+
+
+def _stub_large_write_args(messages: list[Message]) -> list[Message]:
+    """Return a new list where successful large write/edit tool args are stubbed.
+
+    For each assistant message with `tool_calls`, find the matching tool
+    result message (by `tool_call_id`). When the tool is `write` or `edit`,
+    the result content does not start with `Error:`, and the relevant arg
+    field exceeds `_WRITE_STUB_THRESHOLD` chars, replace that arg field
+    with a reference stub in the wire copy. The input list and its
+    ToolCallRecord instances are never mutated.
+    """
+    if not messages:
+        return messages
+
+    # Index successful tool results by call_id for O(1) lookup.
+    success_results: dict[str, str] = {}
+    for m in messages:
+        if m.role == "tool" and m.tool_call_id and not m.content.startswith("Error:"):
+            success_results[m.tool_call_id] = m.content
+
+    out: list[Message] = []
+    for m in messages:
+        if m.role != "assistant" or not m.tool_calls:
+            out.append(m)
+            continue
+        new_tcs: list[ToolCallRecord] = []
+        message_changed = False
+        for tc in m.tool_calls:
+            if (
+                tc.name in ("write", "edit")
+                and tc.call_id in success_results
+            ):
+                stubbed = _maybe_stub_write_args(tc)
+                if stubbed is not tc:
+                    message_changed = True
+                new_tcs.append(stubbed)
+            else:
+                new_tcs.append(tc)
+        if message_changed:
+            out.append(Message(
+                role=m.role,
+                content=m.content,
+                tool_calls=new_tcs,
+                tool_call_id=m.tool_call_id,
+                name=m.name,
+            ))
+        else:
+            out.append(m)
+    return out
+
+
+def _maybe_stub_write_args(tc: ToolCallRecord) -> ToolCallRecord:
+    """Return a new ToolCallRecord with stubbed args, or `tc` unchanged."""
+    if tc.name == "write":
+        content = tc.args.get("content")
+        path = tc.args.get("path", "")
+        if isinstance(content, str) and len(content) > _WRITE_STUB_THRESHOLD:
+            return ToolCallRecord(
+                call_id=tc.call_id,
+                name=tc.name,
+                args={
+                    "path": path,
+                    "content": f"[wrote {len(content)} chars to {path}]",
+                },
+                parse_error_bytes=tc.parse_error_bytes,
+            )
+    elif tc.name == "edit":
+        path = tc.args.get("path", "")
+        old_string = tc.args.get("old_string", "")
+        new_string = tc.args.get("new_string", "")
+        old_len = len(old_string) if isinstance(old_string, str) else 0
+        new_len = len(new_string) if isinstance(new_string, str) else 0
+        if old_len > _WRITE_STUB_THRESHOLD or new_len > _WRITE_STUB_THRESHOLD:
+            new_args = dict(tc.args)
+            stub = f"[edited {path}, +{new_len}/-{old_len} chars]"
+            if new_len > _WRITE_STUB_THRESHOLD:
+                new_args["new_string"] = stub
+            if old_len > _WRITE_STUB_THRESHOLD:
+                new_args["old_string"] = stub
+            return ToolCallRecord(
+                call_id=tc.call_id,
+                name=tc.name,
+                args=new_args,
+                parse_error_bytes=tc.parse_error_bytes,
+            )
+    return tc
+
+
 def messages_to_openai(messages: list[Message]) -> list[dict]:
     """Convert neutral Message list to OpenAI wire format."""
     result = []
@@ -103,7 +198,11 @@ def stream(
     the tail of the conversation.
     """
     client = _get_client(config.base_url, config.api_key, config.read_timeout)
-    openai_messages = [{"role": "system", "content": system}] + messages_to_openai(messages)
+    # Wire-side rewrite: stub large successful write/edit payloads so the
+    # prompt prefix stops growing monotonically across turns. The in-memory
+    # history (`messages`) keeps full payloads — recovery is via re-read.
+    wire_messages = _stub_large_write_args(messages)
+    openai_messages = [{"role": "system", "content": system}] + messages_to_openai(wire_messages)
     if environment:
         openai_messages.append({
             "role": "user",

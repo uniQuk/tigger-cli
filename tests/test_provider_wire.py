@@ -74,3 +74,122 @@ def test_stream_empty_environment_string_omits_tail():
     """Empty string is falsy — no tail message."""
     msgs = _capture_outgoing(environment="")
     assert all("<environment>" not in m["content"] for m in msgs)
+
+
+# ── R4–R6: Stub large file-write tool args after success ───────────────────
+
+from tigger.provider import _stub_large_write_args  # noqa: E402
+
+
+def _assistant_with_tool_call(call_id: str, name: str, args: dict) -> Message:
+    return Message(
+        role="assistant",
+        content="",
+        tool_calls=[ToolCallRecord(call_id=call_id, name=name, args=args)],
+    )
+
+
+def _tool_result(call_id: str, content: str = "ok") -> Message:
+    return Message(role="tool", content=content, tool_call_id=call_id, name="write")
+
+
+def test_stub_replaces_large_successful_write():
+    big = "x" * 5000
+    msgs = [
+        Message(role="user", content="go"),
+        _assistant_with_tool_call("c1", "write", {"path": "/a.html", "content": big}),
+        _tool_result("c1"),
+    ]
+    out = _stub_large_write_args(msgs)
+    stubbed_args = out[1].tool_calls[0].args
+    assert stubbed_args["content"] == "[wrote 5000 chars to /a.html]"
+    assert stubbed_args["path"] == "/a.html"
+    # In-memory history untouched.
+    assert msgs[1].tool_calls[0].args["content"] == big
+
+
+def test_stub_skips_small_writes():
+    msgs = [
+        Message(role="user", content="go"),
+        _assistant_with_tool_call("c1", "write", {"path": "/a", "content": "small"}),
+        _tool_result("c1"),
+    ]
+    out = _stub_large_write_args(msgs)
+    assert out[1] is msgs[1]
+
+
+def test_stub_skips_failed_writes():
+    big = "x" * 5000
+    msgs = [
+        Message(role="user", content="go"),
+        _assistant_with_tool_call("c1", "write", {"path": "/a", "content": big}),
+        _tool_result("c1", content="Error: file already exists"),
+    ]
+    out = _stub_large_write_args(msgs)
+    assert out[1].tool_calls[0].args["content"] == big  # NOT stubbed
+
+
+def test_stub_skips_pending_writes_no_result_yet():
+    big = "x" * 5000
+    msgs = [
+        Message(role="user", content="go"),
+        _assistant_with_tool_call("c1", "write", {"path": "/a", "content": big}),
+        # No matching tool result message — call still pending.
+    ]
+    out = _stub_large_write_args(msgs)
+    assert out[1].tool_calls[0].args["content"] == big
+
+
+def test_stub_replaces_large_edit_new_string():
+    big_new = "y" * 4000
+    msgs = [
+        Message(role="user", content="go"),
+        _assistant_with_tool_call("c1", "edit", {
+            "path": "/a", "old_string": "x", "new_string": big_new,
+        }),
+        _tool_result("c1"),
+    ]
+    out = _stub_large_write_args(msgs)
+    args = out[1].tool_calls[0].args
+    assert args["new_string"] == "[edited /a, +4000/-1 chars]"
+    assert args["old_string"] == "x"  # small field preserved
+    assert args["path"] == "/a"
+
+
+def test_stub_boundary_exactly_at_threshold_not_stubbed():
+    """Strict greater-than: content of exactly 2048 chars stays."""
+    content = "x" * 2048
+    msgs = [
+        Message(role="user", content="go"),
+        _assistant_with_tool_call("c1", "write", {"path": "/a", "content": content}),
+        _tool_result("c1"),
+    ]
+    out = _stub_large_write_args(msgs)
+    assert out[1].tool_calls[0].args["content"] == content
+
+
+def test_stub_two_turn_history_only_old_write_stubbed_via_stream():
+    """Integration: across the wire, a two-turn sequence with a 28KB write
+    in turn 1 has the assistant tool_call args replaced with a stub on the
+    next call's payload. The first call still sends the full content."""
+    big = "x" * 5000
+    msgs_after_turn1 = [
+        Message(role="user", content="write the file"),
+        _assistant_with_tool_call("c1", "write", {"path": "/a.html", "content": big}),
+        _tool_result("c1"),
+        Message(role="user", content="now read it"),
+    ]
+    captured: dict = {}
+    fake_client = MagicMock()
+    def create(**kwargs):
+        captured["messages"] = kwargs["messages"]
+        return iter([])
+    fake_client.chat.completions.create = create
+    with patch("tigger.provider._get_client", return_value=fake_client):
+        for _ in stream("sys", msgs_after_turn1, [], _cfg()):
+            pass
+    # Turn 2 wire payload: the assistant tool_call's content is the stub.
+    assistant_wire = next(m for m in captured["messages"] if m["role"] == "assistant")
+    import json as _json
+    args = _json.loads(assistant_wire["tool_calls"][0]["function"]["arguments"])
+    assert args["content"] == "[wrote 5000 chars to /a.html]"
