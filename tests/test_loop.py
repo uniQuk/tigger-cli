@@ -86,13 +86,15 @@ def test_depth_cap_prevents_infinite_fork():
     assert "depth" in text.lower()
 
 
-def test_plan_mode_injects_into_system_prompt():
-    """In plan mode, the provider receives a system prompt with mode body appended."""
+def test_plan_mode_injects_via_environment_kwarg():
+    """Plan-mode body rides as the environment kwarg; system stays stable."""
     from tigger.skills import ModeRef
-    calls: list[str] = []
+    systems: list[str] = []
+    envs: list[str | None] = []
 
-    def recording_provider(system, messages, tools, cfg):
-        calls.append(system)
+    def recording_provider(system, messages, tools, cfg, environment=None):
+        systems.append(system)
+        envs.append(environment)
         yield TextChunk(content="1. Plan")
         yield AssistantMessage(content="1. Plan", tool_calls=[])
 
@@ -101,9 +103,8 @@ def test_plan_mode_injects_into_system_prompt():
     ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.", modes=[plan_mode])
     list(run("do something", ctx, _registry(), provider_fn=recording_provider))
 
-    assert len(calls) == 1
-    assert "plan mode" in calls[0]
-    assert "You are helpful." in calls[0]
+    assert systems == ["You are helpful."]
+    assert envs[0] is not None and "plan mode" in envs[0]
 
 
 def test_act_mode_does_not_inject_text():
@@ -124,11 +125,18 @@ def test_act_mode_does_not_inject_text():
 
 
 def test_custom_mode_injects_body():
-    from tigger.skills import ModeRef
-    calls: list[str] = []
+    """Mode body is delivered via the environment kwarg, not the system prompt.
 
-    def recording_provider(system, messages, tools, cfg):
-        calls.append(system)
+    Keeping the system prompt bytewise stable across turns is what enables
+    KV-cache reuse on the provider side.
+    """
+    from tigger.skills import ModeRef
+    systems: list[str] = []
+    envs: list[str | None] = []
+
+    def recording_provider(system, messages, tools, cfg, environment=None):
+        systems.append(system)
+        envs.append(environment)
         yield TextChunk(content="done")
         yield AssistantMessage(content="done", tool_calls=[])
 
@@ -137,8 +145,8 @@ def test_custom_mode_injects_body():
     ctx = RunContext(config=cfg, messages=[], system_prompt="Base prompt.", modes=[custom])
     list(run("check code", ctx, _registry(), provider_fn=recording_provider))
 
-    assert "review mode" in calls[0]
-    assert "Base prompt." in calls[0]
+    assert systems[0] == "Base prompt."
+    assert envs[0] is not None and "review mode" in envs[0]
 
 
 def test_unknown_mode_no_injection():
@@ -443,10 +451,13 @@ def test_no_lazy_tools_means_no_lazy_line():
 
 
 def test_lazy_tools_produce_per_server_prompt_line():
-    calls: list[str] = []
+    """Lazy MCP tools are listed via the environment kwarg, not in system."""
+    systems: list[str] = []
+    envs: list[str | None] = []
 
-    def provider(system, messages, tools, cfg):
-        calls.append(system)
+    def provider(system, messages, tools, cfg, environment=None):
+        systems.append(system)
+        envs.append(environment)
         yield TextChunk(content="ok")
         yield AssistantMessage(content="ok", tool_calls=[])
 
@@ -457,21 +468,21 @@ def test_lazy_tools_produce_per_server_prompt_line():
     ])
     ctx = _ctx()
     list(run("hi", ctx, reg, provider_fn=provider))
-    sys_prompt = calls[0]
-    assert "mcp_promote" in sys_prompt
-    assert "playwright" in sys_prompt
-    assert "github" in sys_prompt
-    assert "navigate" in sys_prompt
-    assert "click" in sys_prompt
-    assert "search" in sys_prompt
+    assert systems[0] == "You are helpful."
+    env = envs[0]
+    assert env is not None
+    for needle in ("mcp_promote", "playwright", "github", "navigate", "click", "search"):
+        assert needle in env
 
 
-def test_lazy_line_appended_after_mode_body():
+def test_lazy_line_and_mode_body_combine_in_environment():
     from tigger.skills import ModeRef
-    calls: list[str] = []
+    systems: list[str] = []
+    envs: list[str | None] = []
 
-    def provider(system, messages, tools, cfg):
-        calls.append(system)
+    def provider(system, messages, tools, cfg, environment=None):
+        systems.append(system)
+        envs.append(environment)
         yield TextChunk(content="ok")
         yield AssistantMessage(content="ok", tool_calls=[])
 
@@ -481,9 +492,10 @@ def test_lazy_line_appended_after_mode_body():
     reg = _registry([_lazy_tool("mcp__pw__navigate")])
     list(run("hi", ctx, reg, provider_fn=provider))
 
-    sys_prompt = calls[0]
-    base_idx = sys_prompt.index("Base.")
-    mode_idx = sys_prompt.index("plan mode")
-    lazy_idx = sys_prompt.index("mcp_promote")
-    assert base_idx < mode_idx < lazy_idx
+    assert systems[0] == "Base."
+    env = envs[0]
+    assert env is not None
+    mode_idx = env.index("plan mode")
+    lazy_idx = env.index("mcp_promote")
+    assert mode_idx < lazy_idx
 

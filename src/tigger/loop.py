@@ -118,14 +118,29 @@ def run(
             if allowed is None or s["function"]["name"] in allowed
         ]
 
+        # System prompt stays bytewise stable across turns within a session.
+        # Dynamic per-turn content (active mode body, lazy MCP tool listing)
+        # is passed separately so the provider can inject it as an
+        # <environment> tail message — keeping the prompt prefix cacheable.
         system = ctx.system_prompt
+        env_parts: list[str] = []
         mode_body = _active_mode_body(ctx)
         if mode_body:
-            system += "\n\n" + mode_body
+            env_parts.append(mode_body)
         lazy_line = _lazy_tools_prompt_line(registry)
         if lazy_line:
-            system += "\n\n" + lazy_line
-        stream = provider_fn(system, ctx.messages, tools_schemas, ctx.config)
+            env_parts.append(lazy_line)
+        environment = "\n\n".join(env_parts) if env_parts else None
+        # Pass `environment` as a keyword arg only when set, so non-tigger
+        # callers of provider_fn (e.g. compaction.summarize_old) and test
+        # fakes with the legacy 4-arg signature keep working unchanged.
+        if environment is not None:
+            stream = provider_fn(
+                system, ctx.messages, tools_schemas, ctx.config,
+                environment=environment,
+            )
+        else:
+            stream = provider_fn(system, ctx.messages, tools_schemas, ctx.config)
         assistant_msg: AssistantMessage | None = None
 
         for chunk in stream:

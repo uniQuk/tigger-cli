@@ -90,10 +90,25 @@ def stream(
     messages: list[Message],
     tools: list[dict],
     config: Config,
+    *,
+    environment: str | None = None,
 ) -> Generator[TextChunk | AssistantMessage | ThinkingEvent | StreamProgress, None, None]:
-    """Stream a chat completion. Yields TextChunk during streaming, then AssistantMessage."""
+    """Stream a chat completion. Yields TextChunk during streaming, then AssistantMessage.
+
+    `environment` carries dynamic per-turn context (active mode body, lazy
+    MCP tool listing) that used to be concatenated onto the system prompt.
+    Pulling it out keeps the system message bytewise stable across turns so
+    the provider can reuse its KV cache prefix; the dynamic content rides
+    as a synthetic <environment>...</environment> user message appended to
+    the tail of the conversation.
+    """
     client = _get_client(config.base_url, config.api_key, config.read_timeout)
     openai_messages = [{"role": "system", "content": system}] + messages_to_openai(messages)
+    if environment:
+        openai_messages.append({
+            "role": "user",
+            "content": f"<environment>\n{environment}\n</environment>",
+        })
     kwargs: dict = dict(
         model=config.model,
         messages=openai_messages,
