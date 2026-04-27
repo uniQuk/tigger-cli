@@ -141,6 +141,49 @@ def test_snip_old_tool_args_keeps_recent_assistant_turns():
     assert out[-1].tool_calls[0].args["content"] == big
 
 
+def test_snip_old_tool_args_does_not_mutate_input():
+    """R2: input messages and their ToolCallRecords must be untouched."""
+    big = "x" * 5000
+    original_args = {"path": "/a.html", "content": big}
+    original_tc = ToolCallRecord(call_id="c1", name="write", args=original_args)
+    msg = Message(role="assistant", content="", tool_calls=[original_tc])
+    msgs = [
+        _msg("user", "go"),
+        msg,
+        _tool_msg("ok"),
+        _assistant_with_tool_call("edit", {"path": "/x", "old_string": "p", "new_string": "q"}),
+        _tool_msg("ok"),
+        _assistant_with_tool_call("edit", {"path": "/x", "old_string": "r", "new_string": "s"}),
+    ]
+    out, snipped = snip_old_tool_args(msgs)
+    assert snipped == 1
+    # Input list still references the original ToolCallRecord with full payload.
+    assert msg.tool_calls[0] is original_tc
+    assert original_tc.args is original_args
+    assert original_args["content"] == big
+    # Output list contains a NEW ToolCallRecord, with stub args.
+    assert out[1].tool_calls[0] is not original_tc
+    assert "snipped" in out[1].tool_calls[0].args["content"]
+
+
+def test_snip_old_tool_args_unchanged_messages_pass_by_reference():
+    """Untouched messages must be the same instance to keep wire bytes stable."""
+    msgs = [
+        _msg("user", "go"),
+        _assistant_with_tool_call("read", {"path": "/a"}),  # not snippable
+        _tool_msg("ok"),
+        _assistant_with_tool_call("edit", {"path": "/x", "old_string": "p", "new_string": "q"}),
+        _tool_msg("ok"),
+        _assistant_with_tool_call("edit", {"path": "/x", "old_string": "r", "new_string": "s"}),
+    ]
+    out, snipped = snip_old_tool_args(msgs)
+    assert snipped == 0
+    # No snipping happened anywhere, so the function may legitimately return
+    # the input list by reference (early-exit branch). Either way, every
+    # message in the output must be the same instance as in the input.
+    assert all(out[i] is msgs[i] for i in range(len(msgs)))
+
+
 def test_snip_old_tool_args_ignores_non_write_edit_tools():
     msgs = [
         _msg("user", "go"),

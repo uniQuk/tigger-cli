@@ -5,7 +5,7 @@ import pathlib
 from collections.abc import Callable
 from typing import NamedTuple
 
-from tigger.types import Config, Message, TextChunk
+from tigger.types import Config, Message, TextChunk, ToolCallRecord
 
 
 class CompactResult(NamedTuple):
@@ -93,12 +93,56 @@ _KEEP_RECENT_ASSISTANT_TURNS = 2
 _ARG_SNIP_THRESHOLD = 1000
 
 
+def _snip_tool_call_args(tc: ToolCallRecord) -> tuple[ToolCallRecord, bool]:
+    """Return (possibly new) ToolCallRecord with large write/edit args replaced.
+
+    Pure: never mutates the input. Returns the original instance unchanged
+    when no snipping applies, so callers can detect whether anything changed
+    via identity comparison.
+    """
+    if tc.name == "write":
+        content = tc.args.get("content")
+        if isinstance(content, str) and len(content) > _ARG_SNIP_THRESHOLD:
+            new_args = {
+                "path": tc.args.get("path", ""),
+                "content": f"[snipped: {len(content)} chars]",
+            }
+            return ToolCallRecord(
+                call_id=tc.call_id,
+                name=tc.name,
+                args=new_args,
+                parse_error_bytes=tc.parse_error_bytes,
+            ), True
+    elif tc.name == "edit":
+        new_args = dict(tc.args)
+        changed = False
+        for field_name in ("old_string", "new_string"):
+            val = new_args.get(field_name)
+            if isinstance(val, str) and len(val) > _ARG_SNIP_THRESHOLD:
+                new_args[field_name] = f"[snipped: {len(val)} chars]"
+                changed = True
+        if changed:
+            return ToolCallRecord(
+                call_id=tc.call_id,
+                name=tc.name,
+                args=new_args,
+                parse_error_bytes=tc.parse_error_bytes,
+            ), True
+    return tc, False
+
+
 def snip_old_tool_args(messages: list[Message]) -> tuple[list[Message], int]:
     """Snip large write/edit arg payloads from old assistant tool_calls.
 
-    Mutates ToolCallRecord.args in place on messages older than the most
-    recent N assistant turns. Returns (messages, snipped_count) — snipped
-    counts individual arg fields replaced.
+    Pure: returns a new list with replacement Message and ToolCallRecord
+    instances where snipping applies. Messages outside the snip window pass
+    through by reference. The input list and the original ToolCallRecords
+    inside it are never mutated, so the in-memory history retained by
+    `RunContext.messages` keeps full payloads available for `/compact`,
+    replay, and any future compaction passes.
+
+    Returns (new_messages_list, snipped_count). `snipped_count` counts
+    individual arg fields replaced, matching the legacy semantics.
     """
     if not messages:
         return messages, 0
@@ -113,30 +157,30 @@ def snip_old_tool_args(messages: list[Message]) -> tuple[list[Message], int]:
     cutoff = assistant_indices[-_KEEP_RECENT_ASSISTANT_TURNS]
 
     snipped = 0
-    for m in messages[:cutoff]:
-        if m.role != "assistant" or not m.tool_calls:
+    out: list[Message] = []
+    for idx, m in enumerate(messages):
+        if idx >= cutoff or m.role != "assistant" or not m.tool_calls:
+            out.append(m)
             continue
+        new_tcs: list[ToolCallRecord] = []
+        message_changed = False
         for tc in m.tool_calls:
-            if tc.name == "write":
-                content = tc.args.get("content")
-                if isinstance(content, str) and len(content) > _ARG_SNIP_THRESHOLD:
-                    tc.args = {
-                        "path": tc.args.get("path", ""),
-                        "content": f"[snipped: {len(content)} chars]",
-                    }
-                    snipped += 1
-            elif tc.name == "edit":
-                new_args = dict(tc.args)
-                changed = False
-                for field_name in ("old_string", "new_string"):
-                    val = new_args.get(field_name)
-                    if isinstance(val, str) and len(val) > _ARG_SNIP_THRESHOLD:
-                        new_args[field_name] = f"[snipped: {len(val)} chars]"
-                        changed = True
-                if changed:
-                    tc.args = new_args
-                    snipped += 1
-    return messages, snipped
+            new_tc, changed = _snip_tool_call_args(tc)
+            if changed:
+                snipped += 1
+                message_changed = True
+            new_tcs.append(new_tc)
+        if message_changed:
+            out.append(Message(
+                role=m.role,
+                content=m.content,
+                tool_calls=new_tcs,
+                tool_call_id=m.tool_call_id,
+                name=m.name,
+            ))
+        else:
+            out.append(m)
+    return out, snipped
 
 
 def summarize_old(
