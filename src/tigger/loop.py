@@ -15,6 +15,7 @@ from tigger.types import (
     Message,
     PermissionRequest,
     RunContext,
+    StreamProgress,
     TextChunk,
     ThinkingEvent,
     ToolEndEvent,
@@ -22,7 +23,7 @@ from tigger.types import (
     TurnDoneEvent,
 )
 
-Event = TextChunk | ToolStartEvent | ToolEndEvent | TurnDoneEvent | ThinkingEvent
+Event = TextChunk | ToolStartEvent | ToolEndEvent | TurnDoneEvent | ThinkingEvent | StreamProgress
 PermissionCallback = Callable[[PermissionRequest], bool]
 
 
@@ -125,6 +126,8 @@ def run(
             if isinstance(chunk, TextChunk):
                 yield chunk
             elif isinstance(chunk, ThinkingEvent):
+                yield chunk
+            elif isinstance(chunk, StreamProgress):
                 yield chunk
             elif isinstance(chunk, AssistantMessage):
                 assistant_msg = chunk

@@ -1,0 +1,31 @@
+{
+  "default_provider": "local",
+  "default_model": "your-model-name",
+  "providers": {
+    "local": {
+      "base_url": "http://localhost:1234/v1",
+      "api_key": "sk-replace-me",
+      "models": [
+        "your-model-name"
+      ]
+    }
+  },
+  "context_limit": 128000,
+  "max_tokens": 32768,
+  "temperature": 0.6,
+  "top_p": 0.95,
+  "top_k": 20,
+  "min_p": 0.0,
+  "repetition_penalty": 1.0,
+  "presence_penalty": 0.0,
+  "chat_template_kwargs": {
+    "enable_thinking": true,
+    "preserve_thinking": true
+  },
+  "permission_mode": "ask",
+  "mode": "ask",
+  "max_depth": 4,
+  "max_retries": 2,
+  "bash_safe_prefixes": [],
+  "rtk": false
+}

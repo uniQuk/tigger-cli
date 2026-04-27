@@ -24,10 +24,18 @@ DEFAULT_READ_TIMEOUT = 0  # 0 = no read timeout (recommended for local models)
 @dataclass(frozen=True)
 class ModelConfig:
     """Per-model sampling overrides. None means use global default."""
+    model: str | None = None          # wire id sent to provider; defaults to dict key
+    name: str | None = None           # human-readable display label
     temperature: float | None = None
     max_tokens: int | None = None
     context_limit: int | None = None
     top_p: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    presence_penalty: float | None = None
+    frequency_penalty: float | None = None
+    repetition_penalty: float | None = None
+    chat_template_kwargs: dict | None = None
     thinking: bool | None = None
 
 
@@ -48,10 +56,12 @@ class ProviderConfig:
 @dataclass(frozen=True)
 class Config:
     base_url: str
-    model: str
+    model: str                       # wire id sent to provider
     api_key: str = "local"
     providers: dict[str, ProviderConfig] = field(default_factory=dict)
     active_provider: str = ""
+    model_slug: str = ""             # dict key for the active model (defaults to model)
+    model_name: str = ""             # display label (falls back to slug)
     context_limit: int = DEFAULT_CONTEXT_LIMIT
     max_tokens: int = DEFAULT_MAX_TOKENS
     temperature: float = DEFAULT_TEMPERATURE
@@ -178,3 +188,13 @@ class TurnDoneEvent:
 class ThinkingEvent:
     """Yielded before a subsequent model call so the UI can show a spinner."""
     pass
+
+
+@dataclass
+class StreamProgress:
+    """Streaming-progress signal: chars produced by the model since the last event.
+
+    Counts reasoning + tool-call argument deltas that aren't surfaced as TextChunk,
+    so the UI can show a live token estimate during tool-heavy turns.
+    """
+    chars: int

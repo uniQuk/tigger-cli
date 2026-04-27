@@ -23,6 +23,43 @@ _PERM_RENAME: dict[str, str] = {"manual": "ask", "auto": "allow", "accept-all": 
 _VALID_PERMISSION_MODES = {"ask", "allow", "bypass"}
 _MODE_RENAME: dict[str, str] = {"ask": "act"}
 
+# Sampling fields that ModelConfig can override on the active Config.
+_OVERRIDE_FIELDS = (
+    "temperature", "max_tokens", "context_limit", "top_p", "top_k",
+    "min_p", "presence_penalty", "frequency_penalty",
+    "repetition_penalty", "chat_template_kwargs",
+)
+# All fields the JSON model entry may set; superset of override fields plus identity.
+_MODEL_CONFIG_FIELDS = ("model", "name", *_OVERRIDE_FIELDS, "thinking")
+
+
+def _model_config_from_dict(raw: dict) -> ModelConfig:
+    """Build a ModelConfig from a JSON model entry, accepting `repeat_penalty` alias."""
+    kwargs = {f: raw.get(f) for f in _MODEL_CONFIG_FIELDS}
+    if kwargs["repetition_penalty"] is None:
+        kwargs["repetition_penalty"] = raw.get("repeat_penalty")
+    return ModelConfig(**kwargs)
+
+
+def _resolve_active_model(
+    provider: ProviderConfig, model_name: str
+) -> tuple[str, str, dict]:
+    """Return (wire_id, display_name, overrides) for *model_name* in *provider*."""
+    wire_id = model_name
+    display_name = model_name
+    overrides: dict = {}
+    if isinstance(provider.models, dict) and model_name in provider.models:
+        mcfg = provider.models[model_name]
+        if mcfg.model:
+            wire_id = mcfg.model
+        if mcfg.name:
+            display_name = mcfg.name
+        for f in _OVERRIDE_FIELDS:
+            val = getattr(mcfg, f)
+            if val is not None:
+                overrides[f] = val
+    return wire_id, display_name, overrides
+
 
 def derive_provider_name(base_url: str) -> str:
     """Derive a short provider name from a base URL's hostname."""
@@ -40,19 +77,13 @@ def switch_model(config: Config, provider_name: str, model_name: str) -> Config:
     """Return a new Config with the active provider and model switched."""
     import dataclasses
     provider = config.providers[provider_name]
-    overrides = {}
-    if isinstance(provider.models, dict) and model_name in provider.models:
-        mcfg = provider.models[model_name]
-        if mcfg.temperature is not None:
-            overrides["temperature"] = mcfg.temperature
-        if mcfg.max_tokens is not None:
-            overrides["max_tokens"] = mcfg.max_tokens
-        if mcfg.context_limit is not None:
-            overrides["context_limit"] = mcfg.context_limit
+    wire_id, display_name, overrides = _resolve_active_model(provider, model_name)
     return dataclasses.replace(
         config,
         active_provider=provider_name,
-        model=model_name,
+        model=wire_id,
+        model_slug=model_name,
+        model_name=display_name,
         base_url=provider.base_url,
         api_key=provider.api_key,
         **overrides,
@@ -96,16 +127,7 @@ def load_config(path: pathlib.Path) -> Config:
             elif isinstance(raw_models, dict):
                 models = {}
                 for mname, mcfg in raw_models.items():
-                    if isinstance(mcfg, dict):
-                        models[mname] = ModelConfig(
-                            temperature=mcfg.get("temperature"),
-                            max_tokens=mcfg.get("max_tokens"),
-                            context_limit=mcfg.get("context_limit"),
-                            top_p=mcfg.get("top_p"),
-                            thinking=mcfg.get("thinking"),
-                        )
-                    else:
-                        models[mname] = ModelConfig()
+                    models[mname] = _model_config_from_dict(mcfg) if isinstance(mcfg, dict) else ModelConfig()
             else:
                 models = []
             providers[name] = ProviderConfig(
@@ -146,15 +168,24 @@ def load_config(path: pathlib.Path) -> Config:
         active_provider = prov_name
         active_model = model_name
 
+    wire_id, display_name, overrides = _resolve_active_model(active_prov, active_model)
+    # Per-model overrides win over top-level config; top-level wins over defaults.
+    def pick(field: str, default):
+        if field in overrides:
+            return overrides[field]
+        return data.get(field, default)
+
     return Config(
         base_url=active_prov.base_url,
-        model=active_model,
+        model=wire_id,
+        model_slug=active_model,
+        model_name=display_name,
         api_key=active_prov.api_key,
         providers=providers,
         active_provider=active_provider,
-        context_limit=data.get("context_limit", DEFAULT_CONTEXT_LIMIT),
-        max_tokens=data.get("max_tokens", DEFAULT_MAX_TOKENS),
-        temperature=data.get("temperature", DEFAULT_TEMPERATURE),
+        context_limit=pick("context_limit", DEFAULT_CONTEXT_LIMIT),
+        max_tokens=pick("max_tokens", DEFAULT_MAX_TOKENS),
+        temperature=pick("temperature", DEFAULT_TEMPERATURE),
         permission_mode=perm,
         mode=mode,
         max_depth=data.get("max_depth", DEFAULT_MAX_DEPTH),
@@ -162,13 +193,16 @@ def load_config(path: pathlib.Path) -> Config:
         bash_safe_prefixes=data.get("bash_safe_prefixes", []),
         rtk=data.get("rtk", False),
         read_timeout=_resolve_read_timeout(data.get("read_timeout")),
-        top_p=data.get("top_p"),
-        top_k=data.get("top_k"),
-        min_p=data.get("min_p"),
-        presence_penalty=data.get("presence_penalty"),
-        frequency_penalty=data.get("frequency_penalty"),
-        repetition_penalty=data.get("repetition_penalty", data.get("repeat_penalty")),
-        chat_template_kwargs=data.get("chat_template_kwargs", {}) or {},
+        top_p=pick("top_p", None),
+        top_k=pick("top_k", None),
+        min_p=pick("min_p", None),
+        presence_penalty=pick("presence_penalty", None),
+        frequency_penalty=pick("frequency_penalty", None),
+        repetition_penalty=overrides.get(
+            "repetition_penalty",
+            data.get("repetition_penalty", data.get("repeat_penalty")),
+        ),
+        chat_template_kwargs=pick("chat_template_kwargs", {}) or {},
     )
 
 
@@ -216,7 +250,7 @@ def write_config(path: pathlib.Path, config: Config) -> None:
             models_data = {}
             for mname, mcfg in prov.models.items():
                 cfg_dict = {}
-                for f in ("temperature", "max_tokens", "context_limit", "top_p", "thinking"):
+                for f in _MODEL_CONFIG_FIELDS:
                     val = getattr(mcfg, f)
                     if val is not None:
                         cfg_dict[f] = val
@@ -226,7 +260,7 @@ def write_config(path: pathlib.Path, config: Config) -> None:
             providers_data[name]["models"] = prov.models
     data = {
         "default_provider": config.active_provider,
-        "default_model": config.model,
+        "default_model": config.model_slug or config.model,
         "providers": providers_data,
         "context_limit": config.context_limit,
         "max_tokens": config.max_tokens,

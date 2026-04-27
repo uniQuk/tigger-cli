@@ -230,7 +230,7 @@ def _toolbar(ctx: RunContext) -> str:
         tools_str = f"  tools: {', '.join(ui.recent_tools)}"
     rtk_str = "  rtk" if ctx.config.rtk else ""
     return (
-        f" {ctx.config.model}"
+        f" {ctx.config.model_name or ctx.config.model}"
         f"  mode:{ctx.config.mode}"
         f"  perm:{ctx.config.permission_mode}"
         f"  {pct:.1f}% context"
@@ -413,6 +413,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         # Run agent turn.
         turn_start = time.time()
         output_chars = [0]
+        ui.set_turn_start(turn_start, output_chars)
         text_buf: list[str] = []
 
         try:
@@ -464,6 +465,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         turn_tokens = output_chars[0] // 4
         stats.output_tokens += turn_tokens
         elapsed = time.time() - turn_start
+        ui.set_turn_start(None)
         ui.print_turn_summary(turn_tokens, elapsed)
 
         # Persist new messages to the session file.

@@ -19,6 +19,7 @@ from tigger._constants import CONFIG_DIR, home_config_dir
 from tigger._spinners import pick_message
 from tigger.types import (
     PermissionRequest,
+    StreamProgress,
     TextChunk,
     ThinkingEvent,
     ToolEndEvent,
@@ -46,16 +47,26 @@ BATCHABLE_TOOLS = {"read", "glob", "grep"}
 _activity_status = None
 _activity_stop = None
 _activity_thread = None
+_turn_start: float | None = None
+_turn_token_counter: list[int] | None = None
+
+
+def set_turn_start(start: float | None, token_counter: list[int] | None = None) -> None:
+    """Record the wall-clock start of the current turn so live spinners can show elapsed time and tokens."""
+    global _turn_start, _turn_token_counter
+    _turn_start = start
+    _turn_token_counter = token_counter
 
 
 def _start_activity(message: str, *, rotate: bool = False) -> None:
     """Start or update a live status spinner.
 
-    When *rotate* is True, the message cycles through random spinner
-    messages every 2.5-5s on a background thread (used for thinking pauses).
+    Always runs a background ticker so the elapsed-time counter stays live,
+    even between tool calls. When *rotate* is True, the message also cycles
+    through random spinner messages every 2.5-5s.
     """
     global _activity_status, _activity_stop, _activity_thread
-    # Stop any existing rotation thread but keep the status object alive
+    # Stop any existing ticker thread but keep the status object alive
     if _activity_stop is not None:
         _activity_stop.set()
         if _activity_thread is not None:
@@ -67,24 +78,29 @@ def _start_activity(message: str, *, rotate: bool = False) -> None:
         _activity_status = console.status("", spinner="dots")
         _activity_status.start()
 
-    if rotate:
-        _activity_stop = threading.Event()
+    _activity_stop = threading.Event()
 
-        def _tick() -> None:
-            msg = message
-            next_change = time.time() + random.uniform(2.5, 5.0)
-            while not _activity_stop.is_set():
-                now = time.time()
-                if now >= next_change:
-                    msg = pick_message()
-                    next_change = now + random.uniform(2.5, 5.0)
-                _activity_status.update(f"[#999999]{msg}[/]")
-                _activity_stop.wait(0.1)
+    def _tick() -> None:
+        msg = message
+        next_change = time.time() + random.uniform(2.5, 5.0)
+        while not _activity_stop.is_set():
+            now = time.time()
+            if rotate and now >= next_change:
+                msg = pick_message()
+                next_change = now + random.uniform(2.5, 5.0)
+            # Snapshot module globals — set_turn_start may clear them mid-tick.
+            ts = _turn_start
+            tc = _turn_token_counter
+            parts = [msg]
+            if ts is not None:
+                parts.append(format_elapsed(now - ts))
+            if tc and tc[0] > 0:
+                parts.append(f"↓ {tc[0] // 4} tokens")
+            _activity_status.update(f"[#999999]{' · '.join(parts)}[/]")
+            _activity_stop.wait(0.5)
 
-        _activity_thread = threading.Thread(target=_tick, daemon=True)
-        _activity_thread.start()
-    else:
-        _activity_status.update(message)
+    _activity_thread = threading.Thread(target=_tick, daemon=True)
+    _activity_thread.start()
 
 
 def _stop_activity() -> None:
@@ -162,6 +178,18 @@ def print_logo(provider: str | None = None, model: str | None = None, cwd: str |
         print_startup_info(provider, model, cwd, rtk=rtk)
     else:
         console.print()
+
+
+def format_elapsed(seconds: float) -> str:
+    """Compact elapsed-time format for live spinners: 42s, 5m 12s, 23m, 1h 4m."""
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    if s < 600:
+        return f"{s // 60}m {s % 60}s"
+    if s < 3600:
+        return f"{s // 60}m"
+    return f"{s // 3600}h {(s % 3600) // 60}m"
 
 
 def format_duration(seconds: float) -> str:
@@ -389,7 +417,7 @@ def Spinner(start: float, token_counter: list[int] | None = None):
                     msg = pick_message()
                     next_change = now + random.uniform(5.0, 15.0)
                 elapsed = now - start
-                parts = [msg, f"{elapsed:.0f}s"]
+                parts = [msg, format_elapsed(elapsed)]
                 if token_counter and token_counter[0] > 0:
                     tok = token_counter[0] // 4
                     parts.append(f"↓ {tok} tokens")
@@ -483,6 +511,8 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
         _flush_tool_buffer()
         text_buf.append(event.content)
         output_chars[0] += len(event.content)
+    elif isinstance(event, StreamProgress):
+        output_chars[0] += event.chars
     elif isinstance(event, ToolStartEvent):
         _flush_text(text_buf)
         recent_tools.append(event.name)

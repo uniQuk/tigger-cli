@@ -35,11 +35,12 @@ def is_global_config(config_path: pathlib.Path) -> bool:
 
 
 def _seed_tier(internal_subdir: pathlib.Path, target_subdir: pathlib.Path,
-               is_file: bool) -> bool:
+               is_file: bool, force: bool = False) -> bool:
     """Copy items from *internal_subdir* to *target_subdir* if absent.
 
     Underscore-prefixed items are skipped when the non-prefixed variant
-    already exists (legacy of a prior seed). Returns True if anything copied.
+    already exists (legacy of a prior seed). When *force* is True, existing
+    targets are overwritten. Returns True if anything copied.
     """
     if not internal_subdir.exists():
         return False
@@ -53,22 +54,27 @@ def _seed_tier(internal_subdir: pathlib.Path, target_subdir: pathlib.Path,
             if not src.is_dir():
                 continue
         target = target_subdir / src.name
-        if target.exists():
+        if target.exists() and not force:
             continue
-        if src.name.startswith("_"):
+        if src.name.startswith("_") and not force:
             non_prefixed = target_subdir / src.name[1:]
             if non_prefixed.exists():
                 continue
         if is_file:
+            if target.exists() and force:
+                target.unlink()
             shutil.copy2(src, target)
         else:
+            if target.exists() and force:
+                shutil.rmtree(target)
             shutil.copytree(src, target)
         seeded = True
     return seeded
 
 
-def seed_global(global_dir: pathlib.Path, internal_dir: pathlib.Path | None = None) -> bool:
-    """Copy internal skills/agents/modes to ~/.tigger/ if they don't exist yet.
+def seed_global(global_dir: pathlib.Path, internal_dir: pathlib.Path | None = None,
+                force: bool = False) -> bool:
+    """Copy internal skills/agents/modes/hooks to ~/.tigger/ if they don't exist yet.
 
     Returns True if anything was seeded, False if global already populated.
     This runs once on first launch — after that, ~/.tigger/ is the living
@@ -77,9 +83,10 @@ def seed_global(global_dir: pathlib.Path, internal_dir: pathlib.Path | None = No
     if internal_dir is None:
         internal_dir = INTERNAL_DIR
     seeded = False
-    seeded |= _seed_tier(internal_dir / "skills", global_dir / "skills", is_file=False)
-    seeded |= _seed_tier(internal_dir / "agents", global_dir / "agents", is_file=True)
-    seeded |= _seed_tier(internal_dir / "modes",  global_dir / "modes",  is_file=True)
+    seeded |= _seed_tier(internal_dir / "skills", global_dir / "skills", is_file=False, force=force)
+    seeded |= _seed_tier(internal_dir / "agents", global_dir / "agents", is_file=True, force=force)
+    seeded |= _seed_tier(internal_dir / "modes",  global_dir / "modes",  is_file=True, force=force)
+    seeded |= _seed_tier(internal_dir / "hooks",  global_dir / "hooks",  is_file=True, force=force)
     return seeded
 
 

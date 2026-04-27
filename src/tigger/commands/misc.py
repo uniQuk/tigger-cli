@@ -69,7 +69,8 @@ def cmd_model(args: str, ctx: RunContext) -> None:
     # No providers configured — fall back to simple name-only switch
     if not providers:
         if not args.strip():
-            print(f"Current model: {ctx.config.model}")
+            label = ctx.config.model_name or ctx.config.model
+            print(f"Current model: {label} ({ctx.config.model})")
             return
         ctx.config = dataclasses.replace(ctx.config, model=args.strip())
         print(f"Model set to: {args.strip()}")
@@ -120,8 +121,13 @@ def cmd_model(args: str, ctx: RunContext) -> None:
             numbered.append((pname, mname))
             idx = len(numbered)
             active = " (active)" if (pname == ctx.config.active_provider
-                                     and mname == ctx.config.model) else ""
-            print(f"    {idx}. {mname}{active}")
+                                     and mname == ctx.config.model_slug) else ""
+            label = mname
+            if isinstance(prov.models, dict):
+                mcfg = prov.models.get(mname)
+                if mcfg and mcfg.name:
+                    label = f"{mcfg.name} ({mname})"
+            print(f"    {idx}. {label}{active}")
 
     try:
         choice = input(f"\nPick [1-{len(numbered)}]: ").strip()

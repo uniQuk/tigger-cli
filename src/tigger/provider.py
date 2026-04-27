@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from collections.abc import Generator
 
 import httpx
 from openai import OpenAI
 
-from tigger.types import AssistantMessage, Config, Message, TextChunk, ThinkingEvent, ToolCallRecord
+from tigger.types import AssistantMessage, Config, Message, StreamProgress, TextChunk, ThinkingEvent, ToolCallRecord
+
+_perf_kwargs_logged = False
 
 _client_cache: dict[tuple[str, str, int], OpenAI] = {}
 
@@ -86,7 +90,7 @@ def stream(
     messages: list[Message],
     tools: list[dict],
     config: Config,
-) -> Generator[TextChunk | AssistantMessage | ThinkingEvent, None, None]:
+) -> Generator[TextChunk | AssistantMessage | ThinkingEvent | StreamProgress, None, None]:
     """Stream a chat completion. Yields TextChunk during streaming, then AssistantMessage."""
     client = _get_client(config.base_url, config.api_key, config.read_timeout)
     openai_messages = [{"role": "system", "content": system}] + messages_to_openai(messages)
@@ -126,9 +130,22 @@ def stream(
     input_tokens = 0
     output_tokens = 0
     finish_reason = ""
+    pending_progress = 0  # coalesce StreamProgress: flush every ~200 chars
 
     # Request usage stats if the provider supports it; fall back without on error.
     kwargs["stream_options"] = {"include_usage": True}
+
+    # One-shot diagnostic: when TIGGER_PERF is set, print the outgoing kwargs
+    # (minus the messages payload) so we can confirm max_tokens, top_p, etc.
+    # are actually being sent to the local server.
+    global _perf_kwargs_logged
+    if not _perf_kwargs_logged and os.environ.get("TIGGER_PERF", "").strip():
+        diag = {k: v for k, v in kwargs.items() if k != "messages"}
+        diag["_messages_count"] = len(kwargs.get("messages", []))
+        sys.stderr.write(f"[perf] outgoing kwargs: {json.dumps(diag, default=str)}\n")
+        sys.stderr.flush()
+        _perf_kwargs_logged = True
+
     try:
         response = client.chat.completions.create(**kwargs)
     except Exception:
@@ -152,6 +169,10 @@ def stream(
             reasoning = getattr(delta, "reasoning_content", None)
             if reasoning:
                 collected_thinking += reasoning
+                pending_progress += len(reasoning)
+                if pending_progress >= 200:
+                    yield StreamProgress(chars=pending_progress)
+                    pending_progress = 0
             if delta.content:
                 collected_text += delta.content
                 yield TextChunk(content=delta.content)
@@ -167,12 +188,20 @@ def stream(
                         collected_tool_calls[idx]["id"] = tc_chunk.id
                     if tc_chunk.function.name:
                         collected_tool_calls[idx]["function"]["name"] += tc_chunk.function.name
+                        pending_progress += len(tc_chunk.function.name)
                     if tc_chunk.function.arguments:
                         collected_tool_calls[idx]["function"]["arguments"] += tc_chunk.function.arguments
+                        pending_progress += len(tc_chunk.function.arguments)
+                    if pending_progress >= 200:
+                        yield StreamProgress(chars=pending_progress)
+                        pending_progress = 0
     except Exception:
         if collected_text:
             yield TextChunk(content="\n[response interrupted, retrying]\n")
         raise
+
+    if pending_progress:
+        yield StreamProgress(chars=pending_progress)
 
     # If reasoning came in via the separate field and isn't already wrapped
     # in <think> tags inside content, prepend it so it persists in history.

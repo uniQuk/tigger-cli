@@ -1,6 +1,12 @@
 import pytest
-from tigger.types import Config, Message
-from tigger.compaction import estimate_tokens, snip_old_results, maybe_compact, CompactResult
+from tigger.types import Config, Message, ToolCallRecord
+from tigger.compaction import (
+    CompactResult,
+    estimate_tokens,
+    maybe_compact,
+    snip_old_results,
+    snip_old_tool_args,
+)
 
 def _cfg(**kw):
     return Config(base_url="http://x", model="m", **kw)
@@ -68,6 +74,86 @@ def test_maybe_compact_returns_compact_result_with_snip_count():
     result, cr = maybe_compact(msgs, cfg, provider_fn=None)
     assert cr.snipped > 0
     assert cr.summarized == 0
+
+
+def _assistant_with_tool_call(name: str, args: dict) -> Message:
+    return Message(
+        role="assistant",
+        content="",
+        tool_calls=[ToolCallRecord(call_id="c1", name=name, args=args)],
+    )
+
+
+def test_snip_old_tool_args_replaces_large_write_content():
+    big_content = "x" * 5000
+    msgs = [
+        _msg("user", "do it"),
+        _assistant_with_tool_call("write", {"path": "/a.html", "content": big_content}),
+        _tool_msg("ok"),
+        _assistant_with_tool_call("edit", {"path": "/a.html", "old_string": "<a/>", "new_string": "<b/>"}),
+        _tool_msg("ok"),
+        _assistant_with_tool_call("write", {"path": "/b.html", "content": "small"}),
+    ]
+    out, snipped = snip_old_tool_args(msgs)
+    assert snipped == 1
+    # Old write payload was replaced with placeholder; path preserved
+    old_write = out[1].tool_calls[0].args
+    assert old_write["path"] == "/a.html"
+    assert "snipped" in old_write["content"]
+    assert "5000" in old_write["content"]
+    # Recent assistant turns left intact
+    assert out[-1].tool_calls[0].args["content"] == "small"
+
+
+def test_snip_old_tool_args_replaces_large_edit_strings():
+    big_new = "y" * 4000
+    msgs = [
+        _msg("user", "go"),
+        _assistant_with_tool_call("edit", {"path": "/a", "old_string": "x", "new_string": big_new}),
+        _tool_msg("ok"),
+        _assistant_with_tool_call("edit", {"path": "/a", "old_string": "p", "new_string": "q"}),
+        _tool_msg("ok"),
+        _assistant_with_tool_call("edit", {"path": "/a", "old_string": "r", "new_string": "s"}),
+    ]
+    out, snipped = snip_old_tool_args(msgs)
+    assert snipped == 1
+    snipped_args = out[1].tool_calls[0].args
+    assert snipped_args["path"] == "/a"
+    assert "snipped" in snipped_args["new_string"]
+    # Untouched fields stay intact
+    assert snipped_args["old_string"] == "x"
+
+
+def test_snip_old_tool_args_keeps_recent_assistant_turns():
+    # Even with huge args, the most recent assistant turns are not snipped.
+    big = "z" * 5000
+    msgs = [
+        _msg("user", "go"),
+        _assistant_with_tool_call("write", {"path": "/a", "content": big}),
+        _tool_msg("ok"),
+        _assistant_with_tool_call("write", {"path": "/b", "content": big}),
+    ]
+    out, snipped = snip_old_tool_args(msgs)
+    # Only one assistant turn (the older one) should survive snipping.
+    # With keep_recent=2, both should survive when there are exactly 2.
+    assert snipped == 0
+    assert out[1].tool_calls[0].args["content"] == big
+    assert out[-1].tool_calls[0].args["content"] == big
+
+
+def test_snip_old_tool_args_ignores_non_write_edit_tools():
+    msgs = [
+        _msg("user", "go"),
+        _assistant_with_tool_call("read", {"path": "/a"}),
+        _tool_msg("ok"),
+        _assistant_with_tool_call("edit", {"path": "/a", "old_string": "p", "new_string": "q"}),
+        _tool_msg("ok"),
+        _assistant_with_tool_call("edit", {"path": "/a", "old_string": "r", "new_string": "s"}),
+    ]
+    out, snipped = snip_old_tool_args(msgs)
+    assert snipped == 0
+    # Read args left alone regardless of size
+    assert out[1].tool_calls[0].args == {"path": "/a"}
 
 
 def test_estimate_tokens_uses_tiktoken_when_available():

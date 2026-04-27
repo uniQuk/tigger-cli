@@ -76,6 +76,69 @@ def snip_old_results(messages: list[Message]) -> tuple[list[Message], int]:
     return compacted + recent, snipped
 
 
+# Always-on snipping: replace large write/edit arguments in old assistant
+# tool_calls with a placeholder. The model needs to see *that* it issued an
+# edit on a path, but doesn't need the original new_string (often thousands
+# of tokens) for any later reasoning — the next tool result already reflects
+# the file's current state. Without this, every prior edit's full payload is
+# reprocessed every turn. Cheap (no LLM call), runs on every turn.
+
+# How many of the most recent assistant turns to leave fully intact. The
+# model likely needs the immediately-preceding edit args to coordinate
+# follow-up edits; older ones are dead weight.
+_KEEP_RECENT_ASSISTANT_TURNS = 2
+
+# Per-arg-field snip threshold (chars). Smaller payloads aren't worth the
+# placeholder overhead, and we want to leave most ordinary tool calls alone.
+_ARG_SNIP_THRESHOLD = 1000
+
+
+def snip_old_tool_args(messages: list[Message]) -> tuple[list[Message], int]:
+    """Snip large write/edit arg payloads from old assistant tool_calls.
+
+    Mutates ToolCallRecord.args in place on messages older than the most
+    recent N assistant turns. Returns (messages, snipped_count) — snipped
+    counts individual arg fields replaced.
+    """
+    if not messages:
+        return messages, 0
+
+    # Find the cutoff: keep the last N assistant turns intact.
+    assistant_indices = [
+        i for i, m in enumerate(messages)
+        if m.role == "assistant" and m.tool_calls
+    ]
+    if len(assistant_indices) <= _KEEP_RECENT_ASSISTANT_TURNS:
+        return messages, 0
+    cutoff = assistant_indices[-_KEEP_RECENT_ASSISTANT_TURNS]
+
+    snipped = 0
+    for m in messages[:cutoff]:
+        if m.role != "assistant" or not m.tool_calls:
+            continue
+        for tc in m.tool_calls:
+            if tc.name == "write":
+                content = tc.args.get("content")
+                if isinstance(content, str) and len(content) > _ARG_SNIP_THRESHOLD:
+                    tc.args = {
+                        "path": tc.args.get("path", ""),
+                        "content": f"[snipped: {len(content)} chars]",
+                    }
+                    snipped += 1
+            elif tc.name == "edit":
+                new_args = dict(tc.args)
+                changed = False
+                for field_name in ("old_string", "new_string"):
+                    val = new_args.get(field_name)
+                    if isinstance(val, str) and len(val) > _ARG_SNIP_THRESHOLD:
+                        new_args[field_name] = f"[snipped: {len(val)} chars]"
+                        changed = True
+                if changed:
+                    tc.args = new_args
+                    snipped += 1
+    return messages, snipped
+
+
 def summarize_old(
     messages: list[Message],
     config: Config,
@@ -156,12 +219,14 @@ def maybe_compact(
     Returns (possibly shorter message list, CompactResult).
     """
     tokens_before = estimate_tokens(messages)
+    messages, arg_snipped = snip_old_tool_args(messages)
+
     # 0.85 instead of 0.70 — our cl100k_base estimator undercounts tokens for
     # non-Claude tokenizers (e.g. Qwen), so a lower threshold compacts too
     # eagerly and triggers an extra summarization model call mid-task.
     threshold = config.context_limit * 0.85
     if not force and tokens_before < threshold:
-        return messages, CompactResult(snipped=0, summarized=0,
+        return messages, CompactResult(snipped=arg_snipped, summarized=0,
                                        tokens_before=tokens_before,
                                        tokens_after=tokens_before)
     messages, snipped = snip_old_results(messages)

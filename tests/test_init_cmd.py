@@ -95,6 +95,96 @@ def test_init_global_preserves_customizations(tmp_path, monkeypatch, capsys):
     assert (global_dir / "skills" / "debug" / "SKILL.md").read_text() == "my custom debug"
 
 
+def test_init_force_overwrites_project(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    ai_dir = tmp_path / CONFIG_DIR
+    ai_dir.mkdir()
+    (ai_dir / "system.md").write_text("custom")
+    cmd_init("--force", _ctx())
+    assert (ai_dir / "system.md").read_text() != "custom"
+    out = capsys.readouterr().out
+    assert "Overwritten" in out
+
+
+def test_init_global_seeds_system_md(tmp_path, monkeypatch, capsys):
+    global_dir = tmp_path / ".tigger"
+    monkeypatch.setattr("tigger.commands.init.home_config_dir", lambda: global_dir)
+    cmd_init("--global", _ctx())
+    assert (global_dir / "system.md").exists()
+    assert (global_dir / "system.md").read_text().strip() != ""
+
+
+def test_init_global_force_overwrites(tmp_path, monkeypatch, capsys):
+    global_dir = tmp_path / ".tigger"
+    monkeypatch.setattr("tigger.commands.init.home_config_dir", lambda: global_dir)
+    cmd_init("--global", _ctx())
+    (global_dir / "system.md").write_text("user-edited")
+    capsys.readouterr()
+    cmd_init("--global --force", _ctx())
+    assert (global_dir / "system.md").read_text() != "user-edited"
+    out = capsys.readouterr().out
+    assert "Re-seeded" in out
+
+
+def test_init_seeds_config_json(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cmd_init("", _ctx())
+    cfg = tmp_path / CONFIG_DIR / "config.json"
+    assert cfg.exists()
+    import json
+    data = json.loads(cfg.read_text())
+    assert "chat_template_kwargs" in data
+    assert "top_k" in data
+
+
+def test_init_global_seeds_config_json(tmp_path, monkeypatch):
+    global_dir = tmp_path / ".tigger"
+    monkeypatch.setattr("tigger.commands.init.home_config_dir", lambda: global_dir)
+    cmd_init("--global", _ctx())
+    assert (global_dir / "config.json").exists()
+
+
+def test_init_config_backfills_missing_keys_preserves_existing(tmp_path, monkeypatch, capsys):
+    """Without --force: user credentials preserved; missing keys backfilled."""
+    import json
+    monkeypatch.chdir(tmp_path)
+    ai_dir = tmp_path / CONFIG_DIR
+    ai_dir.mkdir()
+    user_cfg = {
+        "default_provider": "my-real-server",
+        "providers": {"my-real-server": {"base_url": "http://10.0.0.1", "api_key": "secret"}},
+        "max_tokens": 999,
+    }
+    (ai_dir / "config.json").write_text(json.dumps(user_cfg))
+    cmd_init("", _ctx())
+    after = json.loads((ai_dir / "config.json").read_text())
+    assert after["default_provider"] == "my-real-server"
+    assert after["providers"]["my-real-server"]["api_key"] == "secret"
+    assert after["max_tokens"] == 999
+    assert "top_k" in after
+    assert "chat_template_kwargs" in after
+
+
+def test_init_force_overwrites_config_json(tmp_path, monkeypatch, capsys):
+    """With --force: config.json is replaced wholesale from the bundled example."""
+    import json
+    monkeypatch.chdir(tmp_path)
+    ai_dir = tmp_path / CONFIG_DIR
+    ai_dir.mkdir()
+    (ai_dir / "config.json").write_text(json.dumps({"default_provider": "my-real-server"}))
+    cmd_init("--force", _ctx())
+    after = json.loads((ai_dir / "config.json").read_text())
+    assert after["default_provider"] == "local"
+    assert after["providers"]["local"]["api_key"] == "sk-replace-me"
+
+
+def test_init_example_hook_disabled_by_default(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cmd_init("", _ctx())
+    hook_text = (tmp_path / CONFIG_DIR / "hooks" / "example-hook.md").read_text()
+    assert "enabled: false" in hook_text
+
+
 def test_init_without_global_uses_cwd(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     cmd_init("", _ctx())
