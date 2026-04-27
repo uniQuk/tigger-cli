@@ -17,8 +17,34 @@ __all__ = [
     "load_skills",
     "load_skills_dir",
     "match_skill",
+    "parse_output_budget",
     "warn_on_command_collisions",
 ]
+
+
+def parse_output_budget(raw: object) -> int | None:
+    """Parse the `output_budget` frontmatter field.
+
+    - Missing / None → None (inherit default)
+    - Integer (or numeric string) → that integer
+    - "unbounded" (case-insensitive) → None (no gate)
+    - Anything else → None (silently fall back rather than crashing skill load)
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None  # YAML true/false would coerce to 1/0 — reject.
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str):
+        s = raw.strip()
+        if s.lower() == "unbounded":
+            return None
+        try:
+            return int(s)
+        except ValueError:
+            return None
+    return None
 
 
 @dataclass
@@ -33,6 +59,11 @@ class SkillDef:
     assets: pathlib.Path | None = None              # assets/ subdir path
     inject_references: bool = True                  # auto-inject references into rendered prompt
     agent: str | None = None                         # delegate to named agent when context=fork
+    # Per-call output budget (chars) for write.content / edit.new_string|old_string
+    # when this skill is the active execution context. None means inherit from
+    # config.output_budget_default. 0 means disable the gate explicitly.
+    # YAML literal "unbounded" parses to None.
+    output_budget: int | None = None
 
     def render(self, user_input: str) -> str:
         args = user_input
@@ -106,6 +137,7 @@ def load_skills(path: pathlib.Path) -> list[SkillDef]:
             context=fm.get("context", "inline"),
             body=b["body"],
             agent=fm.get("agent"),
+            output_budget=parse_output_budget(fm.get("output_budget")),
         ))
     return skills
 
@@ -161,6 +193,7 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
             assets=assets,
             inject_references=fm.get("inject_references", True),
             agent=fm.get("agent"),
+            output_budget=parse_output_budget(fm.get("output_budget")),
         ))
     return skills
 

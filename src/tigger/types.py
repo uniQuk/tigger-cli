@@ -71,6 +71,11 @@ class Config:
     max_retries: int = DEFAULT_MAX_RETRIES
     bash_safe_prefixes: list[str] = field(default_factory=list)
     rtk: bool = False
+    # Default per-call output budget (chars) for `write.content` and
+    # `edit.new_string`/`old_string` when the active skill does not set
+    # its own. 0 disables the gate. Skills opt in by declaring
+    # `output_budget` in their YAML frontmatter.
+    output_budget_default: int = 0
     read_timeout: int = DEFAULT_READ_TIMEOUT
     top_p: float | None = None
     top_k: int | None = None
@@ -137,6 +142,10 @@ class RunContext:
     turn: int = 0
     trust_level: TrustLevel = TrustLevel.READONLY
     modes: list[ModeRef] = field(default_factory=list)
+    # Per-call output budget (chars) for write/edit content fields. None
+    # means inherit from `config.output_budget_default`. 0 disables the
+    # gate. Set in `loop.run_forked` from the active skill's frontmatter.
+    output_budget: int | None = None
 
 
 # ── Events yielded by the agent loop ──────────────────────────────────────

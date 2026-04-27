@@ -191,6 +191,7 @@ def load_config(path: pathlib.Path) -> Config:
         max_depth=data.get("max_depth", DEFAULT_MAX_DEPTH),
         max_retries=data.get("max_retries", DEFAULT_MAX_RETRIES),
         bash_safe_prefixes=data.get("bash_safe_prefixes", []),
+        output_budget_default=data.get("output_budget_default", 0),
         rtk=data.get("rtk", False),
         read_timeout=_resolve_read_timeout(data.get("read_timeout")),
         top_p=pick("top_p", None),
