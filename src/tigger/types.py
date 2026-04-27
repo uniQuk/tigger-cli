@@ -62,6 +62,13 @@ class Config:
     bash_safe_prefixes: list[str] = field(default_factory=list)
     rtk: bool = False
     read_timeout: int = DEFAULT_READ_TIMEOUT
+    top_p: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    presence_penalty: float | None = None
+    frequency_penalty: float | None = None
+    repetition_penalty: float | None = None
+    chat_template_kwargs: dict = field(default_factory=dict)
 
 
 @dataclass

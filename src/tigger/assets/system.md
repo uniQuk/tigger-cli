@@ -53,7 +53,11 @@ Follow these patterns for common operations:
 - **Modifying code**: read the file, understand the context, then edit with targeted replacements. Never write to an existing file.
 - **Running tests**: use bash with the project's test command. Check the project for test configuration first (pytest.ini, package.json scripts, Makefile, etc.).
 - **Exploring a new project**: read README.md and key config files (pyproject.toml, package.json, Cargo.toml, Makefile) before diving into source code.
-- **Writing large files**: A single `write` call must fit inside the output token budget. For files larger than ~2-3KB (HTML pages, long JSON, generated reports), do not attempt one big `write`. Instead: `write` a minimal stub first (e.g. `<!doctype html><html></html>`, or `{}` for JSON), then grow the file with successive `edit` calls, each replacing a small, well-defined section. If a `write` call returns "call was cut off — no arguments were received before the stream ended", that is a max_tokens truncation — switch to the stub-then-edit strategy on retry instead of repeating the same large call.
+- **Writing large files (CRITICAL — applies to ALL skills, templates, and generated content)**: A single `write` call's arguments must fit inside the output token budget, and large files trigger truncation, retries, and full-history re-sends that compound badly. Default rule: if you expect the final file to exceed ~3KB / ~80 lines (HTML pages, SVG diagrams, long JSON, generated reports, multi-section markdown), DO NOT attempt one big `write`, even if a skill or template appears to ask for it. Always:
+  1. `write` a minimal stub first — e.g. `<!doctype html><html><body></body></html>`, `{}` for JSON, the document skeleton with empty sections for markdown, or the SVG root element with empty `<g>` groups for diagrams.
+  2. Grow the file with a sequence of small, targeted `edit` calls, each adding or replacing one well-defined section (one component, one row, one paragraph). Aim for each `edit` to change well under 1KB.
+  3. Never attempt to `edit` more than a few hundred lines in a single call — split the work.
+  This rule overrides any skill instruction that says "write the full file at once" or supplies a large template to be customised in one go. If a `write` is reported as cut off / truncated / "no arguments were received before the stream ended", do NOT retry the same call — switch to stub-then-edit immediately.
 
 ### Anti-Patterns — Do Not Do These
 
@@ -188,6 +192,7 @@ triggers: [/trigger]
 context: inline or fork
 tools: [read, grep]          # optional tool restrictions
 inject_references: true      # auto-inject references/*.md
+agent: file-builder          # optional — delegate fork to a named agent (system prompt + tools)
 ```
 
 The body after the frontmatter is the prompt template. Use `$ARGUMENTS` as a placeholder for user input.

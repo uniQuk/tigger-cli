@@ -349,17 +349,32 @@ def run_forked(
     provider_fn: Callable | None,
     hook_defs: list[HookDef] | None = None,
     permission_callback: PermissionCallback | None = None,
+    agent=None,                     # AgentDef — when set, overrides system prompt + tools
 ) -> Generator[Event, None, None]:
-    """Run *query* in a forked context (isolated message history, depth+1). Yields events."""
+    """Run *query* in a forked context (isolated message history, depth+1). Yields events.
+
+    When *agent* is provided, the forked context uses the agent's system prompt
+    and tool list instead of inheriting from the parent. This gives skills a
+    way to delegate to a focused, smaller-prompt sub-agent (much better
+    KV-cache reuse on local models).
+    """
     if ctx.depth >= ctx.config.max_depth:
         yield TextChunk(content=f"Error: max agent depth ({ctx.config.max_depth}) reached — cannot fork.")
         return
 
-    allowed = skill.tools if skill.tools else None
+    # Tool restriction: agent wins, then skill, then no restriction.
+    if agent is not None and agent.tools:
+        allowed = list(agent.tools)
+    elif skill.tools:
+        allowed = list(skill.tools)
+    else:
+        allowed = None
+
+    system_prompt = agent.system_prompt if agent is not None else ctx.system_prompt
     forked = RunContext(
         config=ctx.config,
         messages=[],
-        system_prompt=ctx.system_prompt,
+        system_prompt=system_prompt,
         depth=ctx.depth + 1,
         allowed_tools=allowed,
         trust_level=ctx.trust_level,

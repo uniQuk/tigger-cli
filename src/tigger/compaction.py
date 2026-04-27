@@ -156,13 +156,16 @@ def maybe_compact(
     Returns (possibly shorter message list, CompactResult).
     """
     tokens_before = estimate_tokens(messages)
-    threshold = config.context_limit * 0.7
+    # 0.85 instead of 0.70 — our cl100k_base estimator undercounts tokens for
+    # non-Claude tokenizers (e.g. Qwen), so a lower threshold compacts too
+    # eagerly and triggers an extra summarization model call mid-task.
+    threshold = config.context_limit * 0.85
     if not force and tokens_before < threshold:
         return messages, CompactResult(snipped=0, summarized=0,
                                        tokens_before=tokens_before,
                                        tokens_after=tokens_before)
     messages, snipped = snip_old_results(messages)
-    if not force and estimate_tokens(messages) < threshold:
+    if not force and estimate_tokens(messages) < threshold * 0.95:
         tokens_after = estimate_tokens(messages)
         return messages, CompactResult(snipped=snipped, summarized=0,
                                        tokens_before=tokens_before,

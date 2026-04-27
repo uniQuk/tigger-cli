@@ -256,6 +256,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
     ctx = result.ctx
     commands = result.commands
     skills = result.skills
+    agents = result.agents
     registry = result.registry
     hook_defs = result.hook_defs
     provider_fn = result.provider_fn
@@ -382,9 +383,20 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
 
         skill = match_skill(line, skills)
         forked_skill = None
+        forked_agent = None
         if skill:
             if skill.context == "fork":
                 forked_skill = skill
+                if skill.agent:
+                    forked_agent = next(
+                        (a for a in agents if a.name == skill.agent), None,
+                    )
+                    if forked_agent is None:
+                        ui.print_error(
+                            f"Skill {skill.name!r} references agent "
+                            f"{skill.agent!r} which was not found; "
+                            "running with default skill context instead."
+                        )
                 line = skill.render(line)
             else:
                 line = skill.render(line)
@@ -407,7 +419,8 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             if forked_skill:
                 event_gen = run_forked(line, forked_skill, ctx, registry,
                                        provider_fn=provider_fn, hook_defs=hook_defs,
-                                       permission_callback=ui.ask_permission)
+                                       permission_callback=ui.ask_permission,
+                                       agent=forked_agent)
             else:
                 event_gen = run(line, ctx, registry, provider_fn=provider_fn,
                                hook_defs=hook_defs, summaries_dir=summaries_dir,

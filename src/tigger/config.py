@@ -162,6 +162,13 @@ def load_config(path: pathlib.Path) -> Config:
         bash_safe_prefixes=data.get("bash_safe_prefixes", []),
         rtk=data.get("rtk", False),
         read_timeout=_resolve_read_timeout(data.get("read_timeout")),
+        top_p=data.get("top_p"),
+        top_k=data.get("top_k"),
+        min_p=data.get("min_p"),
+        presence_penalty=data.get("presence_penalty"),
+        frequency_penalty=data.get("frequency_penalty"),
+        repetition_penalty=data.get("repetition_penalty", data.get("repeat_penalty")),
+        chat_template_kwargs=data.get("chat_template_kwargs", {}) or {},
     )
 
 

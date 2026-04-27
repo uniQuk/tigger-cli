@@ -32,6 +32,7 @@ class SkillDef:
     references: list[tuple[str, str]] = field(default_factory=list)  # (filename, content) pairs
     assets: pathlib.Path | None = None              # assets/ subdir path
     inject_references: bool = True                  # auto-inject references into rendered prompt
+    agent: str | None = None                         # delegate to named agent when context=fork
 
     def render(self, user_input: str) -> str:
         args = user_input
@@ -104,6 +105,7 @@ def load_skills(path: pathlib.Path) -> list[SkillDef]:
             tools=tools,
             context=fm.get("context", "inline"),
             body=b["body"],
+            agent=fm.get("agent"),
         ))
     return skills
 
@@ -158,6 +160,7 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
             references=refs,
             assets=assets,
             inject_references=fm.get("inject_references", True),
+            agent=fm.get("agent"),
         ))
     return skills
 

@@ -98,10 +98,29 @@ def stream(
     )
     if config.max_tokens > 0:
         kwargs["max_tokens"] = config.max_tokens
+    if config.top_p is not None:
+        kwargs["top_p"] = config.top_p
+    if config.presence_penalty is not None:
+        kwargs["presence_penalty"] = config.presence_penalty
+    if config.frequency_penalty is not None:
+        kwargs["frequency_penalty"] = config.frequency_penalty
+    # Vendor-specific params (Qwen via vLLM/SGLang/LM Studio) ride in extra_body.
+    extra_body: dict = {}
+    if config.top_k is not None:
+        extra_body["top_k"] = config.top_k
+    if config.min_p is not None:
+        extra_body["min_p"] = config.min_p
+    if config.repetition_penalty is not None:
+        extra_body["repetition_penalty"] = config.repetition_penalty
+    if config.chat_template_kwargs:
+        extra_body["chat_template_kwargs"] = dict(config.chat_template_kwargs)
+    if extra_body:
+        kwargs["extra_body"] = extra_body
     if tools:
         kwargs["tools"] = tools
 
     collected_text = ""
+    collected_thinking = ""
     collected_tool_calls: list[dict] = []
     tool_call_signalled = False
     input_tokens = 0
@@ -126,6 +145,13 @@ def stream(
             delta = choice.delta if choice else None
             if delta is None:
                 continue
+            # Some OpenAI-compatible servers (vLLM/SGLang/LM Studio for Qwen)
+                # emit reasoning as a separate `reasoning_content` field rather
+                # than wrapping it in <think> tags inside `content`. Capture it
+                # so we can re-send it for preserve_thinking / KV-cache reuse.
+            reasoning = getattr(delta, "reasoning_content", None)
+            if reasoning:
+                collected_thinking += reasoning
             if delta.content:
                 collected_text += delta.content
                 yield TextChunk(content=delta.content)
@@ -148,8 +174,14 @@ def stream(
             yield TextChunk(content="\n[response interrupted, retrying]\n")
         raise
 
+    # If reasoning came in via the separate field and isn't already wrapped
+    # in <think> tags inside content, prepend it so it persists in history.
+    final_content = collected_text
+    if collected_thinking and "<think>" not in collected_text:
+        final_content = f"<think>\n{collected_thinking}\n</think>\n\n{collected_text}"
+
     yield AssistantMessage(
-        content=collected_text,
+        content=final_content,
         tool_calls=openai_tool_calls_to_records(collected_tool_calls),
         input_tokens=input_tokens,
         output_tokens=output_tokens,
