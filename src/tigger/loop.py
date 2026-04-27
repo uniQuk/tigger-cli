@@ -96,9 +96,15 @@ def run(
         if perf_log is None and perf_path is not None and not perf_path.exists():
             perf_path.write_text(
                 "ts\tturn\twall_s\tcompact_s\tinput_tokens\toutput_tokens\t"
-                "msgs\tprompt_chars\tfinish_reason\ttool_calls\tcontinuations\n"
+                "msgs\tprompt_chars\tfinish_reason\ttool_calls\tcontinuations\t"
+                "delta_chars\ttokens_per_sec\tcache_hit_estimate\n"
             )
     perf_turn = 0
+    # Cross-turn state for the new perf columns. Both start at 0 so the first
+    # turn reports delta_chars == prompt_chars and cache_hit_estimate == 0
+    # (no prior turn to compare against).
+    last_prompt_chars = 0
+    last_input_tokens = 0
 
     while True:
         turn_start = time.monotonic()
@@ -162,12 +168,26 @@ def run(
                 if assistant_msg.input_tokens
                 else estimate_tokens(ctx.messages)
             )
+            # New per-turn metrics for KV-cache reuse diagnosis.
+            delta_chars = prompt_chars - last_prompt_chars
+            tokens_per_sec = assistant_msg.output_tokens / max(wall, 0.001)
+            # Heuristic only: when input_tokens reported by the server stays
+            # close across turns despite a growing prompt, prefix caching is
+            # likely active. Documented caveat — wall_s remains authoritative.
+            if perf_turn == 1 or local_tokens <= 0:
+                cache_hit_estimate = 0.0
+            else:
+                fresh = max(local_tokens - last_input_tokens, 0)
+                ratio = fresh / max(local_tokens, 1)
+                cache_hit_estimate = max(0.0, min(1.0, 1.0 - ratio))
             row = (
                 f"{int(time.time())}\t{perf_turn}\t{wall:.2f}\t"
                 f"{compact_elapsed:.2f}\t{local_tokens}\t"
                 f"{assistant_msg.output_tokens}\t{len(ctx.messages)}\t"
                 f"{prompt_chars}\t{assistant_msg.finish_reason or '-'}\t"
-                f"{len(assistant_msg.tool_calls)}\t{continuations}\n"
+                f"{len(assistant_msg.tool_calls)}\t{continuations}\t"
+                f"{delta_chars}\t{tokens_per_sec:.2f}\t"
+                f"{cache_hit_estimate:.3f}\n"
             )
             if perf_log is not None:
                 perf_log.write(f"[perf] {row}")
@@ -175,6 +195,21 @@ def run(
             elif perf_path is not None:
                 with perf_path.open("a") as f:
                     f.write(row)
+            # Prefill-dominance warning: long wall time relative to output on
+            # a small-delta turn signals the provider re-prefilled despite
+            # little new prompt. Indicates broken prefix caching.
+            if (
+                wall / max(assistant_msg.output_tokens, 1) > 1.5
+                and delta_chars < 4096
+            ):
+                sys.stderr.write(
+                    f"[perf] prefill-dominant turn {perf_turn}: "
+                    f"wall={wall:.1f}s out={assistant_msg.output_tokens}tok "
+                    f"delta_chars={delta_chars}\n"
+                )
+                sys.stderr.flush()
+            last_prompt_chars = prompt_chars
+            last_input_tokens = local_tokens
 
         if not assistant_msg.tool_calls:
             # Auto-continue when the model was cut off mid-text by max_tokens.
