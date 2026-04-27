@@ -35,6 +35,40 @@ def _active_mode_body(ctx: RunContext) -> str:
     return ""
 
 
+def _check_output_budget(tc, budget: int) -> str | None:
+    """Return a formatted error string when *tc* busts *budget*, else None.
+
+    Applies to write/edit tool calls. The check is per-call: each tool
+    call gets its own fresh budget.
+    """
+    if budget <= 0:
+        return None
+    if tc.name == "write":
+        content = tc.args.get("content")
+        if isinstance(content, str) and len(content) > budget:
+            path = tc.args.get("path", "<unknown>")
+            return (
+                f"Error: tool 'write' output exceeds the active output budget "
+                f"({len(content)} > {budget} chars on field 'content'). "
+                f"Write a small stub to '{path}' first, then use successive "
+                f"'edit' calls to append the rest in chunks under {budget} "
+                f"chars each. Do not retry this exact call — split the content."
+            )
+    elif tc.name == "edit":
+        path = tc.args.get("path", "<unknown>")
+        for field_name in ("new_string", "old_string"):
+            val = tc.args.get(field_name)
+            if isinstance(val, str) and len(val) > budget:
+                return (
+                    f"Error: tool 'edit' output exceeds the active output budget "
+                    f"({len(val)} > {budget} chars on field '{field_name}'). "
+                    f"Split the change into multiple smaller 'edit' calls on "
+                    f"'{path}', each with payload fields under {budget} chars. "
+                    f"Do not retry this exact call — split the content."
+                )
+    return None
+
+
 def _lazy_tools_prompt_line(registry: ToolRegistry) -> str:
     """Build the per-turn prompt fragment listing lazy MCP tools by server.
 
@@ -74,6 +108,15 @@ def run(
     ctx.messages.append(Message(role="user", content=query))
 
     allowed = set(ctx.allowed_tools) if ctx.allowed_tools is not None else None
+
+    # Resolve the active per-call output budget for write/edit tool args.
+    # Per-execution-context value (set by run_forked from the active skill)
+    # wins; falls back to the workspace default. 0 disables the gate.
+    active_output_budget = (
+        ctx.output_budget
+        if ctx.output_budget is not None
+        else ctx.config.output_budget_default
+    )
 
     retries = 0
     max_retries = ctx.config.max_retries
@@ -334,6 +377,23 @@ def run(
                         ))
                         continue
 
+            # Output-budget gate: reject oversized write/edit payloads before
+            # touching the filesystem. The model gets a structured retry hint
+            # pointing at the stub-then-edit pattern.
+            budget_error = _check_output_budget(tc, active_output_budget)
+            if budget_error is not None:
+                yield ToolEndEvent(
+                    call_id=tc.call_id, name=tc.name,
+                    output=budget_error, error=True,
+                )
+                ctx.messages.append(Message(
+                    role="tool",
+                    content=budget_error,
+                    tool_call_id=tc.call_id,
+                    name=tc.name,
+                ))
+                continue
+
             yield ToolStartEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
             result = registry.execute(tc.name, tc.args, tc.parse_error_bytes)
             end_event = ToolEndEvent(
@@ -424,6 +484,13 @@ def run_forked(
         allowed = None
 
     system_prompt = agent.system_prompt if agent is not None else ctx.system_prompt
+    # Resolve the per-call output budget for the forked context. Skill
+    # frontmatter wins; falls back to the workspace default when the skill
+    # doesn't declare one. Agents do not override budget — skills own this.
+    if skill.output_budget is not None:
+        forked_budget: int | None = skill.output_budget
+    else:
+        forked_budget = ctx.config.output_budget_default
     forked = RunContext(
         config=ctx.config,
         messages=[],
@@ -431,6 +498,7 @@ def run_forked(
         depth=ctx.depth + 1,
         allowed_tools=allowed,
         trust_level=ctx.trust_level,
+        output_budget=forked_budget,
     )
 
     # Restrict registry to skill's tool list if specified
