@@ -8,7 +8,15 @@ from collections.abc import Generator
 import httpx
 from openai import OpenAI
 
-from tigger.types import AssistantMessage, Config, Message, StreamProgress, TextChunk, ThinkingEvent, ToolCallRecord
+from tigger.types import (
+    AssistantMessage,
+    Config,
+    Message,
+    StreamProgress,
+    TextChunk,
+    ThinkingEvent,
+    ToolCallRecord,
+)
 
 _perf_kwargs_logged = False
 
