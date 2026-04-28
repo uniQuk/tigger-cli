@@ -325,6 +325,24 @@ def stream(
     if pending_progress:
         yield StreamProgress(chars=pending_progress)
 
+    # Diagnostic: if any tool call surfaced a name but no arguments, dump the
+    # full collected_tool_calls dict to stderr. Some local servers (LM Studio
+    # q4 quants, vLLM under load) split tool-call deltas in non-spec ways
+    # that the OpenAI Python SDK silently drops. This lets us see which
+    # field went missing and correlate with the server's own packet log.
+    for idx, tc in enumerate(collected_tool_calls):
+        name = tc.get("function", {}).get("name", "")
+        args_str = tc.get("function", {}).get("arguments", "") or ""
+        if name and not args_str:
+            sys.stderr.write(
+                f"[provider] empty-args after stream finished: "
+                f"idx={idx} id={tc.get('id', '')!r} name={name!r} "
+                f"finish_reason={finish_reason!r} "
+                f"input_tokens={input_tokens} output_tokens={output_tokens} "
+                f"raw={tc!r}\n"
+            )
+            sys.stderr.flush()
+
     # If reasoning came in via the separate field and isn't already wrapped
     # in <think> tags inside content, prepend it so it persists in history.
     final_content = collected_text

@@ -63,6 +63,91 @@ def test_tool_call_executed():
     ends = [e for e in events if isinstance(e, ToolEndEvent)]
     assert ends[0].output == "tool result"
 
+def test_parallel_tool_dispatch_preserves_order():
+    """Multiple read-only tool calls in a single turn should run via the
+    parallel fast-path AND surface ordered ToolEndEvents + ordered tool
+    messages, since the wire format pairs each result with its tool_call_id.
+    """
+    import threading
+    import time as _time
+
+    barrier = threading.Barrier(3)
+    started_at: list[float] = []
+
+    def slow_read(args):
+        started_at.append(_time.monotonic())
+        # Synchronise threads so we can prove they ran concurrently.
+        barrier.wait(timeout=2.0)
+        return f"out:{args['n']}"
+
+    t = ToolDef(
+        "slow_read", "", {"type": "object", "properties": {"n": {"type": "integer"}}},
+        func=slow_read, read_only=True,
+    )
+    reg = _registry([t])
+    tcs = [
+        ToolCallRecord("c1", "slow_read", {"n": 1}),
+        ToolCallRecord("c2", "slow_read", {"n": 2}),
+        ToolCallRecord("c3", "slow_read", {"n": 3}),
+    ]
+    first = True
+    def provider(system, messages, tools, config):
+        nonlocal first
+        if first:
+            first = False
+            yield AssistantMessage(content="", tool_calls=tcs)
+        else:
+            yield AssistantMessage(content="done", tool_calls=[])
+
+    ctx = _ctx()  # bypass mode → permitted without callback
+    events = list(run("go", ctx, reg, provider_fn=provider))
+
+    ends = [e for e in events if isinstance(e, ToolEndEvent)]
+    # Ordering preserved on the wire even though execution overlapped.
+    assert [e.call_id for e in ends] == ["c1", "c2", "c3"]
+    assert [e.output for e in ends] == ["out:1", "out:2", "out:3"]
+    # And in ctx.messages — each tool result follows the assistant turn in
+    # tool_calls index order.
+    tool_msgs = [m for m in ctx.messages if m.role == "tool"]
+    assert [m.tool_call_id for m in tool_msgs] == ["c1", "c2", "c3"]
+    # Concurrency proof — without parallel dispatch the barrier would deadlock.
+    assert len(started_at) == 3
+
+
+def test_serial_path_when_any_tool_is_not_read_only():
+    """A turn that mixes read-only and side-effect tools must NOT use the
+    parallel fast-path — falls through to the existing sequential dispatcher
+    so PreToolUse hooks, permission re-checks, and write ordering all work
+    unchanged.
+    """
+    order: list[str] = []
+    def reader(args): order.append(f"r{args['n']}"); return "r"
+    def writer(args): order.append(f"w{args['n']}"); return "w"
+    reg = _registry([
+        ToolDef("reader", "", {"type": "object", "properties": {"n": {"type": "integer"}}},
+                func=reader, read_only=True),
+        ToolDef("writer", "", {"type": "object", "properties": {"n": {"type": "integer"}}},
+                func=writer, read_only=False),
+    ])
+    tcs = [
+        ToolCallRecord("c1", "reader", {"n": 1}),
+        ToolCallRecord("c2", "writer", {"n": 2}),
+        ToolCallRecord("c3", "reader", {"n": 3}),
+    ]
+    first = True
+    def provider(system, messages, tools, config):
+        nonlocal first
+        if first:
+            first = False
+            yield AssistantMessage(content="", tool_calls=tcs)
+        else:
+            yield AssistantMessage(content="done", tool_calls=[])
+    ctx = _ctx()
+    list(run("go", ctx, reg, provider_fn=provider))
+    # Sequential execution → strict in-order
+    assert order == ["r1", "w2", "r3"]
+
+
 def test_run_forked_depth_incremented():
     ctx = _ctx()
     assert ctx.depth == 0
@@ -499,3 +584,158 @@ def test_lazy_line_and_mode_body_combine_in_environment():
     lazy_idx = env.index("mcp_promote")
     assert mode_idx < lazy_idx
 
+
+
+def test_stop_after_write_breaks_after_successful_write():
+    """ctx.stop_after_write=True → loop exits as soon as a write tool call
+    succeeds, before the model gets another turn to second-guess itself.
+    """
+    write_tc = ToolCallRecord("c1", "write", {"path": "/tmp/x", "content": "hello"})
+    turns_seen = 0
+    def provider(system, messages, tools, config):
+        nonlocal turns_seen
+        turns_seen += 1
+        if turns_seen == 1:
+            yield AssistantMessage(content="writing", tool_calls=[write_tc])
+        else:
+            # Should never be reached when stop_after_write trips.
+            yield AssistantMessage(content="should not be called", tool_calls=[])
+
+    captured: list[dict] = []
+    def fake_write(args):
+        captured.append(args)
+        return f"Written: {args['path']}"
+    reg = _registry([
+        ToolDef("write", "", {"type": "object", "properties": {}}, func=fake_write),
+    ])
+
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass")
+    ctx = RunContext(
+        config=cfg, messages=[], system_prompt="x", stop_after_write=True,
+    )
+    list(run("go", ctx, reg, provider_fn=provider))
+
+    # Provider was only called once — the second turn never happened.
+    assert turns_seen == 1
+    # The write tool actually ran and its result is on the message tape.
+    assert captured == [{"path": "/tmp/x", "content": "hello"}]
+    tool_msgs = [m for m in ctx.messages if m.role == "tool"]
+    assert tool_msgs and tool_msgs[-1].content.startswith("Written:")
+
+
+def test_stop_after_write_does_not_trigger_on_failed_write():
+    """Failed writes (e.g. file-already-exists) must NOT trip stop_after_write,
+    otherwise the model can't recover from a transient error.
+    """
+    write_tc = ToolCallRecord("c1", "write", {"path": "/tmp/x"})
+    turns_seen = 0
+    def provider(system, messages, tools, config):
+        nonlocal turns_seen
+        turns_seen += 1
+        if turns_seen == 1:
+            yield AssistantMessage(content="", tool_calls=[write_tc])
+        else:
+            yield AssistantMessage(content="recovered", tool_calls=[])
+    reg = _registry([
+        ToolDef("write", "", {"type": "object", "properties": {}},
+                func=lambda _: "Error: file already exists"),
+    ])
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass")
+    ctx = RunContext(
+        config=cfg, messages=[], system_prompt="x", stop_after_write=True,
+    )
+    list(run("go", ctx, reg, provider_fn=provider))
+    # The model got a second turn to recover from the error.
+    assert turns_seen == 2
+
+
+def test_chat_template_kwargs_override_passed_to_provider():
+    """When ctx.chat_template_kwargs is set, the merged dict reaches the
+    provider via an effective Config — overriding workspace defaults at
+    the key level (skill wins) without dropping unrelated keys.
+    """
+    seen_configs: list[dict] = []
+    def provider(system, messages, tools, config):
+        seen_configs.append(dict(config.chat_template_kwargs))
+        yield AssistantMessage(content="ok", tool_calls=[])
+
+    cfg = Config(
+        base_url="http://x", model="m", permission_mode="bypass",
+        chat_template_kwargs={"enable_thinking": True, "preserve_thinking": True},
+    )
+    ctx = RunContext(
+        config=cfg, messages=[], system_prompt="x",
+        chat_template_kwargs={"enable_thinking": False},
+    )
+    list(run("go", ctx, _registry(), provider_fn=provider))
+
+    assert seen_configs == [{
+        "enable_thinking": False,        # skill override won
+        "preserve_thinking": True,       # workspace key preserved
+    }]
+
+
+def test_chat_template_kwargs_unset_passes_workspace_config_unchanged():
+    seen_configs: list[Config] = []
+    def provider(system, messages, tools, config):
+        seen_configs.append(config)
+        yield AssistantMessage(content="ok", tool_calls=[])
+    cfg = Config(
+        base_url="http://x", model="m", permission_mode="bypass",
+        chat_template_kwargs={"enable_thinking": True},
+    )
+    ctx = RunContext(config=cfg, messages=[], system_prompt="x")
+    list(run("go", ctx, _registry(), provider_fn=provider))
+    # Identity check — no replace() happened, the same frozen Config was forwarded.
+    assert seen_configs[0] is cfg
+
+
+def test_tool_cutoff_recovery_capped_at_one(capsys):
+    """Two consecutive tool-cutoffs must not loop forever — the loop bails
+    after the single allowed recovery and logs a clear stderr message.
+    """
+    truncated_tc = ToolCallRecord("c1", "write", {}, parse_error_bytes=0)
+    turns_seen = 0
+    def provider(system, messages, tools, config):
+        nonlocal turns_seen
+        turns_seen += 1
+        # Always return a truncated tool call so the loop is forced to
+        # re-enter the recovery branch on every turn.
+        yield AssistantMessage(content="", tool_calls=[truncated_tc])
+    reg = _registry([
+        ToolDef("write", "", {"type": "object", "properties": {}},
+                func=lambda _: "ok"),
+    ])
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="x")
+    list(run("go", ctx, reg, provider_fn=provider))
+
+    # 1 original turn + 1 recovery turn = 2 provider calls, then we abort.
+    assert turns_seen == 2
+    err = capsys.readouterr().err
+    assert "tool call truncated mid-stream" in err
+    assert "tool call truncated again after recovery" in err
+
+
+def test_stall_watchdog_fires_when_stream_silent(monkeypatch, capsys):
+    """When a chunk doesn't arrive within the watchdog window, a heartbeat
+    line lands on stderr. We use a 1-second window via the env var so the
+    test stays fast.
+    """
+    import time as _time
+    monkeypatch.setenv("TIGGER_STALL_SECS", "0")  # disabled by default
+    # Re-import to refresh the module-level constant.
+    import importlib
+    import tigger.loop as _loop
+    importlib.reload(_loop)
+    monkeypatch.setattr(_loop, "_STALL_HEARTBEAT_SECS", 1)
+
+    def slow_provider(system, messages, tools, config):
+        # First yield is delayed — watchdog should fire at least once.
+        _time.sleep(1.5)
+        yield AssistantMessage(content="ok", tool_calls=[])
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="x")
+    list(_loop.run("go", ctx, _loop.ToolRegistry(), provider_fn=slow_provider))
+    err = capsys.readouterr().err
+    assert "[stalled]" in err

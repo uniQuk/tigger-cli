@@ -89,6 +89,66 @@ def test_read_tool_blocks_path_traversal(monkeypatch, tmp_path):
     assert "access denied" in result.lower() or "error" in result.lower()
 
 
+def _read_setup(monkeypatch, tmp_path, n_lines=10):
+    monkeypatch.chdir(tmp_path)
+    p = tmp_path / "lines.txt"
+    p.write_text("".join(f"line{i}\n" for i in range(1, n_lines + 1)))
+    r = ToolRegistry()
+    register_all(r)
+    return r, p
+
+
+def test_read_offset_limit_returns_slice(monkeypatch, tmp_path):
+    r, p = _read_setup(monkeypatch, tmp_path)
+    out = r.execute("read", {"path": str(p), "offset": 3, "limit": 2}).output
+    # Slice marker + only the requested lines.
+    assert out.startswith("[lines 3-4 of 10")
+    assert "line3" in out and "line4" in out
+    assert "line2" not in out and "line5" not in out
+
+
+def test_read_offset_only_reads_to_end(monkeypatch, tmp_path):
+    r, p = _read_setup(monkeypatch, tmp_path)
+    out = r.execute("read", {"path": str(p), "offset": 8}).output
+    assert out.startswith("[lines 8-10 of 10")
+    assert "line8" in out and "line10" in out
+    assert "line7" not in out
+
+
+def test_read_limit_only_starts_at_one(monkeypatch, tmp_path):
+    r, p = _read_setup(monkeypatch, tmp_path)
+    out = r.execute("read", {"path": str(p), "limit": 2}).output
+    assert out.startswith("[lines 1-2 of 10")
+    assert "line1" in out and "line2" in out
+    assert "line3" not in out
+
+
+def test_read_offset_past_end(monkeypatch, tmp_path):
+    r, p = _read_setup(monkeypatch, tmp_path, n_lines=5)
+    out = r.execute("read", {"path": str(p), "offset": 99}).output
+    assert "past end" in out and "5 lines" in out
+
+
+def test_read_limit_clamps_to_eof(monkeypatch, tmp_path):
+    r, p = _read_setup(monkeypatch, tmp_path, n_lines=5)
+    out = r.execute("read", {"path": str(p), "offset": 4, "limit": 100}).output
+    assert out.startswith("[lines 4-5 of 5")
+
+
+def test_read_invalid_offset_returns_error(monkeypatch, tmp_path):
+    r, p = _read_setup(monkeypatch, tmp_path)
+    out = r.execute("read", {"path": str(p), "offset": 0}).output
+    assert "must be >= 1" in out
+
+
+def test_read_no_offset_no_marker_back_compat(monkeypatch, tmp_path):
+    r, p = _read_setup(monkeypatch, tmp_path)
+    out = r.execute("read", {"path": str(p)}).output
+    # Plain read still returns raw content with no marker prefix.
+    assert not out.startswith("[lines ")
+    assert out.startswith("line1\n")
+
+
 def test_write_refuses_existing_file(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     p = tmp_path / "existing.txt"

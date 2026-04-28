@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import pathlib
 import sys
+import threading
 import time
 from collections.abc import Callable, Generator
+from concurrent.futures import ThreadPoolExecutor
 
 from tigger.compaction import estimate_tokens, maybe_compact
 from tigger.hooks import HookDef, evaluate_hooks
@@ -22,6 +24,62 @@ from tigger.types import (
     ToolStartEvent,
     TurnDoneEvent,
 )
+
+# Cap on parallel tool dispatch. Bounded to keep filesystem/io load reasonable
+# on local model boxes that often share CPU with the inference engine. Tunable
+# via TIGGER_PARALLEL_TOOLS env if you want to experiment without a code edit.
+_PARALLEL_TOOL_WORKERS = max(
+    1, int(os.environ.get("TIGGER_PARALLEL_TOOLS", "4"))
+)
+
+# Stall-detection: if no streaming chunk arrives for this long, print a
+# heartbeat to stderr so the user can tell tigger from the model getting
+# stuck. 0 disables. Tunable per-session without a code edit.
+_STALL_HEARTBEAT_SECS = max(
+    0, int(os.environ.get("TIGGER_STALL_SECS", "60"))
+)
+
+
+class _StallWatchdog:
+    """Daemon-thread watchdog that prints a heartbeat when the model goes
+    silent for too long. Reset() on each streaming chunk.
+
+    Local OpenAI-compatible servers can hang silently — the HTTP connection
+    stays open but no chunks arrive. Without this, tigger looks identical
+    to a healthy slow turn. The watchdog flips that back into observable
+    user-facing output.
+    """
+
+    def __init__(self, label: str, interval: int) -> None:
+        self._label = label
+        self._interval = interval
+        self._last = time.monotonic()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._interval <= 0:
+            return
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def reset(self) -> None:
+        self._last = time.monotonic()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=0.5)
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval):
+            silent = time.monotonic() - self._last
+            if silent >= self._interval:
+                sys.stderr.write(
+                    f"[stalled] no model output for {silent:.0f}s "
+                    f"({self._label}). Provider may be hung — Ctrl-C to abort.\n"
+                )
+                sys.stderr.flush()
 
 Event = TextChunk | ToolStartEvent | ToolEndEvent | TurnDoneEvent | ThinkingEvent | StreamProgress
 PermissionCallback = Callable[[PermissionRequest], bool]
@@ -95,6 +153,41 @@ def _lazy_tools_prompt_line(registry: ToolRegistry) -> str:
     return "\n".join(lines)
 
 
+def _can_parallelize_tools(
+    tool_calls,
+    registry: ToolRegistry,
+    ctx: RunContext,
+    hook_defs: list[HookDef] | None,
+) -> bool:
+    """Return True when a batch of tool calls can be safely run in parallel.
+
+    Conservative gate: every call must be resolvable, read-only, free of
+    parse-truncation errors, and already permitted under the current mode
+    without a callback prompt. Hooks force serial execution because PreToolUse
+    transforms must apply in order and PostToolUse may have ordering side
+    effects (logs, counters). The single-call case is also serial — there's
+    nothing to overlap.
+    """
+    if len(tool_calls) < 2:
+        return False
+    if hook_defs:
+        return False
+    for tc in tool_calls:
+        if tc.parse_error_bytes is not None:
+            return False
+        tool = registry.get(tc.name)
+        if tool is None or not tool.read_only:
+            return False
+        if not permission_check(
+            tool,
+            ctx.config.permission_mode,
+            tc.args,
+            bash_safe_prefixes=ctx.config.bash_safe_prefixes,
+        ):
+            return False
+    return True
+
+
 def run(
     query: str,
     ctx: RunContext,
@@ -118,10 +211,28 @@ def run(
         else ctx.config.output_budget_default
     )
 
+    # Build an effective Config that merges any skill-level chat_template_kwargs
+    # override on top of the workspace defaults. Done once per run() — Config
+    # is frozen and the override is fixed for the duration of the skill fork.
+    effective_config = ctx.config
+    if ctx.chat_template_kwargs:
+        from dataclasses import replace as _dc_replace
+        merged = {
+            **(ctx.config.chat_template_kwargs or {}),
+            **ctx.chat_template_kwargs,
+        }
+        effective_config = _dc_replace(ctx.config, chat_template_kwargs=merged)
+
     retries = 0
     max_retries = ctx.config.max_retries
     continuations = 0
-    max_continuations = 3  # cap auto-continue chain to avoid runaway loops
+    max_continuations = 3  # cap auto-continue chain (text length-cutoff)
+    # Tool-call cutoff recovery is capped separately — the failure mode is
+    # different from text-length cutoffs. When the model's tool-arg stream
+    # gets dropped (LM Studio q4 quants do this), one nudge is plenty; if it
+    # fails twice the model is thrashing and the user needs to intervene.
+    tool_cutoff_continuations = 0
+    max_tool_cutoff_continuations = 1
 
     # Opt-in per-turn perf logging — set TIGGER_PERF=1 (or a path) to enable.
     # Logs turn duration, token counts, and message-list size to stderr or a
@@ -136,6 +247,18 @@ def run(
         else:
             perf_path = pathlib.Path(perf_env).expanduser()
             perf_path.parent.mkdir(parents=True, exist_ok=True)
+        # One-shot caveat about cache_hit_estimate. Most local OpenAI-compatible
+        # servers (vLLM, SGLang, LM Studio) report `prompt_tokens` as the full
+        # prefill count regardless of how many tokens were served from the
+        # prefix cache, which makes our delta-based heuristic unreliable.
+        # Treat `wall_s / output_tokens` and the `[perf] prefill-dominant`
+        # warning as the authoritative signals.
+        sys.stderr.write(
+            "[perf] note: cache_hit_estimate is heuristic — local OpenAI-compatible "
+            "servers report full prompt_tokens regardless of prefix-cache hits. "
+            "Trust wall_s/output_tokens and prefill-dominant warnings.\n"
+        )
+        sys.stderr.flush()
         if perf_log is None and perf_path is not None and not perf_path.exists():
             perf_path.write_text(
                 "ts\tturn\twall_s\tcompact_s\tinput_tokens\toutput_tokens\t"
@@ -179,22 +302,31 @@ def run(
         # fakes with the legacy 4-arg signature keep working unchanged.
         if environment is not None:
             stream = provider_fn(
-                system, ctx.messages, tools_schemas, ctx.config,
+                system, ctx.messages, tools_schemas, effective_config,
                 environment=environment,
             )
         else:
-            stream = provider_fn(system, ctx.messages, tools_schemas, ctx.config)
+            stream = provider_fn(system, ctx.messages, tools_schemas, effective_config)
         assistant_msg: AssistantMessage | None = None
 
-        for chunk in stream:
-            if isinstance(chunk, TextChunk):
-                yield chunk
-            elif isinstance(chunk, ThinkingEvent):
-                yield chunk
-            elif isinstance(chunk, StreamProgress):
-                yield chunk
-            elif isinstance(chunk, AssistantMessage):
-                assistant_msg = chunk
+        watchdog = _StallWatchdog(
+            label=f"turn {ctx.turn + 1}",
+            interval=_STALL_HEARTBEAT_SECS,
+        )
+        watchdog.start()
+        try:
+            for chunk in stream:
+                watchdog.reset()
+                if isinstance(chunk, TextChunk):
+                    yield chunk
+                elif isinstance(chunk, ThinkingEvent):
+                    yield chunk
+                elif isinstance(chunk, StreamProgress):
+                    yield chunk
+                elif isinstance(chunk, AssistantMessage):
+                    assistant_msg = chunk
+        finally:
+            watchdog.stop()
 
         if assistant_msg is None:
             if retries >= max_retries:
@@ -292,6 +424,43 @@ def run(
         # Execute each tool call
         hallucinated = False
         truncated_call = False
+        wrote_target = False  # set when a successful `write` call lands this turn
+
+        # Fast path: when every call in the batch is read-only, permitted
+        # without a prompt, and free of hooks, dispatch in parallel via a
+        # thread pool. This is the dominant pattern for local-model agent
+        # turns that emit several `read`/`glob`/`grep` calls at once and is
+        # the single biggest wall-time win when each tool waits on syscalls
+        # rather than CPU. Falls through to the sequential path on any
+        # disqualifying call (writes, bash, denied perms, hooks, truncation).
+        if _can_parallelize_tools(
+            assistant_msg.tool_calls, registry, ctx, hook_defs
+        ):
+            for tc in assistant_msg.tool_calls:
+                yield ToolStartEvent(call_id=tc.call_id, name=tc.name, args=tc.args)
+            workers = min(_PARALLEL_TOOL_WORKERS, len(assistant_msg.tool_calls))
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = [
+                    ex.submit(
+                        registry.execute, tc.name, tc.args, tc.parse_error_bytes
+                    )
+                    for tc in assistant_msg.tool_calls
+                ]
+                results = [f.result() for f in futures]
+            for tc, result in zip(assistant_msg.tool_calls, results):
+                yield ToolEndEvent(
+                    call_id=tc.call_id, name=tc.name, output=result.output,
+                    error=result.error,
+                )
+                ctx.messages.append(Message(
+                    role="tool",
+                    content=result.output,
+                    tool_call_id=tc.call_id,
+                    name=tc.name,
+                ))
+            yield ThinkingEvent()
+            continue
+
         for tc in assistant_msg.tool_calls:
             tool = registry.get(tc.name)
             if tool is None:
@@ -425,28 +594,55 @@ def run(
 
             if tc.parse_error_bytes is not None:
                 truncated_call = True
+            if tc.name == "write" and not result.error:
+                wrote_target = True
 
         if hallucinated:
             yield ThinkingEvent()
             continue
 
         # If any tool call was cut off mid-stream by max_tokens, nudge the
-        # model toward a chunked-write strategy. Bounded by the same
-        # continuations cap as the text-truncation path.
-        if truncated_call and continuations < max_continuations:
-            continuations += 1
-            ctx.messages.append(Message(
-                role="user",
-                content=(
-                    "One of your tool calls was cut off by the output token "
-                    "limit before its arguments finished streaming. Do not "
-                    "retry the same large call. Instead: for new files, "
-                    "write a small stub first (e.g. an empty skeleton), then "
-                    "append the rest in successive `edit` calls. For existing "
-                    "files, use `edit` with targeted replacements rather than "
-                    "rewriting the whole file. Continue from where you left off."
-                ),
-            ))
+        # model toward a chunked-write strategy. Capped tightly because two
+        # consecutive truncations almost always mean the model is thrashing.
+        if truncated_call:
+            if tool_cutoff_continuations < max_tool_cutoff_continuations:
+                tool_cutoff_continuations += 1
+                sys.stderr.write(
+                    f"[loop] tool call truncated mid-stream — appending "
+                    f"chunked-write hint and retrying "
+                    f"({tool_cutoff_continuations}/{max_tool_cutoff_continuations}). "
+                    f"If this happens twice in a row your provider is dropping "
+                    f"tool-call deltas; consider switching quant or backend.\n"
+                )
+                sys.stderr.flush()
+                ctx.messages.append(Message(
+                    role="user",
+                    content=(
+                        "One of your tool calls was cut off by the output token "
+                        "limit before its arguments finished streaming. Do not "
+                        "retry the same large call. Instead: for new files, "
+                        "write a small stub first (e.g. an empty skeleton), then "
+                        "append the rest in successive `edit` calls. For existing "
+                        "files, use `edit` with targeted replacements rather than "
+                        "rewriting the whole file. Continue from where you left off."
+                    ),
+                ))
+            else:
+                sys.stderr.write(
+                    "[loop] tool call truncated again after recovery — giving "
+                    "up to avoid an infinite retry loop. Aborting this turn.\n"
+                )
+                sys.stderr.flush()
+                break
+
+        # Per-skill stop_after_write: end the run as soon as a `write` tool
+        # call succeeds, before handing control back to the model. Prevents
+        # post-write recovery loops where the model second-guesses its own
+        # output and burns minutes re-reading or retrying. Tool results have
+        # already been appended above, so the wire format remains valid for
+        # any caller that re-uses ctx.messages.
+        if ctx.stop_after_write and wrote_target:
+            break
 
         # normal round: loop back for model to process tool results
         yield ThinkingEvent()
@@ -499,6 +695,8 @@ def run_forked(
         allowed_tools=allowed,
         trust_level=ctx.trust_level,
         output_budget=forked_budget,
+        chat_template_kwargs=skill.chat_template_kwargs,
+        stop_after_write=skill.stop_after_write,
     )
 
     # Restrict registry to skill's tool list if specified

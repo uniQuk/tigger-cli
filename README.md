@@ -8,7 +8,7 @@ Built as a clean-architecture alternative to monolithic agent CLIs — every mod
 
 ## Features
 
-- **OpenAI-compatible provider** — works with OpenAI, Ollama, LM Studio, llama.cpp, and any other OpenAI-compatible endpoint
+- **OpenAI-compatible provider** — works with OpenAI, Ollama, LM Studio, llama.cpp, and any other OpenAI-compatible endpoint (see [`docs/local-server-prefix-caching.md`](docs/local-server-prefix-caching.md) for prefix-cache configuration)
 - **Typed context** — `RunContext` is a dataclass, not a config-dict grab-bag
 - **Neutral message format** — provider conversion happens only inside `provider.py`
 - **Skill injection** — define skills as YAML frontmatter blocks in a plain `.md` file

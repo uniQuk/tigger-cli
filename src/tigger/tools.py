@@ -11,6 +11,7 @@ import subprocess
 import urllib.parse as _urlparse
 import urllib.request
 
+from tigger.repomap import repomap_tool as _repomap_tool
 from tigger.types import ToolDef, ToolResult
 
 _32KB = 32 * 1024
@@ -198,7 +199,31 @@ def _read(args: dict) -> str:
             f"Error: path is a directory, not a file: {args['path']}. "
             "Use the glob tool to list its contents."
         )
-    return safe.read_text(errors="replace")
+    text = safe.read_text(errors="replace")
+    offset = args.get("offset")
+    limit = args.get("limit")
+    if offset is None and limit is None:
+        return text
+    # 1-based offset semantics — matches Claude Code's read tool. Out-of-range
+    # offset returns a marker rather than empty so the model knows the file
+    # was shorter than expected.
+    try:
+        offset_i = int(offset) if offset is not None else 1
+        limit_i = int(limit) if limit is not None else None
+    except (TypeError, ValueError):
+        return f"Error: 'offset' and 'limit' must be integers, got offset={offset!r} limit={limit!r}"
+    if offset_i < 1:
+        return f"Error: 'offset' is 1-based and must be >= 1, got {offset_i}"
+    if limit_i is not None and limit_i < 0:
+        return f"Error: 'limit' must be >= 0, got {limit_i}"
+    lines = text.splitlines(keepends=True)
+    total = len(lines)
+    start = offset_i - 1
+    if start >= total:
+        return f"[file has {total} lines; requested offset {offset_i} is past end]"
+    end = total if limit_i is None else min(start + limit_i, total)
+    sliced = "".join(lines[start:end])
+    return f"[lines {start + 1}-{end} of {total} from {args['path']}]\n{sliced}"
 
 
 _GLOB_MAX_RESULTS = 200
@@ -441,8 +466,27 @@ def _make_mcp_promote(registry: ToolRegistry):
 def register_all(registry: ToolRegistry, *, memory_path: pathlib.Path | None = None) -> None:
     registry.register(ToolDef(
         name="read",
-        description="Read the contents of a file.",
-        parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+        description=(
+            "Read the contents of a file. Optionally pass `offset` (1-based "
+            "starting line) and `limit` (max lines) to read a slice without "
+            "loading the whole file — prefer this for large files to keep "
+            "the prompt small."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "offset": {
+                    "type": "integer",
+                    "description": "1-based starting line (default: 1)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of lines to return (default: all)",
+                },
+            },
+            "required": ["path"],
+        },
         func=_read,
         read_only=True,
     ))
@@ -532,6 +576,38 @@ def register_all(registry: ToolRegistry, *, memory_path: pathlib.Path | None = N
         func=_make_mcp_promote(registry),
         read_only=True,
     ))
+    analyze_def = ToolDef(
+        name="analyze",
+        description=(
+            "Return a compact code map of a directory or file: per-file "
+            "line/function/class counts, top-level signatures with arg "
+            "counts, imports, and a per-language breakdown. Use this "
+            "INSTEAD OF multiple `read` calls when orienting in a "
+            "codebase — one call replaces dozens of file reads. Accepts "
+            "`path` (file or dir, default cwd), `max_depth` (default 3, "
+            "0 = unbounded), and `pattern` (regex over relative paths)."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "File or directory to analyse (default: cwd)",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Recursion depth cap; 0 = unbounded (default: 3)",
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "Optional regex matched against relative paths",
+                },
+            },
+        },
+        func=_repomap_tool,
+        read_only=True,
+    )
+    registry.register(analyze_def)
     registry.register(ToolDef(
         name="web_fetch",
         description="Fetch the text content of a URL. HTML is stripped to plain text.",

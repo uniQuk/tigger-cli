@@ -214,3 +214,49 @@ def test_render_no_placeholder_no_args_returns_body(tmp_path):
     skills = load_skills_dir(tmp_path)
     rendered = skills[0].render("/my-skill")
     assert "You are an expert. Follow these instructions carefully." in rendered
+
+
+_WITH_OVERRIDES = textwrap.dedent("""\
+    ---
+    name: my-skill
+    stop_after_write: true
+    chat_template_kwargs:
+      enable_thinking: false
+      another_flag: 42
+    ---
+    body
+""")
+
+
+def test_load_stop_after_write_and_chat_template_kwargs(tmp_path):
+    _make_skill(tmp_path, "my-skill", _WITH_OVERRIDES)
+    skills = load_skills_dir(tmp_path)
+    assert len(skills) == 1
+    s = skills[0]
+    assert s.stop_after_write is True
+    assert s.chat_template_kwargs == {"enable_thinking": False, "another_flag": 42}
+
+
+def test_chat_template_kwargs_defaults_to_none(tmp_path):
+    _make_skill(tmp_path, "my-skill", _BASIC)
+    skills = load_skills_dir(tmp_path)
+    assert skills[0].chat_template_kwargs is None
+    assert skills[0].stop_after_write is False
+
+
+_BAD_KWARGS = textwrap.dedent("""\
+    ---
+    name: my-skill
+    chat_template_kwargs: "not a dict"
+    stop_after_write: nope
+    ---
+    body
+""")
+
+
+def test_invalid_overrides_fall_back_silently(tmp_path):
+    _make_skill(tmp_path, "my-skill", _BAD_KWARGS)
+    skills = load_skills_dir(tmp_path)
+    # Loader survives garbage values rather than crashing the session.
+    assert skills[0].chat_template_kwargs is None
+    assert skills[0].stop_after_write is False

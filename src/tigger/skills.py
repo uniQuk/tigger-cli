@@ -47,6 +47,30 @@ def parse_output_budget(raw: object) -> int | None:
     return None
 
 
+def _parse_chat_template_kwargs(raw: object) -> dict | None:
+    """Coerce a frontmatter `chat_template_kwargs` value to a dict-or-None.
+
+    Anything that isn't a dict is silently ignored — the loader's job is to
+    survive bad skill files, not to fail the whole session.
+    """
+    if isinstance(raw, dict):
+        return raw
+    return None
+
+
+def _parse_bool(raw: object) -> bool:
+    """Liberal bool parser — accepts YAML true/false and the strings
+    "true"/"false"/"1"/"0" (case-insensitive). Anything else returns False.
+    """
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, int):
+        return bool(raw)
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"true", "1", "yes", "on"}
+    return False
+
+
 @dataclass
 class SkillDef:
     name: str
@@ -64,6 +88,15 @@ class SkillDef:
     # config.output_budget_default. 0 means disable the gate explicitly.
     # YAML literal "unbounded" parses to None.
     output_budget: int | None = None
+    # Per-skill chat_template_kwargs override (passed via OpenAI extra_body).
+    # The skill-level dict is merged on top of the workspace config so a skill
+    # can selectively flip flags like {"enable_thinking": False} without
+    # losing the rest of the config. None = no override.
+    chat_template_kwargs: dict | None = None
+    # When True, the agent loop breaks immediately after a successful `write`
+    # so the model can't enter a post-write recovery loop. Use for generative
+    # skills whose output is a single big artifact (HTML, image, doc).
+    stop_after_write: bool = False
 
     def render(self, user_input: str) -> str:
         args = user_input
@@ -138,6 +171,10 @@ def load_skills(path: pathlib.Path) -> list[SkillDef]:
             body=b["body"],
             agent=fm.get("agent"),
             output_budget=parse_output_budget(fm.get("output_budget")),
+            chat_template_kwargs=_parse_chat_template_kwargs(
+                fm.get("chat_template_kwargs")
+            ),
+            stop_after_write=_parse_bool(fm.get("stop_after_write")),
         ))
     return skills
 
@@ -194,6 +231,10 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
             inject_references=fm.get("inject_references", True),
             agent=fm.get("agent"),
             output_budget=parse_output_budget(fm.get("output_budget")),
+            chat_template_kwargs=_parse_chat_template_kwargs(
+                fm.get("chat_template_kwargs")
+            ),
+            stop_after_write=_parse_bool(fm.get("stop_after_write")),
         ))
     return skills
 

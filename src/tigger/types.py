@@ -146,6 +146,16 @@ class RunContext:
     # means inherit from `config.output_budget_default`. 0 disables the
     # gate. Set in `loop.run_forked` from the active skill's frontmatter.
     output_budget: int | None = None
+    # Per-skill chat_template_kwargs override (e.g. {"enable_thinking": False}).
+    # Merged on top of `config.chat_template_kwargs` in `loop.run`. Useful for
+    # skills whose work is generative (long single writes) and would otherwise
+    # waste minutes on reasoning tokens that never reach the file.
+    chat_template_kwargs: dict | None = None
+    # When True, the agent loop breaks immediately after a successful `write`
+    # tool call. Prevents post-write recovery loops where the model second-
+    # guesses its own large output, retries, or re-reads to "verify" — a
+    # failure mode observed on local Qwen with the architecture-diagram skill.
+    stop_after_write: bool = False
 
 
 # ── Events yielded by the agent loop ──────────────────────────────────────
