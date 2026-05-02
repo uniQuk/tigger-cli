@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import os
 import pathlib
 import sys
@@ -39,6 +40,15 @@ _STALL_HEARTBEAT_SECS = max(
     0, int(os.environ.get("TIGGER_STALL_SECS", "60"))
 )
 
+# Default hard ceiling for large string tool arguments. This is intentionally
+# below many model max_tokens settings: local OpenAI-compatible servers often
+# buffer function-call arguments internally, so one huge write/edit can look
+# silent for many minutes and then be rejected. Keep chunks small unless the
+# user deliberately opts into bigger tool args.
+_TOOL_ARG_BUDGET_CAP = max(
+    1024, int(os.environ.get("TIGGER_TOOL_ARG_BUDGET", "4096"))
+)
+
 
 class _StallWatchdog:
     """Daemon-thread watchdog that prints a heartbeat when the model goes
@@ -76,8 +86,9 @@ class _StallWatchdog:
             silent = time.monotonic() - self._last
             if silent >= self._interval:
                 sys.stderr.write(
-                    f"[stalled] no model output for {silent:.0f}s "
-                    f"({self._label}). Provider may be hung — Ctrl-C to abort.\n"
+                    f"[stalled] no provider stream chunks for {silent:.0f}s "
+                    f"({self._label}). The model may still be generating a "
+                    f"large buffered tool argument; Ctrl-C to abort.\n"
                 )
                 sys.stderr.flush()
 
@@ -136,10 +147,50 @@ def _effective_output_budget(configured_budget: int, max_tokens: int) -> int:
     entire generation and arrive as empty/truncated arguments. Cap the accepted
     payload below the model output budget so the loop forces chunking earlier.
     """
-    if configured_budget <= 0 or max_tokens <= 0:
+    if configured_budget <= 0:
         return configured_budget
-    token_limited_budget = max(1024, max_tokens)
-    return min(configured_budget, token_limited_budget)
+    caps = [configured_budget, _TOOL_ARG_BUDGET_CAP]
+    if max_tokens > 0:
+        caps.append(max_tokens)
+    return min(caps)
+
+
+def _with_output_budget_schema_limits(schemas: list[dict], budget: int) -> list[dict]:
+    """Return tool schemas with maxLength applied to large write/edit fields."""
+    if budget <= 0:
+        return schemas
+    out: list[dict] = []
+    for schema in schemas:
+        fn = schema.get("function", {})
+        name = fn.get("name")
+        if name not in {"write", "edit"}:
+            out.append(schema)
+            continue
+        new_schema = copy.deepcopy(schema)
+        props = (
+            new_schema
+            .get("function", {})
+            .get("parameters", {})
+            .get("properties", {})
+        )
+        if name == "write" and isinstance(props.get("content"), dict):
+            props["content"]["maxLength"] = budget
+            props["content"]["description"] = (
+                f"File content to write. Must be <= {budget} characters; "
+                "for larger files write a small stub with anchors, then edit "
+                "one section at a time."
+            )
+        elif name == "edit":
+            for field_name in ("old_string", "new_string"):
+                if isinstance(props.get(field_name), dict):
+                    props[field_name]["maxLength"] = budget
+            if isinstance(props.get("new_string"), dict):
+                props["new_string"]["description"] = (
+                    f"Replacement text. Must be <= {budget} characters; split "
+                    "larger changes into multiple targeted edits."
+                )
+        out.append(new_schema)
+    return out
 
 
 def _lazy_tools_prompt_line(registry: ToolRegistry) -> str:
@@ -303,6 +354,10 @@ def run(
             s for s in registry.schemas()
             if allowed is None or s["function"]["name"] in allowed
         ]
+        tools_schemas = _with_output_budget_schema_limits(
+            tools_schemas,
+            active_output_budget,
+        )
 
         # System prompt stays bytewise stable across turns within a session.
         # Dynamic per-turn content (active mode body, lazy MCP tool listing)

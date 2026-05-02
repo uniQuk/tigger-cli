@@ -165,9 +165,9 @@ def test_gate_rejects_oversized_write_no_filesystem_touch(tmp_path):
     assert not target.exists()
 
 
-def test_gate_caps_large_budget_to_active_max_tokens(tmp_path):
+def test_gate_caps_large_budget_to_tool_arg_ceiling(tmp_path):
     target = tmp_path / "too-large-for-model.html"
-    content = "x" * 9000
+    content = "x" * 5000
     tc = ToolCallRecord("c1", "write", {"path": str(target), "content": content})
     ctx = _ctx(output_budget=32768, max_tokens=8192)
     events = list(run("go", ctx, _registry(),
@@ -177,7 +177,7 @@ def test_gate_caps_large_budget_to_active_max_tokens(tmp_path):
     ends = [e for e in events if isinstance(e, ToolEndEvent)]
     assert len(ends) == 1
     assert ends[0].error is True
-    assert "9000 > 8192" in ends[0].output
+    assert "5000 > 4096" in ends[0].output
     assert not target.exists()
 
 
@@ -192,7 +192,41 @@ def test_active_output_budget_is_sent_in_environment():
     list(run("go", ctx, _registry(), provider_fn=provider))
 
     assert seen_envs[0] is not None
-    assert "Active write/edit payload budget: 8192 chars" in seen_envs[0]
+    assert "Active write/edit payload budget: 4096 chars" in seen_envs[0]
+
+
+def test_tool_arg_ceiling_still_applies_when_max_tokens_is_unbounded():
+    seen_envs: list[str | None] = []
+
+    def provider(system, messages, tools, config, environment=None):
+        seen_envs.append(environment)
+        yield AssistantMessage(content="done", tool_calls=[])
+
+    ctx = _ctx(output_budget=32768, max_tokens=0)
+    list(run("go", ctx, _registry(), provider_fn=provider))
+
+    assert seen_envs[0] is not None
+    assert "Active write/edit payload budget: 4096 chars" in seen_envs[0]
+
+
+def test_active_output_budget_is_applied_to_tool_schemas():
+    seen_tools: list[list[dict]] = []
+
+    def provider(system, messages, tools, config, environment=None):
+        seen_tools.append(tools)
+        yield AssistantMessage(content="done", tool_calls=[])
+
+    ctx = _ctx(output_budget=32768, max_tokens=8192)
+    list(run("go", ctx, _registry(), provider_fn=provider))
+
+    by_name = {s["function"]["name"]: s for s in seen_tools[0]}
+    write_content = (
+        by_name["write"]["function"]["parameters"]["properties"]["content"]
+    )
+    edit_props = by_name["edit"]["function"]["parameters"]["properties"]
+    assert write_content["maxLength"] == 4096
+    assert edit_props["old_string"]["maxLength"] == 4096
+    assert edit_props["new_string"]["maxLength"] == 4096
 
 
 def test_gate_rejects_oversized_edit():
