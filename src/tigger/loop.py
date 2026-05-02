@@ -127,6 +127,21 @@ def _check_output_budget(tc, budget: int) -> str | None:
     return None
 
 
+def _effective_output_budget(configured_budget: int, max_tokens: int) -> int:
+    """Return the per-call write/edit char budget for this run.
+
+    A large skill budget is only useful when the provider also has enough
+    completion budget to emit the JSON tool call. With small max_tokens values,
+    especially local Qwen tool-call streams, overlarge write payloads burn an
+    entire generation and arrive as empty/truncated arguments. Cap the accepted
+    payload below the model output budget so the loop forces chunking earlier.
+    """
+    if configured_budget <= 0 or max_tokens <= 0:
+        return configured_budget
+    token_limited_budget = max(1024, max_tokens)
+    return min(configured_budget, token_limited_budget)
+
+
 def _lazy_tools_prompt_line(registry: ToolRegistry) -> str:
     """Build the per-turn prompt fragment listing lazy MCP tools by server.
 
@@ -210,6 +225,10 @@ def run(
         if ctx.output_budget is not None
         else ctx.config.output_budget_default
     )
+    active_output_budget = _effective_output_budget(
+        active_output_budget,
+        ctx.config.max_tokens,
+    )
 
     # Build an effective Config that merges any skill-level chat_template_kwargs
     # override on top of the workspace defaults. Done once per run() — Config
@@ -233,6 +252,7 @@ def run(
     # fails twice the model is thrashing and the user needs to intervene.
     tool_cutoff_continuations = 0
     max_tool_cutoff_continuations = 1
+    recovering_from_tool_cutoff = False
 
     # Opt-in per-turn perf logging — set TIGGER_PERF=1 (or a path) to enable.
     # Logs turn duration, token counts, and message-list size to stderr or a
@@ -296,6 +316,13 @@ def run(
         lazy_line = _lazy_tools_prompt_line(registry)
         if lazy_line:
             env_parts.append(lazy_line)
+        if active_output_budget > 0:
+            env_parts.append(
+                "Active write/edit payload budget: "
+                f"{active_output_budget} chars per tool call. "
+                "Keep write.content and edit old_string/new_string fields under "
+                "this limit; use stub-then-edit for larger files."
+            )
         environment = "\n\n".join(env_parts) if env_parts else None
         # Pass `environment` as a keyword arg only when set, so non-tigger
         # callers of provider_fn (e.g. compaction.summarize_old) and test
@@ -607,6 +634,7 @@ def run(
         if truncated_call:
             if tool_cutoff_continuations < max_tool_cutoff_continuations:
                 tool_cutoff_continuations += 1
+                recovering_from_tool_cutoff = True
                 sys.stderr.write(
                     f"[loop] tool call truncated mid-stream — appending "
                     f"chunked-write hint and retrying "
@@ -641,7 +669,12 @@ def run(
         # output and burns minutes re-reading or retrying. Tool results have
         # already been appended above, so the wire format remains valid for
         # any caller that re-uses ctx.messages.
-        if ctx.stop_after_write and wrote_target:
+        #
+        # Exception: after a tool-call truncation, the recovery hint tells the
+        # model to switch to stub-then-edit. In that recovery mode, the first
+        # successful `write` is often only a skeleton; stopping there leaves a
+        # partial artifact on disk. Let the model continue with edit chunks.
+        if ctx.stop_after_write and wrote_target and not recovering_from_tool_cutoff:
             break
 
         # normal round: loop back for model to process tool results

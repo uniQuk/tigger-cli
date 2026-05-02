@@ -260,3 +260,55 @@ def test_invalid_overrides_fall_back_silently(tmp_path):
     # Loader survives garbage values rather than crashing the session.
     assert skills[0].chat_template_kwargs is None
     assert skills[0].stop_after_write is False
+
+
+_PORTABLE_HTML_ARTIFACT = textwrap.dedent("""\
+    ---
+    name: architecture-diagram
+    ---
+    Create professional, standalone HTML files with SVG graphics.
+
+    ## Output
+
+    Always produce a single self-contained `.html` file with inline SVG.
+""")
+
+
+def test_portable_html_artifact_skill_gets_fast_runtime_defaults(tmp_path):
+    _make_skill(tmp_path, "architecture-diagram", _PORTABLE_HTML_ARTIFACT)
+    skills = load_skills_dir(tmp_path)
+    s = skills[0]
+    assert s.context == "fork"
+    assert s.tools == ["read", "glob", "write", "edit", "analyze"]
+    assert s.output_budget == 32768
+    assert s.stop_after_write is False
+    assert s.chat_template_kwargs == {
+        "enable_thinking": False,
+        "preserve_thinking": False,
+    }
+
+
+_EXPLICIT_INLINE_ARTIFACT = textwrap.dedent("""\
+    ---
+    name: architecture-diagram
+    context: inline
+    tools: [read]
+    output_budget: 100
+    stop_after_write: false
+    chat_template_kwargs:
+      enable_thinking: true
+    ---
+    Create professional, standalone HTML files with SVG graphics.
+    Always produce a single self-contained `.html` file with inline SVG.
+""")
+
+
+def test_explicit_artifact_frontmatter_beats_fast_runtime_defaults(tmp_path):
+    _make_skill(tmp_path, "architecture-diagram", _EXPLICIT_INLINE_ARTIFACT)
+    skills = load_skills_dir(tmp_path)
+    s = skills[0]
+    assert s.context == "inline"
+    assert s.tools == ["read"]
+    assert s.output_budget == 100
+    assert s.stop_after_write is False
+    assert s.chat_template_kwargs == {"enable_thinking": True}

@@ -97,6 +97,14 @@ class SkillDef:
     # so the model can't enter a post-write recovery loop. Use for generative
     # skills whose output is a single big artifact (HTML, image, doc).
     stop_after_write: bool = False
+    # Internal loader bookkeeping: false means the value came from Tigger's
+    # defaults/inference rather than the skill frontmatter. Explicit skill
+    # declarations always win over inferred artifact-generation defaults.
+    context_explicit: bool = False
+    tools_explicit: bool = False
+    output_budget_explicit: bool = False
+    chat_template_kwargs_explicit: bool = False
+    stop_after_write_explicit: bool = False
 
     def render(self, user_input: str) -> str:
         args = user_input
@@ -140,6 +148,49 @@ class SkillDef:
         return rendered
 
 
+_ARTIFACT_TOOLS = ["read", "glob", "write", "edit", "analyze"]
+_ARTIFACT_OUTPUT_BUDGET = 32768
+
+
+def _looks_like_single_file_artifact(body: str) -> bool:
+    """Heuristic for portable skills that generate one large local artifact.
+
+    Many shared skills intentionally contain only portable instructions, not
+    Tigger-specific frontmatter. Running those inline in the full conversation
+    makes local models pay repeated full-prefill costs while writing large
+    HTML/SVG files. This narrow classifier lets the loader attach fast runtime
+    defaults without changing the skill file itself.
+    """
+    lower = body.lower()
+    has_artifact = (
+        "single self-contained" in lower
+        or "standalone html" in lower
+        or "standalone .html" in lower
+        or "standalone html files" in lower
+    )
+    has_format = ".html" in lower or "inline svg" in lower or "svg graphics" in lower
+    has_file_intent = "produce" in lower or "create" in lower or "write" in lower
+    return has_artifact and has_format and has_file_intent
+
+
+def _apply_inferred_skill_defaults(skill: SkillDef) -> SkillDef:
+    """Apply runtime-only defaults for portable single-artifact skills."""
+    if not _looks_like_single_file_artifact(skill.body):
+        return skill
+    if not skill.context_explicit:
+        skill.context = "fork"
+    if not skill.tools_explicit:
+        skill.tools = list(_ARTIFACT_TOOLS)
+    if not skill.output_budget_explicit:
+        skill.output_budget = _ARTIFACT_OUTPUT_BUDGET
+    if not skill.chat_template_kwargs_explicit:
+        skill.chat_template_kwargs = {
+            "enable_thinking": False,
+            "preserve_thinking": False,
+        }
+    return skill
+
+
 @dataclass
 class AgentDef:
     name: str
@@ -163,7 +214,7 @@ def load_skills(path: pathlib.Path) -> list[SkillDef]:
         if isinstance(triggers, str):
             triggers = [triggers]
         tools = fm.get("tools", [])
-        skills.append(SkillDef(
+        skill = SkillDef(
             name=fm["name"],
             triggers=triggers,
             tools=tools,
@@ -175,7 +226,13 @@ def load_skills(path: pathlib.Path) -> list[SkillDef]:
                 fm.get("chat_template_kwargs")
             ),
             stop_after_write=_parse_bool(fm.get("stop_after_write")),
-        ))
+            context_explicit="context" in fm,
+            tools_explicit="tools" in fm,
+            output_budget_explicit="output_budget" in fm,
+            chat_template_kwargs_explicit="chat_template_kwargs" in fm,
+            stop_after_write_explicit="stop_after_write" in fm,
+        )
+        skills.append(_apply_inferred_skill_defaults(skill))
     return skills
 
 
@@ -219,7 +276,7 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
         assets = assets_dir if assets_dir.exists() else None
 
         tools = fm.get("tools", [])
-        skills.append(SkillDef(
+        skill = SkillDef(
             name=fm["name"],
             triggers=triggers,
             tools=tools,
@@ -235,7 +292,13 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
                 fm.get("chat_template_kwargs")
             ),
             stop_after_write=_parse_bool(fm.get("stop_after_write")),
-        ))
+            context_explicit="context" in fm,
+            tools_explicit="tools" in fm,
+            output_budget_explicit="output_budget" in fm,
+            chat_template_kwargs_explicit="chat_template_kwargs" in fm,
+            stop_after_write_explicit="stop_after_write" in fm,
+        )
+        skills.append(_apply_inferred_skill_defaults(skill))
     return skills
 
 

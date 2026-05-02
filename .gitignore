@@ -13,3 +13,4 @@ ideation/
 docs/**
 tigger-cli/
 *.html
+output*.tsx

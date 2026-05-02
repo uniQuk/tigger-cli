@@ -717,6 +717,47 @@ def test_tool_cutoff_recovery_capped_at_one(capsys):
     assert "tool call truncated again after recovery" in err
 
 
+def test_stop_after_write_does_not_stop_on_truncation_recovery_stub():
+    """After a cut-off write, the retry may intentionally create a stub.
+    stop_after_write must not terminate there; the model needs another turn
+    to continue with edits or final recovery.
+    """
+    truncated_tc = ToolCallRecord("c1", "write", {}, parse_error_bytes=0)
+    stub_tc = ToolCallRecord(
+        "c2", "write", {"path": "/tmp/architecture.html", "content": "<html>"}
+    )
+    turns_seen = 0
+
+    def provider(system, messages, tools, config):
+        nonlocal turns_seen
+        turns_seen += 1
+        if turns_seen == 1:
+            yield AssistantMessage(content="", tool_calls=[truncated_tc])
+        elif turns_seen == 2:
+            yield AssistantMessage(content="", tool_calls=[stub_tc])
+        else:
+            yield AssistantMessage(content="done", tool_calls=[])
+
+    writes: list[dict] = []
+
+    def fake_write(args):
+        writes.append(args)
+        return f"Written: {args['path']}"
+
+    reg = _registry([
+        ToolDef("write", "", {"type": "object", "properties": {}}, func=fake_write),
+    ])
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass")
+    ctx = RunContext(
+        config=cfg, messages=[], system_prompt="x", stop_after_write=True,
+    )
+
+    list(run("go", ctx, reg, provider_fn=provider))
+
+    assert writes == [{"path": "/tmp/architecture.html", "content": "<html>"}]
+    assert turns_seen == 3
+
+
 def test_stall_watchdog_fires_when_stream_silent(monkeypatch, capsys):
     """When a chunk doesn't arrive within the watchdog window, a heartbeat
     line lands on stderr. We use a 1-second window via the env var so the

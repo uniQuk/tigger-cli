@@ -519,12 +519,11 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
         _tool_buffer.append((event.name, _extract_preview(event.name, event.args)))
         _start_activity(_tool_counter_message())
     elif isinstance(event, ToolEndEvent):
+        _stop_activity()
         # Only surface errors and denials — successful tool calls stay quiet.
         if not event.permitted:
-            _stop_activity()
             console.print("  [dim]⎿[/dim]  [yellow](denied)[/yellow]")
         elif event.error:
-            _stop_activity()
             out = event.output[:120].replace("\n", " · ").rstrip(" · ")
             console.print(f"  [dim]⎿[/dim]  [red]{out}[/red]")
     elif isinstance(event, ThinkingEvent):

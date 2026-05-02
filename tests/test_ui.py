@@ -344,6 +344,20 @@ def test_render_event_error_still_inline(monkeypatch):
     assert "command not found" in out
 
 
+def test_render_event_successful_tool_end_stops_activity(monkeypatch):
+    """A final successful tool call must not leave the live activity indicator running."""
+    import tigger.ui as ui_mod
+    stops: list[bool] = []
+    monkeypatch.setattr(ui_mod, "_start_activity", lambda *args, **kwargs: None)
+    monkeypatch.setattr(ui_mod, "_stop_activity", lambda: stops.append(True))
+    _tool_buffer.clear()
+
+    ui_mod.render_event(ToolStartEvent("c1", "write", {"path": "/tmp/x"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c1", "write", "Written: /tmp/x"), [0], [])
+
+    assert stops
+
+
 def test_render_event_recent_tools_still_updated(monkeypatch):
     """recent_tools deque still gets updated on ToolStartEvent."""
     import tigger.ui as ui_mod

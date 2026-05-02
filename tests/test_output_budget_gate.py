@@ -18,12 +18,13 @@ from tigger.types import (
 )
 
 
-def _ctx(*, output_budget=None, output_budget_default=0) -> RunContext:
+def _ctx(*, output_budget=None, output_budget_default=0, max_tokens=0) -> RunContext:
     cfg = Config(
         base_url="http://x",
         model="m",
         permission_mode="bypass",
         output_budget_default=output_budget_default,
+        max_tokens=max_tokens,
     )
     return RunContext(
         config=cfg, messages=[], system_prompt="sys", output_budget=output_budget,
@@ -162,6 +163,36 @@ def test_gate_rejects_oversized_write_no_filesystem_touch(tmp_path):
     assert "2048" in ends[0].output
     # Filesystem untouched.
     assert not target.exists()
+
+
+def test_gate_caps_large_budget_to_active_max_tokens(tmp_path):
+    target = tmp_path / "too-large-for-model.html"
+    content = "x" * 9000
+    tc = ToolCallRecord("c1", "write", {"path": str(target), "content": content})
+    ctx = _ctx(output_budget=32768, max_tokens=8192)
+    events = list(run("go", ctx, _registry(),
+                      provider_fn=_provider_with_calls([[tc]])))
+
+    assert not any(isinstance(e, ToolStartEvent) for e in events)
+    ends = [e for e in events if isinstance(e, ToolEndEvent)]
+    assert len(ends) == 1
+    assert ends[0].error is True
+    assert "9000 > 8192" in ends[0].output
+    assert not target.exists()
+
+
+def test_active_output_budget_is_sent_in_environment():
+    seen_envs: list[str | None] = []
+
+    def provider(system, messages, tools, config, environment=None):
+        seen_envs.append(environment)
+        yield AssistantMessage(content="done", tool_calls=[])
+
+    ctx = _ctx(output_budget=32768, max_tokens=8192)
+    list(run("go", ctx, _registry(), provider_fn=provider))
+
+    assert seen_envs[0] is not None
+    assert "Active write/edit payload budget: 8192 chars" in seen_envs[0]
 
 
 def test_gate_rejects_oversized_edit():
