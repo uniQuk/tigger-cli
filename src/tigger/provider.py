@@ -252,7 +252,8 @@ def stream(
     input_tokens = 0
     output_tokens = 0
     finish_reason = ""
-    pending_progress = 0  # coalesce StreamProgress: flush every ~200 chars
+    saw_finish = False
+    post_finish_chunks = 0
 
     # Request usage stats if the provider supports it; fall back without on error.
     kwargs["stream_options"] = {"include_usage": True}
@@ -278,23 +279,35 @@ def stream(
             if chunk.usage:
                 input_tokens = chunk.usage.prompt_tokens or 0
                 output_tokens = chunk.usage.completion_tokens or 0
+                if saw_finish:
+                    # Got the post-finish usage payload — LM Studio is known
+                    # to omit the `data: [DONE]` SSE terminator after this,
+                    # which would hang the SDK iterator forever. Break now.
+                    break
             choice = chunk.choices[0] if chunk.choices else None
             if choice and choice.finish_reason:
                 finish_reason = choice.finish_reason
+                saw_finish = True
             delta = choice.delta if choice else None
             if delta is None:
+                if saw_finish:
+                    post_finish_chunks += 1
+                    # Fallback: if no usage chunk arrives within a couple of
+                    # post-finish empty chunks, give up waiting.
+                    if post_finish_chunks >= 2:
+                        break
                 continue
             # Some OpenAI-compatible servers (vLLM/SGLang/LM Studio for Qwen)
-                # emit reasoning as a separate `reasoning_content` field rather
-                # than wrapping it in <think> tags inside `content`. Capture it
-                # so we can re-send it for preserve_thinking / KV-cache reuse.
+            # emit reasoning as a separate `reasoning_content` field rather
+            # than wrapping it in <think> tags inside `content`. Capture it
+            # so we can re-send it for preserve_thinking / KV-cache reuse.
+            # Yield a heartbeat on every delta — the watchdog in loop.py uses
+            # any chunk arrival as activity, so coalescing here would let the
+            # watchdog falsely fire during slow tool-call argument streaming.
             reasoning = getattr(delta, "reasoning_content", None)
             if reasoning:
                 collected_thinking += reasoning
-                pending_progress += len(reasoning)
-                if pending_progress >= 200:
-                    yield StreamProgress(chars=pending_progress)
-                    pending_progress = 0
+                yield StreamProgress(chars=len(reasoning))
             if delta.content:
                 collected_text += delta.content
                 yield TextChunk(content=delta.content)
@@ -302,6 +315,7 @@ def stream(
                 if not tool_call_signalled:
                     tool_call_signalled = True
                     yield ThinkingEvent()
+                delta_chars = 0
                 for tc_chunk in delta.tool_calls:
                     idx = tc_chunk.index
                     while len(collected_tool_calls) <= idx:
@@ -310,20 +324,16 @@ def stream(
                         collected_tool_calls[idx]["id"] = tc_chunk.id
                     if tc_chunk.function.name:
                         collected_tool_calls[idx]["function"]["name"] += tc_chunk.function.name
-                        pending_progress += len(tc_chunk.function.name)
+                        delta_chars += len(tc_chunk.function.name)
                     if tc_chunk.function.arguments:
                         collected_tool_calls[idx]["function"]["arguments"] += tc_chunk.function.arguments
-                        pending_progress += len(tc_chunk.function.arguments)
-                    if pending_progress >= 200:
-                        yield StreamProgress(chars=pending_progress)
-                        pending_progress = 0
+                        delta_chars += len(tc_chunk.function.arguments)
+                if delta_chars:
+                    yield StreamProgress(chars=delta_chars)
     except Exception:
         if collected_text:
             yield TextChunk(content="\n[response interrupted, retrying]\n")
         raise
-
-    if pending_progress:
-        yield StreamProgress(chars=pending_progress)
 
     # Diagnostic: if any tool call surfaced a name but no arguments, dump the
     # full collected_tool_calls dict to stderr. Some local servers (LM Studio
