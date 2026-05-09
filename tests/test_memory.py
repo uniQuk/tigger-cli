@@ -132,7 +132,8 @@ def test_cmd_memory_search(capsys):
     append_memory(p, "api at localhost")
     cmd_memory("search pytest", _make_ctx(), p)
     out = capsys.readouterr().out
-    assert "[1]" in out
+    # New format prefixes the line index with "1." instead of "[1]"
+    assert "1." in out
     assert "pytest" in out
     assert "localhost" not in out
 
