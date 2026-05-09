@@ -38,7 +38,7 @@ def test_preview_shows_rendered_prompt(capsys):
     skills = _basic_skills()
     cmd_skills("preview review", _ctx(), skills=skills)
     out = capsys.readouterr().out
-    assert "Skill: review" in out
+    assert "review" in out
     assert "triggers:" in out
     assert "context:" in out
     assert "tools:" in out
@@ -144,7 +144,7 @@ def test_preview_from_skills_dir(capsys, tmp_path):
     assert len(skills) == 1
     cmd_skills("preview checker", _ctx(), skills=skills)
     out = capsys.readouterr().out
-    assert "Skill: checker" in out
+    assert "checker" in out
     assert "rules.md" in out
     assert "Always lint first." in out
     assert "Check $ARGUMENTS" in out

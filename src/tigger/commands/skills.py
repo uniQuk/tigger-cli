@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from tigger.types import RunContext
+from tigger.ui import console
 
 
 def cmd_skills(args: str, ctx: RunContext, skills: list) -> None:
@@ -13,15 +14,23 @@ def cmd_skills(args: str, ctx: RunContext, skills: list) -> None:
         return
 
     if not skills:
-        print("No skills loaded.")
+        console.print("[dim]No skills loaded.[/dim]")
         return
+    console.print()
+    console.print("[bold]Loaded skills[/bold]")
     for s in skills:
-        print(f"  {s.name}  triggers={s.triggers}  context={s.context}  tools={s.tools}")
+        triggers = ", ".join(s.triggers)
+        console.print(
+            f"  [magenta]{s.name}[/magenta]  "
+            f"[dim]triggers=[/dim][yellow]{triggers}[/yellow]  "
+            f"[dim]context={s.context}  tools={s.tools}[/dim]"
+        )
+    console.print()
 
 
 def _preview(name: str, skills: list) -> None:
     if not name:
-        print("Usage: /skills preview <name>")
+        console.print("[dim]Usage:[/dim] /skills preview <name>")
         return
 
     skill = None
@@ -31,24 +40,26 @@ def _preview(name: str, skills: list) -> None:
             break
 
     if skill is None:
-        print(f"Skill not found: {name}")
+        console.print(f"[red]Skill not found:[/red] {name}")
         available = ", ".join(s.name for s in skills)
         if available:
-            print(f"Available: {available}")
+            console.print(f"[dim]Available:[/dim] {available}")
         return
 
-    # Show frontmatter metadata
-    print(f"── Skill: {skill.name} ──")
-    print(f"  triggers:  {skill.triggers}")
-    print(f"  context:   {skill.context}")
-    print(f"  tools:     {skill.tools}")
+    triggers = ", ".join(skill.triggers) if skill.triggers else "[dim](none)[/dim]"
+    console.print()
+    console.print(f"[bold magenta]{skill.name}[/bold magenta]")
+    console.print(f"  [dim]triggers:[/dim]           [yellow]{triggers}[/yellow]")
+    console.print(f"  [dim]context:[/dim]            {skill.context}")
+    console.print(f"  [dim]tools:[/dim]              {skill.tools}")
     if skill.references:
-        print(f"  references: {[r[0] for r in skill.references]}")
+        refs = ", ".join(r[0] for r in skill.references)
+        console.print(f"  [dim]references:[/dim]         {refs}")
     if skill.assets:
-        print(f"  assets:    {skill.assets}")
-    print(f"  inject_references: {skill.inject_references}")
-    print()
+        console.print(f"  [dim]assets:[/dim]             {skill.assets}")
+    console.print(f"  [dim]inject_references:[/dim]  {skill.inject_references}")
+    console.print()
 
     # Render with placeholder arguments so the user sees the full prompt
     rendered = skill.render(f"{skill.triggers[0]} $ARGUMENTS" if skill.triggers else "$ARGUMENTS")
-    print(rendered)
+    console.print(rendered, highlight=False)
