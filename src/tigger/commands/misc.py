@@ -10,6 +10,7 @@ def cmd_help(
     args: str, ctx: RunContext, commands: dict, skills: list, agents: list | None = None,
 ) -> None:
     from tigger.commands import COMMAND_DESCRIPTIONS, COMMAND_HELP
+    from tigger.ui import console
 
     if agents is None:
         agents = []
@@ -21,44 +22,64 @@ def cmd_help(
 
     if query:
         if query in COMMAND_HELP:
-            print(f"\n/{query}\n{COMMAND_HELP[query]}\n")
+            console.print(f"\n[bold cyan]/{query}[/bold cyan]")
+            console.print(COMMAND_HELP[query])
+            console.print()
         else:
-            print(f"\nUnknown command: {query}\n")
+            console.print(f"\n[red]Unknown command:[/red] /{query}\n")
         return
 
     width = max(len(name) for name in commands)
-    print("\nBuilt-in commands:")
+    console.print()
+    console.print("[bold]Built-in commands[/bold]")
     for name in sorted(commands):
         desc = COMMAND_DESCRIPTIONS.get(name, "")
-        print(f"  /{name:<{width}}  {desc}")
+        console.print(f"  [cyan]/{name:<{width}}[/cyan]  [dim]{desc}[/dim]")
 
     visible_skills = skills if show_all else [s for s in skills if not s.name.startswith("_")]
     if visible_skills:
-        print("\nLoaded skills:")
+        console.print()
+        console.print("[bold]Loaded skills[/bold]")
         for s in visible_skills:
-            suffix = "  [internal]" if s.name.startswith("_") else ""
-            print(f"  {', '.join(s.triggers)}  — {s.name}{suffix}")
+            suffix = " [dim](internal)[/dim]" if s.name.startswith("_") else ""
+            triggers = ", ".join(s.triggers)
+            console.print(f"  [yellow]{triggers}[/yellow]  [dim]—[/dim] {s.name}{suffix}")
 
     visible_agents = agents if show_all else [a for a in agents if not a.name.startswith("_")]
     if visible_agents:
-        print("\nLoaded agents:")
+        console.print()
+        console.print("[bold]Loaded agents[/bold]")
         for a in visible_agents:
-            suffix = "  [internal]" if a.name.startswith("_") else ""
-            desc = f" — {a.description}" if a.description else ""
-            print(f"  {a.name}{desc}{suffix}")
-    print()
+            suffix = " [dim](internal)[/dim]" if a.name.startswith("_") else ""
+            desc = f" [dim]— {a.description}[/dim]" if a.description else ""
+            console.print(f"  [magenta]{a.name}[/magenta]{desc}{suffix}")
+    console.print()
 
 
 def cmd_clear(args: str, ctx: RunContext) -> None:
+    from tigger.ui import console
+
     ctx.messages.clear()
-    print("Message history cleared.")
+    console.print("[dim]✓ Message history cleared.[/dim]")
 
 
 def cmd_tokens(args: str, ctx: RunContext) -> None:
+    from tigger.ui import console
+
     used = estimate_tokens(ctx.messages)
     limit = ctx.config.context_limit
     pct = int(used / limit * 100) if limit else 0
-    print(f"Tokens: {used}/{limit} ({pct}% used)")
+    # Colour the percentage by remaining headroom: green <50, yellow <80, red ≥80.
+    if pct >= 80:
+        colour = "red"
+    elif pct >= 50:
+        colour = "yellow"
+    else:
+        colour = "green"
+    console.print(
+        f"[bold]Context:[/bold] {used:,} / {limit:,} tokens "
+        f"([{colour}]{pct}% used[/{colour}])"
+    )
 
 
 def cmd_model(args: str, ctx: RunContext) -> None:

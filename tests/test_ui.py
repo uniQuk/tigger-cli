@@ -583,7 +583,8 @@ def test_extract_preview_write_returns_basename():
     """write/edit previews should show just the basename, not the content."""
     from tigger.ui import _extract_preview
     assert _extract_preview("write", {"path": "src/a/b.py", "content": "x" * 99}) == "b.py"
-    assert _extract_preview("edit", {"path": "/tmp/x.py", "old_string": "a", "new_string": "b"}) == "x.py"
+    edit_args = {"path": "/tmp/x.py", "old_string": "a", "new_string": "b"}
+    assert _extract_preview("edit", edit_args) == "x.py"
 
 
 # --- streaming text via Rich Live ---

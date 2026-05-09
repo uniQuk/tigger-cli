@@ -70,7 +70,7 @@ class TestHelpInternalFiltering:
                  skills=[InternalSkill()])
         out = capsys.readouterr().out
         assert "_debug" in out
-        assert "[internal]" in out
+        assert "(internal)" in out
 
     def test_shows_agents(self, capsys):
         class FakeAgent:
@@ -102,7 +102,7 @@ class TestHelpInternalFiltering:
                  skills=[], agents=[InternalAgent()])
         out = capsys.readouterr().out
         assert "_test-engineer" in out
-        assert "[internal]" in out
+        assert "(internal)" in out
 
     def test_no_agents_omits_section(self, capsys):
         cmds = _make_commands()
@@ -140,4 +140,5 @@ class TestHelpWithArgs:
         cmds = _make_commands()
         cmd_help(args="nonexistent", ctx=_make_ctx(), commands=cmds, skills=[])
         out = capsys.readouterr().out
-        assert "Unknown command: nonexistent" in out
+        assert "Unknown command:" in out
+        assert "nonexistent" in out
