@@ -791,3 +791,131 @@ def test_edit_tool_failure_drops_diff(monkeypatch):
     # No green/red diff bodies leaked into the flush
     assert "+bar" not in out
     assert "-foo" not in out
+
+
+# --- bash output preview ---
+
+
+def test_make_output_preview_single_line_returns_empty():
+    from tigger.ui import _make_output_preview
+    assert _make_output_preview("just one line") == ""
+    assert _make_output_preview("") == ""
+
+
+def test_make_output_preview_truncates_to_max_lines():
+    from tigger.ui import _make_output_preview
+    out = "\n".join(f"line{i}" for i in range(10))
+    preview = _make_output_preview(out, max_lines=3)
+    lines = preview.split("\n")
+    assert lines[:3] == ["line0", "line1", "line2"]
+    assert "+7 more" in lines[-1]
+
+
+def test_make_output_preview_truncates_long_lines():
+    from tigger.ui import _make_output_preview
+    long = "x" * 200
+    out = f"a\n{long}\nb"
+    preview = _make_output_preview(out, max_width=50)
+    line2 = preview.split("\n")[1]
+    assert len(line2) <= 50
+    assert line2.endswith("...")
+
+
+def test_render_indented_block_diff_uses_colors():
+    from tigger.ui import _render_indented_block
+    lines = _render_indented_block("@@ -1 +1 @@\n-old\n+new")
+    assert any("[green]" in l for l in lines)
+    assert any("[red]" in l for l in lines)
+
+
+def test_render_indented_block_plain_uses_dim():
+    from tigger.ui import _render_indented_block
+    lines = _render_indented_block("foo\nbar")
+    assert all("[dim]" in l for l in lines)
+    assert all("[green]" not in l for l in lines)
+
+
+def test_bash_multi_line_output_renders_preview(monkeypatch):
+    """Multi-line bash output should render an indented preview block."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod._tool_buffer.clear(); ui_mod._tool_call_ids.clear()
+    ui_mod._tool_summaries.clear(); ui_mod._tool_details.clear()
+
+    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "ls"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c1", "bash", "a.py\nb.py\nc.py"), [0], [])
+    ui_mod.render_event(TextChunk("done"), [0], [])
+    out = buf.getvalue()
+    assert "(3 lines)" in out
+    assert "a.py" in out and "b.py" in out and "c.py" in out
+
+
+def test_bash_single_line_output_no_preview_block(monkeypatch):
+    """Single-line bash output should NOT produce a preview block."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod._tool_buffer.clear(); ui_mod._tool_call_ids.clear()
+    ui_mod._tool_summaries.clear(); ui_mod._tool_details.clear()
+
+    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "wc -l x.py"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c1", "bash", "    42 x.py"), [0], [])
+    ui_mod.render_event(TextChunk("done"), [0], [])
+    out = buf.getvalue()
+    assert "42 x.py" in out
+    # No additional lines under the bash entry
+    bash_block = out.split("bash:", 1)[1].split("───", 1)[0]
+    indented_lines = [l for l in bash_block.splitlines() if l.startswith("      ")]
+    assert indented_lines == []
+
+
+# --- turn summary context % ---
+
+
+def test_turn_summary_omits_ctx_when_none(monkeypatch):
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod.print_turn_summary(142, 4.5)
+    out = buf.getvalue()
+    assert "142 tokens" in out
+    assert "4.5s" in out
+    assert "ctx" not in out
+
+
+def test_turn_summary_low_ctx_is_green(monkeypatch):
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=True))
+    ui_mod.print_turn_summary(10, 1.0, context_pct=15)
+    out = buf.getvalue()
+    assert "15% ctx" in out
+    # Green ANSI present (Rich emits 32 for green)
+    assert "\x1b[" in out and "32" in out
+
+
+def test_turn_summary_high_ctx_is_red(monkeypatch):
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=True))
+    ui_mod.print_turn_summary(10, 1.0, context_pct=85)
+    out = buf.getvalue()
+    assert "85% ctx" in out
+    # Red ANSI present (Rich emits 31 for red)
+    assert "\x1b[" in out and "31" in out
+
+
+def test_turn_summary_zero_ctx_renders(monkeypatch):
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod.print_turn_summary(0, 0.0, context_pct=0)
+    out = buf.getvalue()
+    assert "0% ctx" in out

@@ -780,3 +780,71 @@ def test_stall_watchdog_fires_when_stream_silent(monkeypatch, capsys):
     list(_loop.run("go", ctx, _loop.ToolRegistry(), provider_fn=slow_provider))
     err = capsys.readouterr().err
     assert "still thinking" in err
+
+
+def test_compaction_summarization_emits_stderr_notice(monkeypatch, capsys):
+    """When maybe_compact summarises messages, loop should print a notice on stderr."""
+    from tigger import loop as loop_mod
+    from tigger.compaction import CompactResult
+    from tigger.types import (
+        AssistantMessage,
+        Config,
+        Message,
+        RunContext,
+        TrustLevel,
+    )
+
+    fake_result = CompactResult(
+        snipped=0, summarized=4, tokens_before=108_000, tokens_after=24_000,
+    )
+
+    def fake_compact(messages, config, provider_fn, *, summaries_dir=None, **kwargs):
+        return messages, fake_result
+
+    monkeypatch.setattr(loop_mod, "maybe_compact", fake_compact)
+
+    def fake_provider(system, messages, tools, config):
+        yield AssistantMessage(content="ok", tool_calls=[])
+
+    cfg = Config(base_url="http://x", model="m", api_key="k")
+    ctx = RunContext(config=cfg, messages=[Message(role="user", content="hi")],
+                     system_prompt="", trust_level=TrustLevel.ALWAYS)
+    list(loop_mod.run("go", ctx, loop_mod.ToolRegistry(), provider_fn=fake_provider))
+
+    err = capsys.readouterr().err
+    assert "compacted 4 messages" in err
+    assert "108,000" in err
+    assert "24,000" in err
+
+
+def test_compaction_no_op_emits_no_notice(monkeypatch, capsys):
+    """When maybe_compact does nothing, the loop should stay quiet on stderr."""
+    from tigger import loop as loop_mod
+    from tigger.compaction import CompactResult
+    from tigger.types import (
+        AssistantMessage,
+        Config,
+        Message,
+        RunContext,
+        TrustLevel,
+    )
+
+    fake_result = CompactResult(
+        snipped=0, summarized=0, tokens_before=10_000, tokens_after=10_000,
+    )
+
+    def fake_compact(messages, config, provider_fn, *, summaries_dir=None, **kwargs):
+        return messages, fake_result
+
+    monkeypatch.setattr(loop_mod, "maybe_compact", fake_compact)
+
+    def fake_provider(system, messages, tools, config):
+        yield AssistantMessage(content="ok", tool_calls=[])
+
+    cfg = Config(base_url="http://x", model="m", api_key="k")
+    ctx = RunContext(config=cfg, messages=[Message(role="user", content="hi")],
+                     system_prompt="", trust_level=TrustLevel.ALWAYS)
+    list(loop_mod.run("go", ctx, loop_mod.ToolRegistry(), provider_fn=fake_provider))
+
+    err = capsys.readouterr().err
+    assert "compacted" not in err

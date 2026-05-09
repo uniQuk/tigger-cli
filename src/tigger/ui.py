@@ -356,8 +356,28 @@ def print_session_summary(
     ))
 
 
-def print_turn_summary(tokens: int, elapsed: float) -> None:
-    console.print(f"[dim]· {tokens} tokens · {format_duration(elapsed)}[/dim]")
+def print_turn_summary(
+    tokens: int,
+    elapsed: float,
+    context_pct: int | None = None,
+) -> None:
+    """Print the per-turn footer.
+
+    ``context_pct`` (0-100) is shown when supplied. It's color-coded against
+    the same green/yellow/red thresholds as ``/tokens`` so a glance after each
+    turn flags when the conversation is approaching the compaction window.
+    """
+    parts = [f"{tokens} tokens", format_duration(elapsed)]
+    if context_pct is not None:
+        if context_pct >= 80:
+            colour = "red"
+        elif context_pct >= 50:
+            colour = "yellow"
+        else:
+            colour = "green"
+        parts.append(f"[{colour}]{context_pct}% ctx[/{colour}]")
+    body = " · ".join(parts)
+    console.print(f"[dim]· {body}[/dim]")
 
 
 def print_error(msg: str) -> None:
@@ -555,6 +575,39 @@ def _render_diff_lines(diff_text: str) -> list[str]:
     return out
 
 
+def _make_output_preview(output: str, max_lines: int = 5, max_width: int = 100) -> str:
+    """Trim a tool's output to a short preview block, like Claude's ⎿ excerpts.
+
+    Returns "" when the output is empty or single-line (the existing inline
+    summary handles those). Otherwise returns up to ``max_lines`` lines, each
+    truncated to ``max_width`` chars, with a final "...(+N more)" marker if
+    the output was longer.
+    """
+    if not output:
+        return ""
+    lines = output.rstrip("\n").split("\n")
+    if len(lines) <= 1:
+        return ""
+    shown = lines[:max_lines]
+    trimmed = [
+        ln if len(ln) <= max_width else ln[: max_width - 3] + "..."
+        for ln in shown
+    ]
+    extra = len(lines) - len(shown)
+    if extra > 0:
+        trimmed.append(f"... (+{extra} more)")
+    return "\n".join(trimmed)
+
+
+def _render_indented_block(text: str) -> list[str]:
+    """Choose diff colouring vs plain dim preview based on the content."""
+    if not text:
+        return []
+    if any(line.startswith("@@") for line in text.splitlines()):
+        return _render_diff_lines(text)
+    return [f"      [dim]{line}[/dim]" for line in text.splitlines()]
+
+
 def _summarize_tool_output(name: str, output: str) -> str:
     """Build a short Claude-style output summary for the buffered tool flush.
 
@@ -626,7 +679,7 @@ def _flush_tool_buffer() -> None:
         else:
             lines.append(f"  [dim]{name}:[/dim] {_entry_with_summary(preview, summary)}")
             if _tool_details[i]:
-                lines.extend(_render_diff_lines(_tool_details[i]))
+                lines.extend(_render_indented_block(_tool_details[i]))
             i += 1
 
     console.print("[dim]──────── tools ────────[/dim]")
@@ -781,6 +834,10 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
                 idx = -1
             if 0 <= idx < len(_tool_summaries):
                 _tool_summaries[idx] = _summarize_tool_output(event.name, event.output)
+                # For bash, also stash a multi-line preview block so users
+                # can see what actually came back, not just the line count.
+                if event.name == "bash" and 0 <= idx < len(_tool_details):
+                    _tool_details[idx] = _make_output_preview(event.output)
     elif isinstance(event, ThinkingEvent):
         _stop_activity()
         _flush_tool_buffer()

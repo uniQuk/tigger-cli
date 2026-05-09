@@ -466,7 +466,10 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         stats.output_tokens += turn_tokens
         elapsed = time.time() - turn_start
         ui.set_turn_start(None)
-        ui.print_turn_summary(turn_tokens, elapsed)
+        ctx_used = estimate_tokens(ctx.messages)
+        ctx_limit = ctx.config.context_limit
+        ctx_pct = int(ctx_used / ctx_limit * 100) if ctx_limit else None
+        ui.print_turn_summary(turn_tokens, elapsed, context_pct=ctx_pct)
 
         # Persist new messages to the session file.
         if session_id and session_dir:

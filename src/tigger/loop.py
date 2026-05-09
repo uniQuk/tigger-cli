@@ -354,9 +354,20 @@ def run(
     while True:
         turn_start = time.monotonic()
         compact_start = time.monotonic()
-        ctx.messages, _ = maybe_compact(ctx.messages, ctx.config, provider_fn,
-                                        summaries_dir=summaries_dir)
+        ctx.messages, compact_result = maybe_compact(
+            ctx.messages, ctx.config, provider_fn, summaries_dir=summaries_dir,
+        )
         compact_elapsed = time.monotonic() - compact_start
+        # Surface compaction so users notice their context just shrank. The
+        # stall-watchdog pattern (plain stderr) keeps this UI-agnostic.
+        if compact_result.summarized > 0:
+            n = compact_result.summarized
+            sys.stderr.write(
+                f"… compacted {n} message{'s' if n != 1 else ''} "
+                f"({compact_result.tokens_before:,} → "
+                f"{compact_result.tokens_after:,} tokens)\n"
+            )
+            sys.stderr.flush()
 
         tools_schemas = [
             s for s in registry.schemas()
