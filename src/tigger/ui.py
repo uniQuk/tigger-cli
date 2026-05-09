@@ -47,9 +47,11 @@ recent_tools: deque[str] = deque(maxlen=5)
 _tool_buffer: list[tuple[str, str]] = []
 # Parallel lists matched by index. Filled at ToolStart (call_id + "") and
 # updated at ToolEnd by call_id lookup. Cleared together when the buffer
-# flushes.
+# flushes. ``_tool_details`` carries multi-line content (e.g. an edit diff)
+# rendered as an indented block below the entry.
 _tool_call_ids: list[str] = []
 _tool_summaries: list[str] = []
+_tool_details: list[str] = []
 BATCHABLE_TOOLS = {"read", "glob", "grep"}
 
 _activity_status = None
@@ -179,10 +181,17 @@ def _gradient_line(line: str, max_width: int) -> str:
 
 
 def print_startup_info(provider: str, model: str, cwd: str, rtk: bool = False) -> None:
-    """Print provider/model info and cwd below the logo."""
+    """Print provider/model info, cwd, and a usage tip below the logo."""
     rtk_badge = "  [green]rtk[/green]" if rtk else ""
-    console.print(f"      [bold]{provider}[/bold] | [bold cyan]{model}[/bold cyan]{rtk_badge} [dim](/model to change)[/dim]")
+    console.print(
+        f"      [bold]{provider}[/bold] | [bold cyan]{model}[/bold cyan]{rtk_badge} "
+        "[dim](/model to change)[/dim]"
+    )
     console.print(f"      [dim]{cwd}[/dim]")
+    console.print(
+        "      [dim]tip:[/dim] [cyan]/help[/cyan][dim] for commands · "
+        "type a message to chat[/dim]"
+    )
     console.print()
 
 
@@ -497,6 +506,55 @@ def _extract_preview(name: str, args: dict) -> str:
 _MAX_BATCH_ITEMS = 5
 
 
+def _make_edit_diff(args: dict, max_lines: int = 20) -> str:
+    """Build a compact unified diff for an edit tool call's args.
+
+    Returns the diff text (with hunk headers) or "" if there's nothing useful
+    to show. Truncates beyond ``max_lines`` so a multi-KB replace doesn't
+    swamp the buffer flush.
+    """
+    import difflib
+
+    old = args.get("old_string", "")
+    new = args.get("new_string", "")
+    path = args.get("path", "")
+    if not isinstance(old, str) or not isinstance(new, str):
+        return ""
+    if old == new:
+        return ""
+    diff_lines = list(difflib.unified_diff(
+        old.splitlines(),
+        new.splitlines(),
+        fromfile=path,
+        tofile=path,
+        lineterm="",
+        n=2,
+    ))
+    if not diff_lines:
+        return ""
+    # Drop the leading +++ / --- header — we already know which file.
+    body = [line for line in diff_lines if not line.startswith(("+++", "---"))]
+    if len(body) > max_lines:
+        extra = len(body) - max_lines
+        body = body[:max_lines] + [f"... ({extra} more diff lines)"]
+    return "\n".join(body)
+
+
+def _render_diff_lines(diff_text: str) -> list[str]:
+    """Colourise diff lines for the buffer flush. Returns Rich-marked-up lines."""
+    out: list[str] = []
+    for line in diff_text.splitlines():
+        if line.startswith("@@"):
+            out.append(f"      [cyan]{line}[/cyan]")
+        elif line.startswith("+"):
+            out.append(f"      [green]{line}[/green]")
+        elif line.startswith("-"):
+            out.append(f"      [red]{line}[/red]")
+        else:
+            out.append(f"      [dim]{line}[/dim]")
+    return out
+
+
 def _summarize_tool_output(name: str, output: str) -> str:
     """Build a short Claude-style output summary for the buffered tool flush.
 
@@ -539,10 +597,12 @@ def _flush_tool_buffer() -> None:
     if not _tool_buffer:
         return
 
-    # Pad the parallel summaries list defensively in case a caller seeded
-    # _tool_buffer directly (some tests do).
+    # Pad parallel lists defensively in case a caller seeded _tool_buffer
+    # directly (some tests do).
     while len(_tool_summaries) < len(_tool_buffer):
         _tool_summaries.append("")
+    while len(_tool_details) < len(_tool_buffer):
+        _tool_details.append("")
 
     lines: list[str] = []
     i = 0
@@ -565,6 +625,8 @@ def _flush_tool_buffer() -> None:
             i = j
         else:
             lines.append(f"  [dim]{name}:[/dim] {_entry_with_summary(preview, summary)}")
+            if _tool_details[i]:
+                lines.extend(_render_diff_lines(_tool_details[i]))
             i += 1
 
     console.print("[dim]──────── tools ────────[/dim]")
@@ -574,6 +636,7 @@ def _flush_tool_buffer() -> None:
     _tool_buffer.clear()
     _tool_call_ids.clear()
     _tool_summaries.clear()
+    _tool_details.clear()
 
 
 _THINK_RE = re.compile(r"<think>(.*?)</think>\s*", re.DOTALL)
@@ -692,6 +755,9 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
         _tool_buffer.append((event.name, _extract_preview(event.name, event.args)))
         _tool_call_ids.append(event.call_id)
         _tool_summaries.append("")
+        # For edits, capture a unified diff up-front from the args. We'll
+        # discard it again at ToolEnd if the edit failed.
+        _tool_details.append(_make_edit_diff(event.args) if event.name == "edit" else "")
         _start_activity(_tool_counter_message())
     elif isinstance(event, ToolEndEvent):
         _stop_activity()
@@ -702,6 +768,12 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
         elif event.error:
             out = event.output[:120].replace("\n", " · ").rstrip(" · ")
             console.print(f"  [dim]⎿[/dim]  [red]{out}[/red]")
+            try:
+                idx = _tool_call_ids.index(event.call_id)
+            except ValueError:
+                idx = -1
+            if 0 <= idx < len(_tool_details):
+                _tool_details[idx] = ""  # don't render diff for failed edits
         else:
             try:
                 idx = _tool_call_ids.index(event.call_id)

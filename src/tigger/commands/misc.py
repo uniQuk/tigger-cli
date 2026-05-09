@@ -163,30 +163,42 @@ def cmd_model(args: str, ctx: RunContext) -> None:
 
 
 def cmd_mode(args: str, ctx: RunContext, modes: list | None = None) -> None:
+    from tigger.ui import console
+
     if modes is None:
         modes = ctx.modes
     mode_names = sorted(m.name for m in modes)
     if not args.strip():
-        print(f"Current mode: {ctx.config.mode}")
+        console.print(f"[bold]Current mode:[/bold] [cyan]{ctx.config.mode}[/cyan]")
         if mode_names:
-            print(f"Available: {', '.join(mode_names)}")
+            console.print(f"[dim]Available:[/dim] {', '.join(mode_names)}")
         return
     new_mode = args.strip()
     if new_mode not in {m.name for m in modes}:
-        print(f"Invalid mode {new_mode!r}. Available: {', '.join(mode_names)}")
+        console.print(
+            f"[red]Invalid mode[/red] {new_mode!r}. "
+            f"[dim]Available:[/dim] {', '.join(mode_names)}"
+        )
         return
     ctx.config = dataclasses.replace(ctx.config, mode=new_mode)
-    print(f"Mode set to: {new_mode}")
+    console.print(f"[dim]✓ Mode set to[/dim] [cyan]{new_mode}[/cyan]")
 
 
 def cmd_permission(args: str, ctx: RunContext) -> None:
+    from tigger.ui import console
+
     valid = {"ask", "allow", "bypass"}
     if not args.strip():
-        print(f"Current permission: {ctx.config.permission_mode}")
+        console.print(
+            f"[bold]Current permission:[/bold] [cyan]{ctx.config.permission_mode}[/cyan]"
+        )
         return
     new_perm = args.strip()
     if new_perm not in valid:
-        print(f"Invalid permission {new_perm!r}. Must be one of {sorted(valid)}")
+        console.print(
+            f"[red]Invalid permission[/red] {new_perm!r}. "
+            f"[dim]Must be one of[/dim] {sorted(valid)}"
+        )
         return
     ctx.config = dataclasses.replace(ctx.config, permission_mode=new_perm)
-    print(f"Permission set to: {new_perm}")
+    console.print(f"[dim]✓ Permission set to[/dim] [cyan]{new_perm}[/cyan]")

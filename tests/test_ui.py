@@ -687,3 +687,107 @@ def test_tool_end_attaches_summary_to_buffered_entry(monkeypatch):
     out = buf.getvalue()
     assert "a.py" in out
     assert "(50 lines)" in out
+
+
+def test_startup_info_includes_help_tip(monkeypatch):
+    """Startup tip line should mention /help so new users discover commands."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=True))
+    ui_mod.print_startup_info(provider="lmstudio", model="qwen3", cwd="/tmp/x")
+    out = buf.getvalue()
+    assert "/help" in out
+    assert "tip" in out.lower()
+
+
+# --- edit diff rendering ---
+
+
+def test_make_edit_diff_basic():
+    from tigger.ui import _make_edit_diff
+    diff = _make_edit_diff({
+        "path": "foo.py",
+        "old_string": "a\nb\nc",
+        "new_string": "a\nB\nc",
+    })
+    assert "@@" in diff
+    assert "-b" in diff
+    assert "+B" in diff
+    assert "foo.py" not in diff  # header dropped
+
+
+def test_make_edit_diff_no_change_returns_empty():
+    from tigger.ui import _make_edit_diff
+    assert _make_edit_diff({"path": "x", "old_string": "x", "new_string": "x"}) == ""
+
+
+def test_make_edit_diff_truncates_long_diffs():
+    from tigger.ui import _make_edit_diff
+    old = "\n".join(f"line{i}" for i in range(50))
+    new = "\n".join(f"NEW{i}" for i in range(50))
+    diff = _make_edit_diff({"path": "x", "old_string": old, "new_string": new}, max_lines=10)
+    assert "more diff lines" in diff
+    assert diff.count("\n") <= 10  # capped
+
+
+def test_render_diff_lines_colorises():
+    from tigger.ui import _render_diff_lines
+    out = _render_diff_lines("@@ -1,2 +1,2 @@\n-old\n+new\n context")
+    assert any("[green]" in line and "+new" in line for line in out)
+    assert any("[red]" in line and "-old" in line for line in out)
+    assert any("[cyan]" in line and "@@" in line for line in out)
+
+
+def test_edit_tool_end_renders_diff_in_flush(monkeypatch):
+    """A successful edit's diff should appear under its buffered entry."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(
+        ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False),
+    )
+    ui_mod._tool_buffer.clear()
+    ui_mod._tool_call_ids.clear()
+    ui_mod._tool_summaries.clear()
+    ui_mod._tool_details.clear()
+
+    ui_mod.render_event(
+        ToolStartEvent("c1", "edit",
+                       {"path": "x.py", "old_string": "foo\nbar", "new_string": "foo\nBAR"}),
+        [0], [],
+    )
+    ui_mod.render_event(ToolEndEvent("c1", "edit", "Edited x.py"), [0], [])
+    ui_mod.render_event(TextChunk("done"), [0], [])
+    out = buf.getvalue()
+    assert "edit:" in out
+    assert "-bar" in out
+    assert "+BAR" in out
+
+
+def test_edit_tool_failure_drops_diff(monkeypatch):
+    """A failed edit must not leave its diff dangling in the next flush."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(
+        ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False),
+    )
+    ui_mod._tool_buffer.clear()
+    ui_mod._tool_call_ids.clear()
+    ui_mod._tool_summaries.clear()
+    ui_mod._tool_details.clear()
+
+    ui_mod.render_event(
+        ToolStartEvent("c1", "edit",
+                       {"path": "x.py", "old_string": "foo", "new_string": "bar"}),
+        [0], [],
+    )
+    ui_mod.render_event(
+        ToolEndEvent("c1", "edit", "Error: not found", error=True),
+        [0], [],
+    )
+    ui_mod.render_event(TextChunk("done"), [0], [])
+    out = buf.getvalue()
+    # No green/red diff bodies leaked into the flush
+    assert "+bar" not in out
+    assert "-foo" not in out
