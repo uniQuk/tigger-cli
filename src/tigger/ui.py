@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import random
+import re
 import shutil
 import subprocess
 import threading
@@ -354,11 +355,26 @@ def print_info(msg: str) -> None:
 def ask_permission(request: PermissionRequest) -> bool:
     """Prompt user to allow/deny a tool call. Returns True only if user types 'y'.
 
-    Designed for use as the loop's ``permission_callback``.
+    Renders a Rich Panel with a concise tool-call preview (using the same
+    helper as the live spinner) so writes/edits with multi-KB content don't
+    flood the prompt with escaped JSON. Designed for use as the loop's
+    ``permission_callback``.
     """
     _stop_activity()
-    console.print(f"\n[yellow]Allow[/yellow] [bold]{request.name}[/bold]({request.args})?", end=" ")
-    answer = input("[y/N] ").strip().lower()
+    preview = _extract_preview(request.name, request.args)
+    title = f"[bold]{request.name.capitalize()}[/bold]"
+    if preview:
+        title = f"{title}([cyan]{preview}[/cyan])"
+    panel = Panel(
+        f"[yellow]Allow this tool call?[/yellow]",
+        title=title,
+        title_align="left",
+        border_style="yellow",
+        padding=(0, 1),
+    )
+    console.print()
+    console.print(panel)
+    answer = input("  [y/N] ").strip().lower()
     return answer == "y"
 
 
@@ -457,6 +473,9 @@ def _extract_preview(name: str, args: dict) -> str:
     if name == "bash" and "command" in args:
         cmd = args["command"]
         return cmd if len(cmd) <= 60 else cmd[:57] + "..."
+    if name in ("write", "edit") and "path" in args:
+        # Show just the path — content/diffs are too large for a one-line preview.
+        return pathlib.PurePosixPath(str(args["path"])).name
     # Fallback: truncated key=value summary.
     parts = []
     for k, v in args.items():
@@ -505,11 +524,50 @@ def _flush_tool_buffer() -> None:
     _tool_buffer.clear()
 
 
+_THINK_RE = re.compile(r"<think>(.*?)</think>\s*", re.DOTALL)
+
+
+def _split_think(text: str) -> list[tuple[str, str]]:
+    """Split a stream into ('think', body) and ('text', body) segments in order.
+
+    Reasoning models that emit ``<think>...</think>`` inline in content would
+    otherwise be silently dropped by the Markdown renderer (HTML stripping).
+    Pulling them out lets us render thinking dimmed so the user can see it
+    happened, while everything else still goes through Markdown.
+    """
+    segments: list[tuple[str, str]] = []
+    pos = 0
+    for m in _THINK_RE.finditer(text):
+        if m.start() > pos:
+            segments.append(("text", text[pos:m.start()]))
+        segments.append(("think", m.group(1).strip()))
+        pos = m.end()
+    if pos < len(text):
+        segments.append(("text", text[pos:]))
+    return segments
+
+
 def _flush_text(text_buf: list[str]) -> None:
-    """Render accumulated model text as Rich Markdown and clear the buffer."""
-    if text_buf:
-        console.print(Markdown("".join(text_buf)))
-        text_buf.clear()
+    """Render accumulated model text and clear the buffer.
+
+    Splits out ``<think>...</think>`` blocks so they render dimmed instead of
+    being swallowed by the Markdown HTML stripper. Non-think text still goes
+    through Rich Markdown.
+    """
+    if not text_buf:
+        return
+    full = "".join(text_buf)
+    for kind, body in _split_think(full):
+        if not body.strip():
+            continue
+        if kind == "think":
+            # Trim long thinking to keep the display compact, like a folded
+            # block. The full body is preserved in message history.
+            preview = body if len(body) <= 600 else body[:597] + "..."
+            console.print(f"[dim italic]{preview}[/dim italic]")
+        else:
+            console.print(Markdown(body))
+    text_buf.clear()
 
 
 def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:

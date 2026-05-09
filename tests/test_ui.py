@@ -497,3 +497,84 @@ def test_loop_yields_thinking_event():
     events = list(run("test", ctx, registry, provider_fn=fake_provider))
     event_types = [type(e).__name__ for e in events]
     assert "ThinkingEvent" in event_types
+
+
+# --- inline <think> handling ---
+
+
+def test_split_think_extracts_blocks():
+    from tigger.ui import _split_think
+    segs = _split_think("<think>reasoning</think>\n\nfinal answer")
+    assert segs == [("think", "reasoning"), ("text", "final answer")]
+
+
+def test_split_think_no_tags():
+    from tigger.ui import _split_think
+    segs = _split_think("just a plain answer")
+    assert segs == [("text", "just a plain answer")]
+
+
+def test_split_think_only_tags():
+    from tigger.ui import _split_think
+    segs = _split_think("<think>just thinking</think>")
+    assert segs == [("think", "just thinking")]
+
+
+def test_flush_text_renders_think_visibly(monkeypatch):
+    """Inline <think>...</think> must not be swallowed by Markdown."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(
+        ui_mod,
+        "console",
+        Console(file=buf, width=80, highlight=False, markup=True),
+    )
+    text_buf = ["<think>I should answer 289.</think>\n\nThe answer is **289**."]
+    ui_mod._flush_text(text_buf)
+    out = buf.getvalue()
+    assert "I should answer 289." in out  # think is visible (was swallowed before)
+    assert "289" in out  # final answer still rendered
+    assert text_buf == []
+
+
+def test_flush_text_skips_empty_segments(monkeypatch):
+    """Whitespace-only segments don't print empty lines."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(
+        ui_mod,
+        "console",
+        Console(file=buf, width=80, highlight=False, markup=True),
+    )
+    ui_mod._flush_text(["<think>   </think>\n\n"])
+    out = buf.getvalue().strip()
+    assert out == ""
+
+
+# --- permission prompt rendering ---
+
+
+def test_ask_permission_uses_panel(monkeypatch):
+    """ask_permission should render a bordered panel, not raw repr(args)."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(
+        ui_mod,
+        "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False),
+    )
+    monkeypatch.setattr("builtins.input", lambda _: "y")
+    huge = "x" * 5000
+    ask_permission(PermissionRequest("c", "write", {"path": "/tmp/foo.py", "content": huge}))
+    out = buf.getvalue()
+    assert "╭" in out and "╯" in out          # panel borders rendered
+    assert huge not in out                    # 5KB content not splatted into prompt
+    assert "Write" in out                      # tool name capitalized in title
+    assert "foo.py" in out                     # path shown
+
+
+def test_extract_preview_write_returns_basename():
+    """write/edit previews should show just the basename, not the content."""
+    from tigger.ui import _extract_preview
+    assert _extract_preview("write", {"path": "src/a/b.py", "content": "x" * 99}) == "b.py"
+    assert _extract_preview("edit", {"path": "/tmp/x.py", "old_string": "a", "new_string": "b"}) == "x.py"
