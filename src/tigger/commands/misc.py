@@ -84,6 +84,7 @@ def cmd_tokens(args: str, ctx: RunContext) -> None:
 
 def cmd_model(args: str, ctx: RunContext) -> None:
     from tigger.config import switch_model
+    from tigger.ui import console
 
     providers = ctx.config.providers
 
@@ -91,24 +92,35 @@ def cmd_model(args: str, ctx: RunContext) -> None:
     if not providers:
         if not args.strip():
             label = ctx.config.model_name or ctx.config.model
-            print(f"Current model: {label} ({ctx.config.model})")
+            console.print(
+                f"[bold]Current model:[/bold] [cyan]{label}[/cyan] "
+                f"[dim]({ctx.config.model})[/dim]"
+            )
             return
         ctx.config = dataclasses.replace(ctx.config, model=args.strip())
-        print(f"Model set to: {args.strip()}")
+        console.print(f"[dim]✓ Model set to[/dim] [cyan]{args.strip()}[/cyan]")
         return
 
     # Direct switch: /model provider/model
     if "/" in args.strip():
         prov_name, model_name = args.strip().split("/", 1)
         if prov_name not in providers:
-            print(f"Unknown provider: {prov_name}. Available: {', '.join(providers)}")
+            console.print(
+                f"[red]Unknown provider:[/red] {prov_name}. "
+                f"[dim]Available:[/dim] {', '.join(providers)}"
+            )
             return
         if model_name not in providers[prov_name].model_names:
-            print(f"Model {model_name!r} not found in provider {prov_name!r}. "
-                  f"Available: {', '.join(providers[prov_name].model_names)}")
+            console.print(
+                f"[red]Model[/red] {model_name!r} [red]not found in provider[/red] "
+                f"{prov_name!r}. [dim]Available:[/dim] "
+                f"{', '.join(providers[prov_name].model_names)}"
+            )
             return
         ctx.config = switch_model(ctx.config, prov_name, model_name)
-        print(f"Switched to {prov_name}/{model_name}")
+        console.print(
+            f"[dim]✓ Switched to[/dim] [cyan]{prov_name}/{model_name}[/cyan]"
+        )
         return
 
     # Direct switch: /model <name> — search all providers
@@ -121,45 +133,61 @@ def cmd_model(args: str, ctx: RunContext) -> None:
         if len(matches) == 1:
             pname, mname = matches[0]
             ctx.config = switch_model(ctx.config, pname, mname)
-            print(f"Switched to {pname}/{mname}")
+            console.print(f"[dim]✓ Switched to[/dim] [cyan]{pname}/{mname}[/cyan]")
             return
         if len(matches) > 1:
-            print(f"Model {target!r} found in multiple providers:")
+            console.print(
+                f"[yellow]Model[/yellow] {target!r} "
+                "[yellow]found in multiple providers:[/yellow]"
+            )
             for pname, _ in matches:
-                print(f"  {pname}/{target}")
-            print("Use provider/model syntax to disambiguate.")
+                console.print(f"  [cyan]{pname}/{target}[/cyan]")
+            console.print(
+                "[dim]Use provider/model syntax to disambiguate.[/dim]"
+            )
             return
-        print(f"Model {target!r} not found. Available models:")
+        console.print(
+            f"[red]Model[/red] {target!r} [red]not found.[/red] "
+            "[dim]Available models:[/dim]"
+        )
         for pname, prov in providers.items():
-            print(f"  {pname}: {', '.join(prov.model_names)}")
+            console.print(
+                f"  [magenta]{pname}:[/magenta] "
+                f"{', '.join(prov.model_names)}"
+            )
         return
 
     # No args — interactive picker
     numbered: list[tuple[str, str]] = []  # (provider_name, model_name)
     for pname, prov in providers.items():
-        print(f"\n  {pname}:")
+        console.print(f"\n  [bold magenta]{pname}[/bold magenta]")
         for mname in prov.model_names:
             numbered.append((pname, mname))
             idx = len(numbered)
-            active = " (active)" if (pname == ctx.config.active_provider
-                                     and mname == ctx.config.model_slug) else ""
+            is_active = (
+                pname == ctx.config.active_provider
+                and mname == ctx.config.model_slug
+            )
             label = mname
             if isinstance(prov.models, dict):
                 mcfg = prov.models.get(mname)
                 if mcfg and mcfg.name:
                     label = f"{mcfg.name} ({mname})"
-            print(f"    {idx}. {label}{active}")
+            line = f"    [dim]{idx}.[/dim] [cyan]{label}[/cyan]"
+            if is_active:
+                line += " [green](active)[/green]"
+            console.print(line)
 
     try:
         choice = input(f"\nPick [1-{len(numbered)}]: ").strip()
     except (KeyboardInterrupt, EOFError):
         return
     if not choice.isdigit() or int(choice) < 1 or int(choice) > len(numbered):
-        print("Cancelled.")
+        console.print("[dim]Cancelled.[/dim]")
         return
     pname, mname = numbered[int(choice) - 1]
     ctx.config = switch_model(ctx.config, pname, mname)
-    print(f"Switched to {pname}/{mname}")
+    console.print(f"[dim]✓ Switched to[/dim] [cyan]{pname}/{mname}[/cyan]")
 
 
 def cmd_mode(args: str, ctx: RunContext, modes: list | None = None) -> None:
