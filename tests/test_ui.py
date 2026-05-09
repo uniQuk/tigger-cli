@@ -447,12 +447,21 @@ def test_tool_counter_message_format():
 
 
 def test_tool_counter_message_single():
-    """Single tool shows singular 'tool'."""
+    """Single active tool shows its preview Claude-style: ⏺ Bash(ls)."""
     _tool_buffer.clear()
     _tool_buffer.append(("bash", "ls"))
     msg = _tool_counter_message()
-    assert "1 tool " in msg
-    assert "bash" in msg
+    assert "Bash(ls)" in msg
+    _tool_buffer.clear()
+
+
+def test_tool_counter_message_single_no_preview():
+    """Single tool with empty preview just shows the capitalized name."""
+    _tool_buffer.clear()
+    _tool_buffer.append(("read", ""))
+    msg = _tool_counter_message()
+    assert "Read" in msg
+    assert "()" not in msg
     _tool_buffer.clear()
 
 

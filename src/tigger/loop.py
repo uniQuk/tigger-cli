@@ -82,15 +82,23 @@ class _StallWatchdog:
             self._thread.join(timeout=0.5)
 
     def _run(self) -> None:
+        # Only escalate the message past this threshold — short silences are
+        # normal for thinking models that buffer the <think> block server-side.
+        loud_after = 180
         while not self._stop.wait(self._interval):
             silent = time.monotonic() - self._last
-            if silent >= self._interval:
+            if silent < self._interval:
+                continue
+            if silent >= loud_after:
                 sys.stderr.write(
-                    f"[stalled] no provider stream chunks for {silent:.0f}s "
-                    f"({self._label}). The model may still be generating a "
-                    f"large buffered tool argument; Ctrl-C to abort.\n"
+                    f"… still waiting on the model ({silent:.0f}s, "
+                    f"{self._label}). Ctrl-C to abort.\n"
                 )
-                sys.stderr.flush()
+            else:
+                sys.stderr.write(
+                    f"… still thinking ({silent:.0f}s, {self._label})\n"
+                )
+            sys.stderr.flush()
 
 Event = TextChunk | ToolStartEvent | ToolEndEvent | TurnDoneEvent | ThinkingEvent | StreamProgress
 PermissionCallback = Callable[[PermissionRequest], bool]

@@ -118,13 +118,26 @@ def _stop_activity() -> None:
 
 
 def _tool_counter_message() -> str:
-    """Build a live status message summarising buffered tool calls."""
+    """Build a live status message summarising buffered tool calls.
+
+    When exactly one tool is active, show its preview (Claude-style):
+    ``\u25cf Read(loop.py)``. With multiple, fall back to a grouped count:
+    ``\u25cf 3 tools (read\u00d72, grep)``.
+    """
+    if not _tool_buffer:
+        return ""
+    if len(_tool_buffer) == 1:
+        name, preview = _tool_buffer[0]
+        nice = name.capitalize()
+        if preview:
+            return f"[#999999]\u23fa {nice}({preview})[/]"
+        return f"[#999999]\u23fa {nice}[/]"
     counts: dict[str, int] = {}
     for name, _ in _tool_buffer:
         counts[name] = counts.get(name, 0) + 1
     parts = ", ".join(f"{n}\u00d7{c}" if c > 1 else n for n, c in counts.items())
     total = len(_tool_buffer)
-    return f"[#999999]\u23fa {total} tool{'s' if total != 1 else ''} ({parts})[/]"
+    return f"[#999999]\u23fa {total} tools ({parts})[/]"
 
 _LOGO_LINES = [
     " ████████╗██╗  ██████╗  ██████╗ ███████╗██████╗ ",
@@ -513,6 +526,11 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
         output_chars[0] += len(event.content)
     elif isinstance(event, StreamProgress):
         output_chars[0] += event.chars
+        # Reasoning streaming arrives as StreamProgress without TextChunks. Keep
+        # the user oriented: if no activity spinner is up, start one so a long
+        # think looks alive instead of silent.
+        if _activity_status is None:
+            _start_activity(pick_message(), rotate=True)
     elif isinstance(event, ToolStartEvent):
         _flush_text(text_buf)
         recent_tools.append(event.name)

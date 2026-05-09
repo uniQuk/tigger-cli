@@ -779,4 +779,4 @@ def test_stall_watchdog_fires_when_stream_silent(monkeypatch, capsys):
     ctx = RunContext(config=cfg, messages=[], system_prompt="x")
     list(_loop.run("go", ctx, _loop.ToolRegistry(), provider_fn=slow_provider))
     err = capsys.readouterr().err
-    assert "[stalled]" in err
+    assert "still thinking" in err
