@@ -289,7 +289,11 @@ def test_render_event_batches_multiple_reads(monkeypatch):
 
     ui_mod.render_event(TextChunk("result"), [0], [])
     out = buf.getvalue()
-    assert "a.py, b.py, c.py" in out
+    # Each successful tool now carries an output summary; check files appear
+    # in order even though inline (summary) markers sit between them.
+    for needle in ("a.py", "b.py", "c.py"):
+        assert needle in out
+    assert out.index("a.py") < out.index("b.py") < out.index("c.py")
     assert '"foo"' in out
 
 
@@ -395,6 +399,8 @@ def test_thinking_event_flushes_tool_buffer(monkeypatch):
     buf = StringIO()
     monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
     _tool_buffer.clear()
+    ui_mod._tool_call_ids.clear()
+    ui_mod._tool_summaries.clear()
     ui_mod._stop_activity()
 
     _tool_buffer.extend([("read", "a.py"), ("read", "b.py")])
@@ -578,3 +584,105 @@ def test_extract_preview_write_returns_basename():
     from tigger.ui import _extract_preview
     assert _extract_preview("write", {"path": "src/a/b.py", "content": "x" * 99}) == "b.py"
     assert _extract_preview("edit", {"path": "/tmp/x.py", "old_string": "a", "new_string": "b"}) == "x.py"
+
+
+# --- streaming text via Rich Live ---
+
+
+def test_text_chunks_stream_visibly_via_live(monkeypatch):
+    """TextChunks should produce buffer growth chunk-by-chunk (Live), not only at flush."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(
+        ui_mod,
+        "console",
+        Console(file=buf, width=80, force_terminal=True, highlight=False),
+    )
+    ui_mod._tool_buffer.clear()
+    ui_mod._live = None
+    text_buf = []
+
+    chunks = ["Hello", " world", "!"]
+    growths = []
+    for c in chunks:
+        before = len(buf.getvalue())
+        ui_mod.render_event(TextChunk(c), [0], text_buf)
+        if ui_mod._live is not None:
+            ui_mod._live.refresh()
+        growths.append(len(buf.getvalue()) - before)
+
+    # Every chunk should have produced output, not just the last flush.
+    assert all(g > 0 for g in growths), f"streaming did not grow per chunk: {growths}"
+    assert "Hello world!" in buf.getvalue().replace("\x1b[2K", "")
+    ui_mod.render_event(TurnDoneEvent(0, 0), [0], text_buf)
+    assert ui_mod._live is None  # Live cleaned up at flush
+
+
+def test_flush_text_without_live_renders_explicitly(monkeypatch):
+    """When _flush_text is called directly (no live running), it still renders."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(
+        ui_mod,
+        "console",
+        Console(file=buf, width=80, highlight=False),
+    )
+    ui_mod._live = None
+    ui_mod._flush_text(["hello world"])
+    assert "hello world" in buf.getvalue()
+
+
+# --- tool output summary ---
+
+
+def test_summarize_tool_output_lines():
+    from tigger.ui import _summarize_tool_output
+    out = "\n".join(["x"] * 421)
+    assert _summarize_tool_output("read", out) == "421 lines"
+
+
+def test_summarize_tool_output_grep_uses_matches():
+    from tigger.ui import _summarize_tool_output
+    assert _summarize_tool_output("grep", "a:1\nb:2\nc:3") == "3 matches"
+
+
+def test_summarize_tool_output_glob_uses_files():
+    from tigger.ui import _summarize_tool_output
+    assert _summarize_tool_output("glob", "a.py\nb.py") == "2 files"
+
+
+def test_summarize_tool_output_single_line_returned_verbatim():
+    from tigger.ui import _summarize_tool_output
+    assert _summarize_tool_output("bash", "    661 ui.py") == "661 ui.py"
+
+
+def test_summarize_tool_output_truncates_long_single_line():
+    from tigger.ui import _summarize_tool_output
+    long = "x" * 200
+    s = _summarize_tool_output("bash", long)
+    assert s.endswith("...")
+    assert len(s) <= 60
+
+
+def test_summarize_tool_output_empty_returns_empty():
+    from tigger.ui import _summarize_tool_output
+    assert _summarize_tool_output("read", "") == ""
+    assert _summarize_tool_output("read", "\n\n") == ""
+
+
+def test_tool_end_attaches_summary_to_buffered_entry(monkeypatch):
+    """ToolEnd's output summary should land in the buffered entry."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
+    ui_mod._tool_buffer.clear()
+    ui_mod._tool_call_ids.clear()
+    ui_mod._tool_summaries.clear()
+
+    ui_mod.render_event(ToolStartEvent("c1", "read", {"path": "a.py"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c1", "read", "\n".join(["x"] * 50)), [0], [])
+    ui_mod.render_event(TextChunk("done"), [0], [])
+
+    out = buf.getvalue()
+    assert "a.py" in out
+    assert "(50 lines)" in out

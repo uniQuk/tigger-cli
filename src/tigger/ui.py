@@ -11,9 +11,11 @@ from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
-from rich.console import Console
+from rich.console import Console, Group
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.text import Text
 from rich.theme import Theme
 
 from tigger._constants import CONFIG_DIR, home_config_dir
@@ -43,6 +45,11 @@ console = Console(theme=_THEME)
 recent_tools: deque[str] = deque(maxlen=5)
 
 _tool_buffer: list[tuple[str, str]] = []
+# Parallel lists matched by index. Filled at ToolStart (call_id + "") and
+# updated at ToolEnd by call_id lookup. Cleared together when the buffer
+# flushes.
+_tool_call_ids: list[str] = []
+_tool_summaries: list[str] = []
 BATCHABLE_TOOLS = {"read", "glob", "grep"}
 
 _activity_status = None
@@ -366,7 +373,7 @@ def ask_permission(request: PermissionRequest) -> bool:
     if preview:
         title = f"{title}([cyan]{preview}[/cyan])"
     panel = Panel(
-        f"[yellow]Allow this tool call?[/yellow]",
+        "[yellow]Allow this tool call?[/yellow]",
         title=title,
         title_align="left",
         border_style="yellow",
@@ -490,31 +497,74 @@ def _extract_preview(name: str, args: dict) -> str:
 _MAX_BATCH_ITEMS = 5
 
 
+def _summarize_tool_output(name: str, output: str) -> str:
+    """Build a short Claude-style output summary for the buffered tool flush.
+
+    For multi-line output, returns ``"N lines"``. For a single short line,
+    returns the truncated line itself. Returns ``""`` when there's nothing
+    worth showing.
+    """
+    if not output:
+        return ""
+    output = output.rstrip("\n")
+    if not output:
+        return ""
+    lines = output.split("\n")
+    n = len(lines)
+    if n == 1:
+        first = lines[0].strip()
+        if not first:
+            return ""
+        return first if len(first) <= 60 else first[:57] + "..."
+    if name == "grep":
+        return f"{n} matches"
+    if name == "glob":
+        return f"{n} files"
+    return f"{n} lines"
+
+
+def _entry_with_summary(preview: str, summary: str) -> str:
+    """Format a single buffered entry's preview, optionally with a dim summary."""
+    if summary:
+        return f"{preview} [dim]({summary})[/dim]"
+    return preview
+
+
 def _flush_tool_buffer() -> None:
-    """Render buffered tool calls as a grouped block and clear the buffer."""
+    """Render buffered tool calls as a grouped block and clear the buffer.
+
+    Each entry can carry a Claude-style output summary (e.g. ``421 lines``)
+    captured at ToolEnd. Summaries render inline next to the preview.
+    """
     if not _tool_buffer:
         return
+
+    # Pad the parallel summaries list defensively in case a caller seeded
+    # _tool_buffer directly (some tests do).
+    while len(_tool_summaries) < len(_tool_buffer):
+        _tool_summaries.append("")
 
     lines: list[str] = []
     i = 0
     while i < len(_tool_buffer):
         name, preview = _tool_buffer[i]
+        summary = _tool_summaries[i]
         # Batch consecutive entries with the same batchable name.
         if name in BATCHABLE_TOOLS:
-            previews = [preview]
+            entries = [_entry_with_summary(preview, summary)]
             j = i + 1
             while j < len(_tool_buffer) and _tool_buffer[j][0] == name:
-                previews.append(_tool_buffer[j][1])
+                entries.append(_entry_with_summary(_tool_buffer[j][1], _tool_summaries[j]))
                 j += 1
-            if len(previews) <= _MAX_BATCH_ITEMS:
-                lines.append(f"  [dim]{name}:[/dim] {', '.join(previews)}")
+            if len(entries) <= _MAX_BATCH_ITEMS:
+                lines.append(f"  [dim]{name}:[/dim] {', '.join(entries)}")
             else:
-                shown = ', '.join(previews[:_MAX_BATCH_ITEMS])
-                extra = len(previews) - _MAX_BATCH_ITEMS
+                shown = ', '.join(entries[:_MAX_BATCH_ITEMS])
+                extra = len(entries) - _MAX_BATCH_ITEMS
                 lines.append(f"  [dim]{name}:[/dim] {shown} (+{extra} more)")
             i = j
         else:
-            lines.append(f"  [dim]{name}:[/dim] {preview}")
+            lines.append(f"  [dim]{name}:[/dim] {_entry_with_summary(preview, summary)}")
             i += 1
 
     console.print("[dim]──────── tools ────────[/dim]")
@@ -522,6 +572,8 @@ def _flush_tool_buffer() -> None:
         console.print(line)
     console.print("[dim]───────────────────────[/dim]")
     _tool_buffer.clear()
+    _tool_call_ids.clear()
+    _tool_summaries.clear()
 
 
 _THINK_RE = re.compile(r"<think>(.*?)</think>\s*", re.DOTALL)
@@ -547,26 +599,68 @@ def _split_think(text: str) -> list[tuple[str, str]]:
     return segments
 
 
-def _flush_text(text_buf: list[str]) -> None:
-    """Render accumulated model text and clear the buffer.
-
-    Splits out ``<think>...</think>`` blocks so they render dimmed instead of
-    being swallowed by the Markdown HTML stripper. Non-think text still goes
-    through Rich Markdown.
-    """
-    if not text_buf:
-        return
-    full = "".join(text_buf)
-    for kind, body in _split_think(full):
+def _build_text_renderable(text: str):
+    """Compose a Group of rendered segments (think dimmed, body as Markdown)."""
+    blocks = []
+    for kind, body in _split_think(text):
         if not body.strip():
             continue
         if kind == "think":
-            # Trim long thinking to keep the display compact, like a folded
-            # block. The full body is preserved in message history.
             preview = body if len(body) <= 600 else body[:597] + "..."
-            console.print(f"[dim italic]{preview}[/dim italic]")
+            blocks.append(Text.from_markup(f"[dim italic]{preview}[/dim italic]"))
         else:
-            console.print(Markdown(body))
+            blocks.append(Markdown(body))
+    return Group(*blocks)
+
+
+# Live display used to stream assistant text chunk-by-chunk. When the next
+# non-text event (tool / think / turn-done) arrives, the live is stopped —
+# the last frame stays in place and ``text_buf`` is cleared.
+_live: Live | None = None
+
+
+def _start_or_update_live(text_buf: list[str]) -> None:
+    """Start a Live and/or update its renderable to the current text buffer.
+
+    Called on every TextChunk so the user sees text as it streams.
+    """
+    global _live
+    if not text_buf:
+        return
+    full = "".join(text_buf)
+    renderable = _build_text_renderable(full)
+    if _live is None:
+        _live = Live(
+            renderable,
+            console=console,
+            refresh_per_second=12,
+            transient=False,
+            vertical_overflow="visible",
+        )
+        _live.start()
+    else:
+        _live.update(renderable)
+
+
+def _flush_text(text_buf: list[str]) -> None:
+    """Finalise streamed text and clear the buffer.
+
+    If a streaming Live is active (the common path from TextChunk handling),
+    stop it — the last frame stays on screen. Otherwise (direct callers,
+    tests) render the accumulated text explicitly so behaviour matches the
+    streaming path.
+    """
+    global _live
+    if _live is not None:
+        # Last live frame already shows the full content; keep it.
+        _live.stop()
+        _live = None
+        text_buf.clear()
+        return
+    if not text_buf:
+        return
+    full = "".join(text_buf)
+    console.print(_build_text_renderable(full))
     text_buf.clear()
 
 
@@ -582,6 +676,9 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
         _flush_tool_buffer()
         text_buf.append(event.content)
         output_chars[0] += len(event.content)
+        # Live-stream the text so the user sees it appear chunk-by-chunk
+        # instead of waiting for the next non-text event to flush.
+        _start_or_update_live(text_buf)
     elif isinstance(event, StreamProgress):
         output_chars[0] += event.chars
         # Reasoning streaming arrives as StreamProgress without TextChunks. Keep
@@ -593,15 +690,25 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
         _flush_text(text_buf)
         recent_tools.append(event.name)
         _tool_buffer.append((event.name, _extract_preview(event.name, event.args)))
+        _tool_call_ids.append(event.call_id)
+        _tool_summaries.append("")
         _start_activity(_tool_counter_message())
     elif isinstance(event, ToolEndEvent):
         _stop_activity()
-        # Only surface errors and denials — successful tool calls stay quiet.
+        # Only surface errors and denials — successful tool calls stay quiet
+        # and their output summary lands in the next buffer flush.
         if not event.permitted:
             console.print("  [dim]⎿[/dim]  [yellow](denied)[/yellow]")
         elif event.error:
             out = event.output[:120].replace("\n", " · ").rstrip(" · ")
             console.print(f"  [dim]⎿[/dim]  [red]{out}[/red]")
+        else:
+            try:
+                idx = _tool_call_ids.index(event.call_id)
+            except ValueError:
+                idx = -1
+            if 0 <= idx < len(_tool_summaries):
+                _tool_summaries[idx] = _summarize_tool_output(event.name, event.output)
     elif isinstance(event, ThinkingEvent):
         _stop_activity()
         _flush_tool_buffer()
