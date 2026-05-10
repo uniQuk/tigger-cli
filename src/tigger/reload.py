@@ -83,7 +83,7 @@ def _reload_list(
     prev_names = _names(target)
     try:
         fresh = loader()
-    except Exception as exc:  # noqa: BLE001 — surface in report, don't crash session
+    except Exception as exc:
         return SubsystemDelta(
             name=name,
             previous_count=len(prev_names),
@@ -151,7 +151,7 @@ def reload_all(result: StartupResult) -> ReloadReport:
         try:
             from tigger.mcp import connect_new
             connect_new(result.registry, result.mcp_configs)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             mcp_delta.error = (
                 f"config refreshed but connect_new failed: "
                 f"{type(exc).__name__}: {exc}"
@@ -173,7 +173,7 @@ def reload_all(result: StartupResult) -> ReloadReport:
             modes=result.ctx.modes,
             hook_defs=result.hook_defs,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         report.add(SubsystemDelta(
             name="commands",
             previous_count=len(prev_cmds),

@@ -78,7 +78,7 @@ def test_stream_empty_environment_string_omits_tail():
 
 # ── R4–R6: Stub large file-write tool args after success ───────────────────
 
-from tigger.provider import _stub_large_write_args  # noqa: E402
+from tigger.provider import _stub_large_write_args
 
 
 def _assistant_with_tool_call(call_id: str, name: str, args: dict) -> Message:

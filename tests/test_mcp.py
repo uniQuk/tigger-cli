@@ -880,7 +880,7 @@ def test_mcp_cmd_with_servers(capsys):
         def close(self): pass
     registry = ToolRegistry()
     from tigger.types import ToolDef
-    noop = lambda a: ""  # noqa: E731
+    noop = lambda a: ""
     registry.register(ToolDef(
         name="mcp__srv1__tool_a", description="test",
         parameters={}, func=noop, read_only=False,

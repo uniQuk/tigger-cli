@@ -328,7 +328,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         _kb = KeyBindings()
 
         @_kb.add("tab")
-        def _tab_accept(event):  # noqa: F811
+        def _tab_accept(event):
             buf = event.current_buffer
             if buf.complete_state:
                 comp = buf.complete_state.current_completion
