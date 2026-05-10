@@ -1236,3 +1236,42 @@ Key check: **`extra_body` has NO `chat_template_kwargs`** for gemma — the per-
 
 - Warm latency for `google/gemma-4-31b` (and the `-26b-a4b` MoE) — needs a tick that starts with LM Studio already warm on gemma, or two consecutive ticks (warm-up + measure).
 - `qwen_qwen3.6-27b@q4_k_l-instruct` still untouched in this cycle.
+
+### Iter 13 — DONE
+
+**Dimension covered:** simple-chat latency baseline for `google/gemma-4-31b` warm. Clears iter-12's first parked follow-up by piggy-backing on LM Studio's warm cache (gemma was last-loaded by the iter-12 cold attempt and was still resident at tick start).
+
+**Wall-clock used:** ~2m of 7m.
+
+**Bench numbers (warm-on-arrival):**
+
+Same prompt template ("Reply with exactly: pong-iter13-gemma31...") across three back-to-back runs, all `--no-think`, fixed `temperature=0.7`, full tool registry shipped:
+
+| run | wall_s | last_in | total_out | finish | EC |
+|-----|--------|---------|-----------|--------|----|
+| r1  | 79.56  | 4579    | 46        | stop   | 0  |
+| r2  | 18.01  | 4582    | 52        | stop   | 0  |
+| r3  | 17.99  | 4582    | 52        | stop   | 0  |
+
+r1's 79.56 s is the cold-tail (LM Studio finishing eager-load); r2/r3 are the honest steady-state. Output-token variance is real-but-small (46 → 52) — the model is hitting a slightly different stop point per run despite the deterministic "exactly: ..." instruction, but content matches the spec on all three.
+
+**Verified / changed:** docs only — no code, no config, no test.
+
+**Comparison against the rest of the cycle (warm-warm only):**
+
+| model                              | warm wall_s | out_t | tok/s decode (est.) |
+|------------------------------------|-------------|-------|---------------------|
+| `qwen/qwen3.6-35b-a3b` (MoE, 3B active) | 1.58   | 26    | ~16.5               |
+| `google/gemma-4-31b` (dense, 31B)        | 18.00  | 52    | ~2.9                |
+| `qwen/qwen3.6-27b-thinking` (dense, 27B + reasoning) | 162.7 | 29 visible (+~3000 thinking) | ~18.4 (incl. thinking) |
+
+The 35b-a3b MoE is ~5.7× faster per-token than the 31b dense for the same task. The 27b-thinking row is not directly comparable — its decode rate is similar to a dense model's, but it pays ~3000 reasoning tokens of latency before emitting visible content. Spot-check default of `qwen/qwen3.6-35b-a3b` remains the right choice for the hardened cron prompt.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 824 → 824 in 4.40 s. No code change.
+
+**Parked for later:**
+
+- `google/gemma-4-26b-a4b` warm latency — the 26b MoE counterpart; expect closer to the 35b-a3b MoE numbers if MoE-vs-dense is the dominant axis.
+- `qwen_qwen3.6-27b@q4_k_l-instruct` still untouched in this cycle.
