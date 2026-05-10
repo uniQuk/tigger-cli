@@ -264,9 +264,56 @@ now sending the correct minimal payload.
 
 **Tests:** 806 → 808. 4.40 s.
 
+### Iter 6 — DONE
+
+**Tool-call A/B and a harness fix.** Ran the same prompt ("Use the read
+tool to read pyproject.toml and tell me the project version on a single
+line") against the working Qwen models.
+
+| model                       | turns | total wall_s | total out_t | finish |
+|-----------------------------|-------|--------------|-------------|--------|
+| `qwen/qwen3.6-35b-a3b`      | 2     |  2.61        | 81          | stop   |
+| `qwen/qwen3.6-27b-thinking` | —     | timeout 240s | —           | EC=142 |
+
+35b-a3b is dramatically faster on tool-call workloads — 27b-thinking
+spends each turn reasoning before emitting the tool call, which compounds
+across multi-turn agent loops. For agent work on this LM Studio host,
+35b-a3b is the right default (matches the iter-32 finding from the
+prior loop).
+
+**Harness fix (not committed; lives in `/tmp/bench.sh`).** Previous
+iterations reported `out_t = $8` on the perf line — that's actually
+`prompt_chars`, not `output_tokens` (which is `$6`). All earlier
+`out_t` numbers in this log were prompt_chars, not generation tokens.
+The wall_s, input_tokens, and finish_reason columns were correct.
+Future iterations use a fixed harness that sums output across turns.
+
+**Tigger-side code change.** `TIGGER_PERF=1` was dumping the full
+outgoing kwargs INCLUDING the `tools=[...]` array (~6 KB of MCP/tool
+schemas). The interesting bits (sampler, chat_template_kwargs) were
+buried. Now the dump excludes `tools` and `messages`, replacing them
+with `_messages_count` / `_tools_count`. One-line kwargs are easier to
+spot-check across iterations.
+
+Before:
+```
+{"model": "...", ..., "tools": [{huge schemas × 13}], ...}  // ~6 KB
+```
+After:
+```
+{"model": "qwen/qwen3.6-35b-a3b", "temperature": 0.7, ...,
+ "extra_body": {..., "chat_template_kwargs": {"enable_thinking": false}},
+ "_messages_count": 2, "_tools_count": 13}
+```
+
+**Tests:** 808 → 808 (no test churn). 4.42 s.
+
 ### Backlog for next ticks
 
-- **Iter 6+:** look for tool-call format quirks across the working
-  Qwen models, prompt duplication, redraw cost. Possible: graceful
-  no-tools fallback for chat-only models like gemma-IT (out of scope
-  for an iteration unless a small, surgical change presents itself).
+- **Iter 7+:** prompt duplication / redraw cost. The MCP eager tier
+  ships ~2 KB of microsoft-learn schemas on every turn for the user's
+  config. `tier: lazy` in `mcp.json` would defer those to
+  `mcp_promote`. Config decision (not a tigger code change), worth
+  surfacing as a `/mcp` command hint in a future iter.
+- Graceful no-tools fallback for chat-only models like gemma-IT —
+  still out of scope unless a small, surgical change emerges.

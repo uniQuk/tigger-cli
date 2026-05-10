@@ -259,12 +259,14 @@ def stream(
     kwargs["stream_options"] = {"include_usage": True}
 
     # One-shot diagnostic: when TIGGER_PERF is set, print the outgoing kwargs
-    # (minus the messages payload) so we can confirm max_tokens, top_p, etc.
-    # are actually being sent to the local server.
+    # (minus the messages and tools payloads) so we can confirm max_tokens,
+    # top_p, chat_template_kwargs etc. are actually being sent. Tool schemas
+    # were ~6KB of stderr noise per call drowning out the bits we care about.
     global _perf_kwargs_logged
     if not _perf_kwargs_logged and os.environ.get("TIGGER_PERF", "").strip():
-        diag = {k: v for k, v in kwargs.items() if k != "messages"}
+        diag = {k: v for k, v in kwargs.items() if k not in ("messages", "tools")}
         diag["_messages_count"] = len(kwargs.get("messages", []))
+        diag["_tools_count"] = len(kwargs.get("tools", []) or [])
         sys.stderr.write(f"[perf] outgoing kwargs: {json.dumps(diag, default=str)}\n")
         sys.stderr.flush()
         _perf_kwargs_logged = True
