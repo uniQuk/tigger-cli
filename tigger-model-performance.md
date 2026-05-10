@@ -338,3 +338,142 @@ to e.g. trimming `bash` (51 tok).
   partition makes that the highest-leverage waste-hunt target — even
   a 50% reduction of system.md saves ~1000 tok/turn, dwarfing any
   tool-schema trim.
+
+### Iter 5 — DONE
+
+**Dimension covered:** SYSTEM.md architecture review. Iter 4 partition
+flagged `assets/system.md` as the single largest prefill line item
+(~41% of iter-3's 4913 tok). This tick decomposes it section-by-section
+and records a concrete proposal — no code change (architecture review,
+not implementation).
+
+**Method.** Re-read `src/tigger/assets/system.md` fresh (no carry-over
+from iter 4). Split on `^#+ ` headers via regex; per-section char count
+and `chars // 4` token estimate. Drill into the heaviest sub-rule by
+locating the next sibling bullet boundary.
+
+**Section decomposition (verified this tick, total 8094 chars / ~2023 tok):**
+
+| section                   |  chars |  ~tok |     % |
+|---------------------------|-------:|------:|------:|
+| **Tool Sequencing Rules** | **2535** | **633** | **31.3%** |
+| Tools (heading + 8 per-tool snippets) | 1523 | 380 | 18.8% |
+| Response Style            |    744 |   186 |  9.2% |
+| Core Mandates             |    740 |   185 |  9.1% |
+| Self-Knowledge            |    583 |   145 |  7.2% |
+| Codebase Orientation      |    551 |   137 |  6.8% |
+| Intro / preamble          |    449 |   112 |  5.5% |
+| Code Quality              |    426 |   106 |  5.3% |
+| Task Completion           |    376 |    94 |  4.6% |
+| Safety                    |    145 |    36 |  1.8% |
+| Behavioural Rules (heading) | 22 |     5 |  0.3% |
+
+Numbers shift slightly from iter 4's coarser 6-bucket grouping (Tool
+Sequencing Rules came out 633 tok here vs the ~633 estimate; Response
+Style + Code Quality + Safety + Codebase Orientation + Task Completion
+sum to ~559 tok, matching iter 4's "Behavioural Rules" composite of
+~565 tok). Order-of-magnitude consistent — fresh measurement holds.
+
+**Heaviest single sub-rule.** Inside "Tool Sequencing Rules" there is
+one bullet — **"Writing large files (CRITICAL — applies to ALL skills,
+templates, and generated content)"** — that alone is **1771 chars /
+~442 tok / 21.9% of system.md**. It dwarfs every other section except
+the "Tool Sequencing Rules" parent itself. The rule is highly
+specific: stub-then-edit pattern, applies only to skills/templates
+writing multi-KB content, with explicit "do NOT retry the same call"
+recovery guidance. The vast majority of chat turns never trigger it.
+
+**Verified: `system_prompt_extra` is APPEND-ONLY.**
+
+`src/tigger/main.py:200-205`:
+
+```python
+parts = [_base_system]
+if memory_section:
+    parts.append(memory_section)
+if extra:
+    parts.append(extra)
+system = "\n\n".join(parts).strip()
+```
+
+`config.json`'s `system_prompt_extra` field can grow the prompt, never
+shrink it. There is no `system_prompt_replace`, `system_prompt_filter`,
+or per-model/per-skill override path. **Closes iter 2 + iter 4's
+parked proposal: the override hook those iters named cannot reduce
+the base prompt as currently implemented.**
+
+**Concrete proposal (recorded, not implemented this tick).**
+
+Option A — **Per-skill `system_addendum`**. Move "Writing large files"
+out of `assets/system.md` and into a per-skill SKILL.md frontmatter
+addendum that gets concatenated into `system` only when a skill known
+to write large files is active. Savings: ~442 tok/turn × (1 - fraction
+of turns invoking a large-write skill). On a typical workflow where
+skills are a minority of turns, this is close to ~400 tok/turn on the
+common path.
+
+Cost estimate (one small change, mostly threading):
+- `src/tigger/types.py`: +1 line for `Skill.system_addendum: str | None`
+  (or parse from SKILL.md frontmatter).
+- `src/tigger/main.py`: ~5 lines in the `parts = [_base_system]`
+  composition to append addenda from currently active skills.
+- Skill loader (existing SKILL.md parser): no-op if frontmatter already
+  has free-form keys; otherwise +5 lines to surface `system_addendum`.
+- `src/tigger/assets/system.md`: -1771 chars (the sub-rule body).
+- Move the sub-rule body into the SKILL.md files of skills that
+  actually write large files (e.g. report-style or doc-generation
+  skills). Per-skill cost: ~1771 chars added to each affected SKILL.md.
+- Tests: 3–4 (addendum appears when skill active; absent when not;
+  multiple skills compose without duplication; verbatim sub-rule moved
+  intact).
+
+Option B — **Inversion via `system_prompt_replace`**. Add a peer
+field to `system_prompt_extra` that does substring replacement on the
+base prompt before append. More flexible but turns the base prompt
+into a config dependency — risk: silent drift if base prompt edits
+collide with user-configured replacements.
+
+Option C — **Two-tier base prompt**. Ship `system_core.md` (always
+loaded) + `system_skills.md` (loaded only when any skill is active in
+the registry). Concretely cheaper than Option A but a coarser
+trigger — pays the 442 tok cost whenever any skill is loaded, even
+ones that don't write large files.
+
+**Recommendation: stay generic for now.**
+
+The "Writing large files" rule prevents a real failure mode — the
+truncated-write-then-retry-loop that motivated commits
+`d821d71`/`f35e35c`/`673e242` ("per-skill output budget",
+"output_budget handling", "tool argument budget cap"). Removing it
+risks regressing exactly the failure the recent budget-cap commits
+were defending against, in exchange for ~442 tok / ~0.34% of a 128k
+context per turn. When the LM Studio prompt cache is warm, the
+marginal prefill cost approaches zero (iter 2's warm 1.58 s vs iter
+3's cold 23.60 s for the same model demonstrates this — ~15× swing
+on prompt-cache state, not on prompt size).
+
+Option A is the cleanest of the three if/when prefill cost is
+quantified as the bottleneck on a real workflow. Park as the highest-
+leverage system.md reduction available, but do not implement
+speculatively. The iter-4 followup "validate the static estimate via
+live A/B" should run before any reduction commits — if cold-cache
+prefill turns out to dominate a chat workflow that's keeping models
+warm anyway, the savings disappear.
+
+**Root cause:** none — architecture review, no fix applied.
+
+**Files touched:** `tigger-model-performance.md` only.
+
+**Tests delta:** 822 → 822 (unchanged) in 4.35 s. No code change.
+
+**Followups parked for iter 6+:**
+
+- Iter 4's live A/B (`disable_tools=["analyze"]`, confirm ~197 tok
+  drop) is the prerequisite measurement before any system.md
+  reduction; it validates the static partition method.
+- If/when Option A is chosen: add a `system_addendum` mechanism that
+  preserves cache-prefix order (skill addenda go at the END of the
+  prompt so cache hits on the base prefix stay intact across skill
+  enable/disable).
+- Identify the 4th MCP tool from iter 4 (`microsoft-learn` ships 3,
+  runtime count is 4) — still open.
