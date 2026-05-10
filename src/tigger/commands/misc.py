@@ -299,6 +299,17 @@ def cmd_think(args: str, ctx: RunContext) -> None:
         console.print(f"[dim]Thinking already {word}.[/dim]")
         return
 
+    # No-op for non-Qwen models: their jinja templates don't know about
+    # `enable_thinking` and reject the request with UndefinedValue. The
+    # current state is False AND the kwarg isn't present in the active
+    # config, so this model doesn't opt into Qwen-style thinking kwargs.
+    if "enable_thinking" not in kwargs:
+        console.print(
+            "[dim]This model doesn't use[/dim] [cyan]chat_template_kwargs.enable_thinking[/cyan][dim]; "
+            "/think is a no-op.[/dim]"
+        )
+        return
+
     kwargs["enable_thinking"] = new_val
     ctx.config = dataclasses.replace(ctx.config, chat_template_kwargs=kwargs)
     word = "[green]on[/green]" if new_val else "[red]off[/red]"

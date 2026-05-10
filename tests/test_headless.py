@@ -196,6 +196,48 @@ def test_no_think_overrides_model_per_entry_thinking(mock_startup, capsys, monke
 
 
 @patch("tigger.main.startup")
+def test_no_think_is_noop_when_model_has_no_thinking_kwargs(mock_startup, capsys, monkeypatch):
+    """Iter-5: --no-think on a non-Qwen model (no `enable_thinking` in
+    chat_template_kwargs) must be a silent no-op — adding the field from
+    scratch makes gemma/llama jinja templates reject with UndefinedValue."""
+    import pathlib
+    from tigger.main import StartupResult
+
+    captured: dict = {}
+
+    def capture_provider(system, messages, tools, config):
+        captured["chat_template_kwargs"] = dict(config.chat_template_kwargs or {})
+        yield AssistantMessage(content="ok", tool_calls=[])
+
+    cfg = Config(
+        base_url="http://x", model="gemma",
+        permission_mode="bypass",
+        chat_template_kwargs={},  # no thinking kwargs
+    )
+    ctx = RunContext(config=cfg, messages=[], system_prompt="")
+    mock_startup.return_value = StartupResult(
+        ctx=ctx,
+        commands={},
+        skills=[],
+        agents=[],
+        registry=ToolRegistry(),
+        hook_defs=[],
+        provider_fn=capture_provider,
+        config_path=pathlib.Path("/tmp/fake.toml"),
+    )
+
+    import sys
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    with patch("sys.argv", ["tigger", "--no-think", "--once", "hi"]):
+        import pytest
+        with pytest.raises(SystemExit):
+            from tigger.main import main
+            main()
+    # No `enable_thinking` should have been injected.
+    assert captured["chat_template_kwargs"] == {}
+
+
+@patch("tigger.main.startup")
 def test_startup_failure_prints_error_and_exits(mock_startup, capsys):
     """F019 regression: a startup() exception must produce a clean error
     message and exit(1), not a traceback."""

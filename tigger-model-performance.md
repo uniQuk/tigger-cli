@@ -214,8 +214,59 @@ stop. Wire-level output is unchanged; history-level is now clean.
 (`test_reasoning_dropped_when_thinking_disabled`,
 `test_reasoning_wrapped_when_thinking_enabled`). 4.35 s.
 
+### Iter 5 — DONE
+
+**Root-cause both gemma EC=2 errors.** Walked the failure end-to-end
+and found two separable bugs plus one model limitation.
+
+**Bug 1 — Cross-family `chat_template_kwargs` inheritance.** The
+project config has a top-level `chat_template_kwargs:
+{enable_thinking: true, preserve_thinking: true}` (Qwen-only flags).
+Gemma entries don't define their own, so `_resolve_active_model` /
+`pick(...)` fell through to the global. Gemma's jinja template doesn't
+know `preserve_thinking` → `Cannot call something that is not a
+function: got UndefinedValue`.
+
+Fix (`config.py:_resolve_active_model`): per-model
+`chat_template_kwargs` is now authoritative in dict-format providers.
+Missing per-model = `{}` (no template kwargs sent), NOT inherit-global.
+Locked in by `test_per_model_chat_template_kwargs_does_not_inherit_global`.
+
+**Bug 2 — `--no-think` (and `/think`) injected `enable_thinking` from
+scratch.** On a non-Qwen model with no thinking kwargs, the flag
+was creating `chat_template_kwargs={"enable_thinking": False}` and
+sending it. Same UndefinedValue crash.
+
+Fix (`main.py`, `commands/misc.py`): both flag-paths are now no-ops
+when the active config has no `enable_thinking` key. `/think` prints a
+friendly note. Locked in by
+`test_no_think_is_noop_when_model_has_no_thinking_kwargs`.
+
+**Model limitation (NOT fixable client-side).** Even after both fixes,
+gemma still EC=2'd — same jinja error, no `chat_template_kwargs`
+in the wire payload. Direct curl proved it: gemma-4-26b-a4b-it works
+fine for chat (no `tools`), but with the OpenAI `tools=[...]` array
+in the request it fails the same way. The stock LM Studio gemma chat
+template doesn't render tool definitions. **Conclusion:** gemma-4-31b
+and gemma-4-26b-a4b are usable for chat-only models in tigger but NOT
+as agents on this LM Studio host (the agent loop sends `tools` on
+every turn). Recommend pulling the lmstudio-community variant of these
+models with a tool-aware template, or treating these as informational
+slugs only.
+
+**Wire-kwargs sample post-fix (gemma-4-26b-a4b-it, --no-think):**
+```
+extra_body = {top_k: 20, min_p: 0.5, repetition_penalty: 1.1}
+```
+No `chat_template_kwargs` polluting the request — the right shape.
+Server still rejects on `tools` (a model-side limit), but tigger is
+now sending the correct minimal payload.
+
+**Tests:** 806 → 808. 4.40 s.
+
 ### Backlog for next ticks
 
-- **Iter 5+:** look for tool-call format quirks across models, prompt
-  duplication, redraw cost. Try waking gemma-4-31b-it / gemma-4-26b-a4b
-  (still cold on the server).
+- **Iter 6+:** look for tool-call format quirks across the working
+  Qwen models, prompt duplication, redraw cost. Possible: graceful
+  no-tools fallback for chat-only models like gemma-IT (out of scope
+  for an iteration unless a small, surgical change presents itself).

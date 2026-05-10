@@ -58,6 +58,13 @@ def _resolve_active_model(
             val = getattr(mcfg, f)
             if val is not None:
                 overrides[f] = val
+        # `chat_template_kwargs` is per-model authoritative in dict-format
+        # providers — the global default carries Qwen-style flags
+        # (enable_thinking / preserve_thinking) that a gemma or llama
+        # jinja template will reject ("Cannot call something that is not
+        # a function: got UndefinedValue"). A per-model entry without
+        # this field means "no template kwargs", not "inherit global".
+        overrides.setdefault("chat_template_kwargs", mcfg.chat_template_kwargs or {})
     return wire_id, display_name, overrides
 
 

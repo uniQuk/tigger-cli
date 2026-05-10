@@ -303,6 +303,34 @@ def test_switch_model_no_override_uses_global():
     assert new.max_tokens == 2048
 
 
+def test_per_model_chat_template_kwargs_does_not_inherit_global():
+    """Iter-5: a dict-format model entry without `chat_template_kwargs`
+    must NOT inherit the global default. The global key may carry
+    Qwen-only flags (enable_thinking / preserve_thinking) that a gemma
+    or llama jinja template will reject with UndefinedValue."""
+    p = _write({
+        "default_provider": "local",
+        "default_model": "gemma",
+        "providers": {
+            "local": {
+                "base_url": "http://x",
+                "models": {
+                    "qwen": {"chat_template_kwargs": {"enable_thinking": True}},
+                    "gemma": {"temperature": 1.0},
+                },
+            },
+        },
+        "chat_template_kwargs": {"enable_thinking": True, "preserve_thinking": True},
+    })
+    cfg = load_config(p)
+    # gemma is the active model; per-model has no chat_template_kwargs,
+    # so the active config carries an empty dict — NOT the global Qwen kwargs.
+    assert cfg.chat_template_kwargs == {}
+    # And switching to qwen brings ITS per-model kwargs in.
+    cfg2 = switch_model(cfg, "local", "qwen")
+    assert cfg2.chat_template_kwargs == {"enable_thinking": True}
+
+
 def test_system_prompt_extra_loads():
     """`system_prompt_extra` round-trips through load_config."""
     p = _write({

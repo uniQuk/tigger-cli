@@ -778,11 +778,15 @@ def main() -> None:
         # Must run AFTER --model: switch_model copies the target's per-model
         # chat_template_kwargs onto the config, so --no-think before --model
         # was silently overwritten on the qwen3.6-27b-thinking slug.
-        kwargs = dict(result.ctx.config.chat_template_kwargs or {})
-        kwargs["enable_thinking"] = False
-        result.ctx.config = dataclasses.replace(
-            result.ctx.config, chat_template_kwargs=kwargs,
-        )
+        # No-op for non-Qwen models: gemma/llama jinja templates reject
+        # `enable_thinking` with a cryptic UndefinedValue error.
+        existing = result.ctx.config.chat_template_kwargs or {}
+        if "enable_thinking" in existing:
+            kwargs = dict(existing)
+            kwargs["enable_thinking"] = False
+            result.ctx.config = dataclasses.replace(
+                result.ctx.config, chat_template_kwargs=kwargs,
+            )
 
     # Validate mode against resolved mode names
     mode_names = {m.name for m in result.ctx.modes}
