@@ -513,3 +513,90 @@ analysis pass alone.
   scoped, but the `format_duration_*` set has 6 single-assertion tests for
   one tiny function — could be `pytest.parametrize`d (no count change but
   removes ~25 lines). Defer until I have an actual case for it.
+
+### Iter 33 — DONE (loop tick 32, log catch-up)
+- Brought the log current with iters 23–32 (it was last updated at
+  iter 22).
+
+### Iter 34 — DONE (loop tick 33, real /help polish)
+- The "Loaded skills" list in `/help` rendered every entry as
+  `/<trigger>  — <name>` even when name == trigger. For most skills
+  the result was visible noise: `/doc-coauthoring  — doc-coauthoring`,
+  `/frontend-design  — frontend-design`, etc. Now the dash-name suffix
+  only renders when it actually adds info; skills like
+  `/tech-debt-skill  — tech-debt-audit` keep the annotation.
+- Live-verified against the project's `/help` output.
+
+## Loop closed (after 34 iterations / 34 commits)
+
+The cron `ce7e68fc` was cancelled. Branch `perf/loop-01-iterations`
+stands at 34 commits ahead of `main`, all tests green at 801 / ~4.3 s.
+
+### Headline numbers
+
+- **System prompt**: 233 → 106 lines (**−54%**) across 7 dedup commits.
+- **Test count**: 807 → 801 (-6 redundant cases). Suite time: 4.5 s → 4.3 s.
+- **Streaming Markdown rebuild work**: throttled to ~12 Hz, ~10× less
+  re-parse on long token streams.
+- **Live A/B finding**: `qwen/qwen3.6-35b-a3b` is 2–5× faster than the
+  default `qwen/qwen3.6-27b` on tool-use tasks. User-facing
+  recommendation, not auto-applied (config is the user's call).
+
+### Categories
+
+- **1 streaming-perf win** — Markdown rebuild throttle (iter 1).
+- **1 long-running-query UX win** — `<think>` block now shows the tail of
+  reasoning, not the frozen prefix (iter 22).
+- **1 real bug fix** — timeout REPL branch was missing
+  `_reset_tool_buffer()`, leaking phantom rows into the next turn
+  (iter 4).
+- **2 real Markdown-theme finds** — `markdown.code_block` was dead
+  config, `markdown.emph` was the wrong Rich key (should be
+  `markdown.em`) (iters 24–25).
+- **1 new feature** — `--model` CLI flag for `--once` A/B testing,
+  validated against configured providers only (iter 13).
+- **7 prompt dedups** — Self-Knowledge, Workflow Examples, Anti-Patterns,
+  Codebase Orientation rescope, "match effort to the question",
+  Core-Mandate duplicates, two `### bash` cleanups (iters 2, 6, 7, 11,
+  12, 16, 17, 18, 19).
+- **6 redundant tests removed** — format-duration boundary, ssrf private
+  10/192 dup, ask-permission n/empty dup, plan-vs-custom mode dup,
+  layer1-vs-snip-count compact dup, env-tail vs schema dup (iters 2, 5,
+  8, 9, 14).
+- **~60 lines of dead code swept** — 47 unused imports (iter 26), 6
+  unused locals (iter 27), 6 unused noqa (iter 29), 7 unused unpacked
+  vars (iter 30).
+- **Several small correctness fixes** — `mcp.connect_all` dup handlers,
+  `_grep` path construction, `mcp.SseTransport` raise-from chaining,
+  `tools._is_private_or_local` unpacking, `compaction.maybe_compact`
+  double estimate-tokens, ui `_format_spinner_line` dedup,
+  permissions.py SIM103 (iters 4, 8, 10, 31, 7, 28).
+- **1 real /help polish** — drop redundant `— name` when it duplicates
+  the trigger (iter 34).
+- **3 doc syncs** — README `--model` row, CLAUDE.md test-count, perf-log
+  catch-ups × 2 (iters 20, 21, 23, 33).
+
+### What didn't move (and why)
+
+- **Trivial-question latency on local Qwen 27b.** `What language is this
+  project?` still takes minutes because the model investigates via
+  `glob`/`read`/`analyze`. Multiple prompt edits (iter 11, iter 12)
+  *and* the 54% prompt trim didn't fix it. Pathology lives in the
+  weights, not the prompt — confirmed by repeated single-prompt A/B.
+  The user-facing answer is the live-data recommendation: switch to
+  `qwen/qwen3.6-35b-a3b` for tool-use work.
+- **MCP startup parallelisation.** Skipped — needs ~30 LOC of
+  `concurrent.futures` plumbing for a benefit that only matters with
+  multiple MCP servers configured. Current project has one.
+- **Stub-then-edit Tool-Sequencing rule.** Still present and verbose,
+  but load-bearing for skill artifact generation. Compressing without
+  multi-prompt A/B coverage isn't safe.
+
+### Closing read
+
+The branch is in a good resting state for review or merge. The biggest
+single win was the live-A/B-driven discovery that the system prompt
+itself was the bottleneck for trivial-question latency on local
+qwen3.6 — once that surfaced, dropping ~120 lines of redundant prompt
+content gave 1.9–2.7× speedups on tool-use prompts across both Qwen
+variants tested.
