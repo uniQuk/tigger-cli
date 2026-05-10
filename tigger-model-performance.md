@@ -255,3 +255,86 @@ tools schemas to measure each one's contribution, or strip-down candidates).
 - Per-tool prefill cost. Bisect the 13-tool schema by toggling
   `disable_tools` (see commit `28c092d`) across two runs and compare
   `input_tokens` deltas — pin which tool's schema is the heaviest.
+
+### Iter 4 — DONE
+
+**Dimension covered:** token-waste hunt. Iter-3 measured 4913 input
+tokens for a 42-char prompt on the 35b-a3b round-trip and parked
+"which tool's schema is the heaviest?" Picked up that followup via
+**static schema-size measurement** (no LLM calls, no two-run bisection
+needed for a first cut).
+
+**Method.** `register_all(ToolRegistry())` + `reg.schemas()` →
+`json.dumps(…, separators=(",", ":"))` per tool. Char count, chars/4
+≈ token estimate. Same serialiser shape the openai-python SDK uses on
+the wire.
+
+**Per-tool schema sizes (9 builtins, eager tier, sorted by char cost):**
+
+| tool          | chars | ~tok | % of tool block |
+|---------------|------:|-----:|----------------:|
+| `analyze`     |   789 |  197 |           24.0% |
+| `read`        |   530 |  132 |           16.1% |
+| `mcp_promote` |   388 |   97 |           11.8% |
+| `edit`        |   316 |   79 |            9.6% |
+| `grep`        |   301 |   75 |            9.1% |
+| `write`       |   267 |   67 |            8.1% |
+| `glob`        |   266 |   66 |            8.1% |
+| `web_fetch`   |   221 |   55 |            6.7% |
+| `bash`        |   205 |   51 |            6.2% |
+| **total**     | **3293** | **~823** | **100%** |
+
+**Iter-3 4913-token prefill partition (static measurement):**
+
+| component               | chars | ~tok | % of 4913 |
+|-------------------------|------:|-----:|----------:|
+| `assets/system.md`      |  8094 | 2024 |    ~41%   |
+| builtin tool schemas (9)|  3293 |  823 |    ~17%   |
+| MCP tool schemas (4 — `microsoft-learn` × 3 + ?)| — | ~1000–1500 | ~25% |
+| message wrappers, json overhead, etc. | — | ~500 | ~10% |
+| `.tigger/memory.md`     |     0 |    0 |     0%    |
+
+Memory file does not exist in this workspace, so memory injection is
+zero this cycle.
+
+**Key counter-intuitive finding.** Iter 3's framing implied the
+13-tool schema set was the dominant prefill cost. It's not — at
+~823 tokens for the 9 builtins (+ ~1000–1500 for the 4 MCP entries =
+~1.8–2.3k total), **the tool registry is the second-largest line item,
+not the first**. The single largest is `assets/system.md` at 2024
+tokens — bigger than the entire builtin tool registry combined and
+more than 2× the heaviest individual tool (`analyze` at ~197 tok).
+
+**`_tools_count: 13` reconciled.** Iter 2/3 saw 13 in the `[perf]
+outgoing kwargs` dump. The static registry has 9 builtins; the
+remaining 4 are MCP tools loaded at runtime (`microsoft-learn` ships 3
+per iter-1 archived note; the fourth is unaccounted for and is a
+followup probe).
+
+**Where the schema budget actually goes for builtins.** `analyze` at
+24% is the heaviest single tool. If a user is doing pure chat without
+needing repomap-style analysis, disabling `analyze` via the
+`disable_tools` config (commit `28c092d`) would save ~197 tok per turn.
+Across a 50-turn session that's ~10k tokens of prefill — not life-
+changing on a 128k context but real, and proportionally large compared
+to e.g. trimming `bash` (51 tok).
+
+**Root cause:** none — clean static measurement.
+
+**Files touched:** `tigger-model-performance.md` only.
+
+**Tests delta:** 822 → 822 (unchanged) in 4.35 s. No code change.
+
+**Followups parked for iter 5+:**
+
+- Validate the static estimate against a live A/B: run TIGGER_PERF=1
+  with the registry's `analyze` disabled and confirm
+  `input_tokens` drops by ~197.
+- Identify the 4th MCP tool that's in the runtime count but not in
+  `microsoft-learn`'s declared three. Either count or grep
+  `.tigger/mcp.json` and the connected-summary log.
+- `assets/system.md` is a 2024-token static cost on every turn. Iter
+  2 parked the `system_prompt_extra` per-model override idea; iter 4's
+  partition makes that the highest-leverage waste-hunt target — even
+  a 50% reduction of system.md saves ~1000 tok/turn, dwarfing any
+  tool-schema trim.
