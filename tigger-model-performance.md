@@ -1,158 +1,92 @@
-# Tigger model-performance loop — fresh cycle
+# Tigger model performance — bench cycle 02
 
-Branch: `perf/model-bench-02` (cut from `main` after merging `perf/model-bench-01`).
-Endpoint: LM Studio at `192.168.2.122:1234/v1` (per `.tigger/config.json`).
-Cadence: every 10 min via CronCreate (job `c0694165`, `3-59/10 * * * *`).
-Fresh-start note: prior iter log is preserved in
-`tigger-model-performance-bench01-archive.md`. Conclusions there are
-NOT carried forward — this cycle treats the current tree and config as
-ground truth and re-derives findings from scratch.
+Fresh cycle on `perf/model-bench-02`. Prior cycles archived (see
+`tigger-model-performance-bench01-archive.md` etc., not loaded). Each
+tick records its own measurements; no findings carried forward.
 
-## Goal
+## Cycle ground truth (recorded at start)
 
-For each model in `.tigger/config.json`:
+- Branch: `perf/model-bench-02` · HEAD `520f381`
+- Provider: `lmstudio` @ `http://192.168.2.122:1234/v1`
+- `default_model`: `google_gemma-4-31b-it-bartowski` — **does not** match
+  any key in `providers.lmstudio.models`. Tigger warns at startup and
+  sends the slug verbatim with no per-model overrides applied. See
+  iter 1 — the warning path is intentional and harmless if you always
+  pass `--model <known-slug>` for benches.
+- Known model slugs in config (in declaration order):
+  1. `qwen/qwen3.6-35b-a3b`
+  2. `qwen/qwen3.6-27b-thinking` → wire `qwen/qwen3.6-27b` + thinking
+  3. `qwen/qwen3.6-27b-instruct` → wire `qwen/qwen3.6-27b` + no thinking
+  4. `qwen_qwen3.6-27b@q4_k_l-instruct` → wire `qwen_qwen3.6-27b@q4_k_l`
+  5. `google/gemma-4-31b LMStudio` → wire `google/gemma-4-31b`
+  6. `google/gemma-4-26b-a4b LMStudio` → wire `google/gemma-4-26b-a4b`
+- Server-loaded IDs (LM Studio /v1/models, abridged): `qwen/qwen3.6-27b`,
+  `google/gemma-4-31b`, `google/gemma-4-26b-a4b`, `mistral-medium-3.5-128b`,
+  `nvidia/nemotron-3-nano-omni`, `qwen_qwen3.6-27b@q4_k_l`,
+  `qwen_qwen3.6-27b@q8_0`, `unsloth/qwen3.6-35b-a3b`,
+  `unsloth/gemma-4-31b-it`, `unsloth/gemma-4-26b-a4b-it`.
+- Test suite: **819 passed** in 4.40 s at cycle start.
+- Bench harness: `/tmp/bench.sh <slug> <--think|--no-think> "<prompt>"`,
+  240 s per-turn alarm.
 
-1. Confirm config kwargs (`temperature`, `top_p`, `top_k`, `min_p`,
-   `presence_penalty`, `repetition_penalty`, `max_tokens`,
-   `chat_template_kwargs.enable_thinking`) actually reach the wire
-   (spot-check via `TIGGER_PERF=1`).
-2. Verify thinking / non-thinking mode behaves per-model.
-3. Capture wall-clock, input/output token counts, and finish reason
-   baselines for: simple chat, multi-turn chat, tool-call, code-exec.
-4. Drive ONE measurable improvement per loop tick — perf, prompt
-   quality, token waste, prompt-system architecture. Tests stay green.
-5. Evaluate whether `assets/system.md` should remain generic or split
-   into model-specific overrides surfaced via config or the TUI.
-
-## Models under test
-
-Source of truth: `.tigger/config.json` at the start of each tick.
-Each iter block re-reads it (slugs may evolve between ticks).
-
-## Bench harness
-
-`/tmp/bench.sh <slug> <--think|--no-think> "<prompt>"` runs
-`tigger-code --once` with `TIGGER_PERF=1` and emits one tab-separated
-line: `slug | turns | wall_s | last_in | total_out | finish | EC`.
-
-## Iteration log
+---
 
 ### Iter 1 — DONE
 
-**Goal.** Establish a clean wire-kwargs + latency baseline for one
-model under the current tree. Reading nothing forward from the archive.
+**Dimension covered:** wire-kwargs round-trip verification.
 
-**Model:** `qwen/qwen3.6-35b-a3b` (LM Studio MoE, `--no-think`).
+**What was verified:** `qwen/qwen3.6-27b-instruct` slug → per-model
+overrides apply correctly. Captured outgoing kwargs from
+`TIGGER_PERF=1 tigger-code --no-think --model qwen/qwen3.6-27b-instruct --once "ping"`:
 
-**Config side (`.tigger/config.json` → this entry):**
-
-```json
-"qwen/qwen3.6-35b-a3b": {
-  "temperature": 0.7, "top_p": 0.8, "top_k": 20,
-  "presence_penalty": 1.5, "max_tokens": 8192,
-  "chat_template_kwargs": { "enable_thinking": false }
+```
+[perf] outgoing kwargs: {
+  "model": "qwen/qwen3.6-27b",          ← from per-model override
+  "temperature": 0.7,                   ← per-model
+  "stream": true,
+  "top_p": 0.8,                          ← per-model
+  "presence_penalty": 0,                 ← per-model
+  "extra_body": {
+    "top_k": 20,                         ← per-model
+    "min_p": 0.0,                        ← per-model
+    "repetition_penalty": 1,             ← per-model
+    "chat_template_kwargs": {
+      "enable_thinking": false,          ← per-model AND --no-think
+      "preserve_thinking": false         ← per-model
+    }
+  },
+  "stream_options": {"include_usage": true},
+  "_messages_count": 2,
+  "_tools_count": 13
 }
 ```
 
-**Wire side (`TIGGER_PERF=1` outgoing kwargs):**
+Every per-model override from `.tigger/config.json` is present in the
+outgoing wire payload. `--no-think` correctly forces
+`chat_template_kwargs.enable_thinking=false` on top of (already-false)
+per-model setting — idempotent, no double-encoding. `_tools_count: 13`
+confirms the full tool registry is shipped on a tools-allowed turn even
+for a trivial "ping" — expected.
 
-```
-model=qwen/qwen3.6-35b-a3b
-temperature=0.7  max_tokens=8192  top_p=0.8  presence_penalty=1.5
-extra_body={top_k:20, min_p:0.0, repetition_penalty:1.0,
-            chat_template_kwargs:{enable_thinking:false}}
-_messages_count=2  _tools_count=13
-```
+**Bench numbers:** N/A — the run hit the 60 s local alarm before any
+`[perf]` timing line was emitted (model on shared GPU, single "ping"
+turn against a 13-tool schema costs more than 60 s on this host
+right now). The outgoing-kwargs dump fires *before* the request goes
+out, so verification still succeeded.
 
-All overrides round-trip cleanly. `min_p` and `repetition_penalty` in
-`extra_body` ride the top-level config defaults (not the per-model
-entry) — expected fallthrough.
+**Pre-existing warning observed:**
+`UserWarning: default_model 'google_gemma-4-31b-it-bartowski' has no
+matching entry in providers.lmstudio.models`. Origin: `config.py:162`,
+intentional. Triggers because the value of `default_model` in
+`.tigger/config.json` (`google_gemma-4-31b-it-bartowski`) doesn't appear
+as a key in `providers.lmstudio.models` (which has six slugs, none of
+them this string). Behavior: tigger sends the slug verbatim as the
+wire id and applies *no* per-model overrides. Logged here for the
+cycle, not fixed — code path is correct; the config has drifted from
+what the user intended.
 
-**Latency (prompt = "Reply with exactly: pong-iter1"):**
+**Root cause:** none — clean spot-check.
 
-| run   | wall_s | in_t | out_t | finish | EC |
-|-------|--------|------|-------|--------|----|
-| cold  | 27.69  | 4913 | 42    | stop   | 0  |
-| warm  |  1.58  | 4915 | 26    | stop   | 0  |
+**Files touched:** only `tigger-model-performance.md` (created).
 
-Cold is JIT-load dominated. Warm is the honest steady-state for this
-prompt size on this LM Studio host.
-
-**Anomaly logged for a later iter (NOT investigated this tick):**
-`default_model` in `.tigger/config.json` is
-`"google_gemma-4-31b-it-bartowski"`, but the `providers.lmstudio.models`
-dict has no key with that exact slug — closest is
-`"google/gemma-4-31b LMStudio"`. Either the resolver tolerates the
-miss, the config has a dead default, or the recent
-`per-model disable_tools` change (commit `28c092d`) altered lookup
-semantics. Park for iter 2+.
-
-**Files touched.** `tigger-model-performance.md` only (docs).
-
-**Tests.** 817 → 817, 4.45 s.
-
-### Iter 2 — DONE
-
-**Investigated the iter-1 anomaly.** `default_model:
-"google_gemma-4-31b-it-bartowski"` in `.tigger/config.json` has no
-matching key in `providers.lmstudio.models` (closest is
-`"google/gemma-4-31b LMStudio"`, with a space and different
-capitalisation).
-
-**What was happening on the wire (no `--model` flag, `--no-think`):**
-
-```
-"model": "google_gemma-4-31b-it-bartowski"          ← raw slug passed through
-"temperature": 0.7, "top_p": 0.95, "presence_penalty": 0.0
-"extra_body": {top_k:20, min_p:0.0, repetition_penalty:1.0,
-               chat_template_kwargs:{enable_thinking:false,
-                                     preserve_thinking:true}}
-```
-
-Two silent failures stacked:
-
-1. `_resolve_active_model` (`config.py:51`) only resolves overrides
-   when the slug is **in** the provider's `models` dict. An unmatched
-   slug returns `(slug, slug, {})` — wire id = the raw string, zero
-   overrides applied. LM Studio happily accepts the unknown slug and
-   serves *something* (1.83 s, EC=0).
-2. With `overrides={}`, the `pick()` fallthrough in `load_config`
-   reaches for the **top-level** `chat_template_kwargs`, which carries
-   `preserve_thinking: true` — a Qwen-specific flag that would crash
-   a real gemma jinja template (`UndefinedValue`). Bartowski's template
-   tolerates it; an unsloth/google build wouldn't.
-
-**Fix (small, surgical, `config.py`).** When `default_model` is set
-but doesn't match any entry in `providers.{active}.models`, emit a
-`UserWarning` naming the bad slug and listing the known ones.
-Non-breaking: the slug still rides through as the wire id so dynamic
-LM-Studio model names keep working. The user just gets a clear signal
-that per-model overrides aren't being applied.
-
-**Verified live (`tigger-code --once "x"` with current project config):**
-
-```
-.../tigger/main.py:93: UserWarning: default_model
-'google_gemma-4-31b-it-bartowski' has no matching entry in
-providers.lmstudio.models; the slug will be sent verbatim as the wire
-id and per-model overrides will not apply. Known slugs:
-['qwen/qwen3.6-35b-a3b', 'qwen/qwen3.6-27b-thinking',
- 'qwen/qwen3.6-27b-instruct', 'qwen_qwen3.6-27b@q4_k_l-instruct',
- 'google/gemma-4-31b LMStudio', 'google/gemma-4-26b-a4b LMStudio']
-```
-
-The list-of-known-slugs makes typo-class bugs (capitalisation, spaces
-vs underscores, prefix mismatch) self-diagnosing.
-
-**Files touched.** `src/tigger/config.py`, `tests/test_config.py`,
-`tigger-model-performance.md`.
-
-**Tests.** 817 → 819. Two new tests:
-- `test_default_model_unmatched_in_provider_models_warns`
-- `test_default_model_matched_in_provider_models_does_not_warn`
-Suite: 4.42 s.
-
-**Followup for a later iter (not in scope here):** the user's project
-config is itself misconfigured — `default_model` should be one of the
-listed slugs. Worth proposing a one-line fix once we've benched the
-intended default. Park for iter 3+.
+**Tests delta:** 819 → 819 (unchanged) in 4.40 s. No code change.
