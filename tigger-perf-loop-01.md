@@ -298,6 +298,34 @@ as backlog items.
   wall-clock sleep, same coverage. Test suite: 4.7 s → 4.4 s.
 - Tests: 802 → 801 (green, 4.41 s).
 
+### Iter 15 — DONE (loop tick 11, live model A/B on tool-use)
+**Important live-A/B finding using the new `--model` flag:**
+
+Same prompt — *"Use grep to count 'TODO' in this project. Reply with only
+the count."* — across configured Qwen variants:
+
+| Model | Wall time | Response |
+|---|---|---|
+| `qwen/qwen3.6-27b` (default) | **2:58 (178 s)** | `1105` |
+| `qwen/qwen3.6-35b-a3b` | **0:34 (34 s)** | `1159` |
+
+35b-a3b is **5× faster** on tool-use tasks AND more compliant with
+"reply with only the count". Confirmed with a second prompt
+("count .py files in src/tigger") — 35b returned `38` in 32 s vs the
+earlier 27b run that took ~50 s.
+
+This is a *user-facing* recommendation, not a code change: switching
+the project's `default_model` to `qwen/qwen3.6-35b-a3b` would
+materially improve per-turn latency and conciseness on tool-use tasks.
+Filed as a backlog suggestion rather than auto-applied (the user's
+config is theirs to choose).
+
+Also noted: the stall watchdog on the slow 27b run fired correctly at
+60 s and 120 s ("still thinking (Ns)") — the long-running-query UX is
+already in good shape.
+
+- Tests: 801 → 801 (green, doc-only commit).
+
 ## Updated backlog
 
 - **Live model behaviour:** local `qwen3.6-27b` over-investigates trivial
