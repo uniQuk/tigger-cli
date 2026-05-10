@@ -162,6 +162,7 @@ The REPL shows a status line with the current model and token usage. On exit, a 
 | `--trust` | Mark the workspace as trusted without prompting |
 | `--no-think` | Disable thinking mode for this invocation (`chat_template_kwargs.enable_thinking=False`) |
 | `--mode NAME` | Override the active mode (e.g. `act`, `plan`) |
+| `--model NAME` | Override the model for this invocation; resolves through `.tigger/config.json` (same logic as `/model`) |
 | `--permission ask\|allow\|bypass` | Override the permission gate |
 
 #### `--once` exit codes
