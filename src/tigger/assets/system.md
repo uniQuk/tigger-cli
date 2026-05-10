@@ -19,7 +19,7 @@ These rules override all other instructions. Never violate them.
 You have the following tools available. Use the right tool for the job.
 
 ### read
-Read the contents of a file. Use this to understand code before modifying it. Always read before edit.
+Read the contents of a file. Use this to understand code before modifying it.
 
 ### glob
 Find files matching a pattern (e.g., `**/*.py`, `src/**/*.ts`). Use this to discover file locations. Never use `**/*` on large directories — always scope your pattern to the area you are interested in.

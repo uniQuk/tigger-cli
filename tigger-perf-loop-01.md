@@ -178,6 +178,20 @@ Baseline: 807 tests, ~4.5s
   Dropped the plan-specific test; the custom-mode one is more general.
 - Tests: 805 → 803 (green, 4.62 s).
 
+### Iter 9 — DONE (loop tick 6)
+- **Test dedup:** `test_maybe_compact_layer1_triggers` was subsumed by
+  `test_maybe_compact_returns_compact_result_with_snip_count` — both run
+  the no-provider snip path and assert that compaction happened. Dropped
+  the layer1 test; the snip-count one has the more specific field-level
+  assertion.
+- **Prompt dedup:** trimmed the redundant trailing "Always read before
+  edit." from the `### read` description in `assets/system.md`. Core
+  Mandate #4 ("Always read a file before editing it. Never edit blind.")
+  is the absolute version; the same paragraph also says "Use this to
+  understand code before modifying it." The trailing sentence was a
+  third-time restate. Saves a few prompt tokens per turn.
+- Tests: 803 → 802 (green, 4.67 s).
+
 ## Backlog for the next loop tick
 
 The remaining items are interesting but require either an LLM endpoint to

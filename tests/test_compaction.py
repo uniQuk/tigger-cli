@@ -60,14 +60,6 @@ def test_maybe_compact_noop_under_threshold():
     assert cr.summarized == 0
     assert cr.tokens_before == cr.tokens_after
 
-def test_maybe_compact_layer1_triggers():
-    cfg = _cfg(context_limit=100)
-    msgs = [_tool_msg("x" * 300) for _ in range(5)]
-    result, cr = maybe_compact(msgs, cfg, provider_fn=None)
-    assert estimate_tokens(result) <= estimate_tokens(msgs)
-    assert isinstance(cr, CompactResult)
-    assert cr.tokens_before >= cr.tokens_after
-
 def test_maybe_compact_returns_compact_result_with_snip_count():
     cfg = _cfg(context_limit=100)
     msgs = [_tool_msg("x" * 300) for _ in range(8)]
