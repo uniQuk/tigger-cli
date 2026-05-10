@@ -177,12 +177,45 @@ rides the wire AND influences generation as intended.
 **Tests:** 802 → 804 (`test_system_prompt_extra_loads`,
 `test_system_prompt_extra_absent_is_none`). 4.35 s.
 
+### Iter 4 — DONE
+
+**Triage finding.** `qwen_qwen3.6-27b@q4_k_l-instruct` (and the dense
+27b family in general) emits `delta.reasoning_content` even when
+`chat_template_kwargs.enable_thinking=False`. We saw the same wire
+phenomenon on the unquantised 27b in iter 2 — server-side LM Studio
+behaviour, not config-driven. Output token counts in `[perf]` blow up
+(147 vs the 4 visible "pong-look" chars) because the server bills the
+reasoning tokens against the response.
+
+The original "verbose preamble" suspicion (iter 1, 720 output tokens) is
+not reproducible — same model under the same config produced 42–147
+output tokens across this iteration's runs. It was just reasoning-tokens
+noise.
+
+**Fix (small, surgical, provider.py).** The collector at
+`provider.py:357-363` wraps any `collected_thinking` into `<think>...
+</think>` tags inside `final_content`, even when the user explicitly
+opted out via `enable_thinking=False`. This bloats:
+
+- `ctx.messages` (sent to `/tokens` estimator).
+- Compaction triggers (fires earlier than warranted).
+- Per-turn token estimate seen on the bottom toolbar.
+
+Now: when `chat_template_kwargs.enable_thinking is False`, the wrap is
+skipped. Reasoning tokens still arrive and are still counted by the
+server (we can't stop generation), but they don't pollute history.
+Default behaviour (`enable_thinking` unset or `True`) is unchanged.
+
+**Live verify on q4_k_l:** prompt "say pong-iter4", `enable_thinking=
+False`, response: stdout = `pong-iter4`, output_tokens = 42, finish =
+stop. Wire-level output is unchanged; history-level is now clean.
+
+**Tests:** 804 → 806, both branches covered
+(`test_reasoning_dropped_when_thinking_disabled`,
+`test_reasoning_wrapped_when_thinking_enabled`). 4.35 s.
+
 ### Backlog for next ticks
 
-- **Iter 4:** check whether the `q4_k_l` quant's verbose-preamble issue
-  is sampler-driven (the only model in `config.json` with `presence_
-  penalty=1.5` *and* `repetition_penalty=1`). The 35b-a3b also has
-  `pp=1.5` but is concise — so it's likely weight-quality, not config.
-  Skip the fix; document the recommendation.
 - **Iter 5+:** look for tool-call format quirks across models, prompt
-  duplication, redraw cost.
+  duplication, redraw cost. Try waking gemma-4-31b-it / gemma-4-26b-a4b
+  (still cold on the server).

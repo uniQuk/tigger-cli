@@ -354,10 +354,16 @@ def stream(
             sys.stderr.flush()
 
     # If reasoning came in via the separate field and isn't already wrapped
-    # in <think> tags inside content, prepend it so it persists in history.
+    # in <think> tags inside content, prepend it so it persists in history —
+    # UNLESS the user explicitly disabled thinking. Qwen3.6-27b on LM Studio
+    # streams reasoning_content even with enable_thinking=False; preserving
+    # those tokens bloats /tokens, compaction, and per-turn token estimates
+    # for behaviour the user opted out of.
     final_content = collected_text
     if collected_thinking and "<think>" not in collected_text:
-        final_content = f"<think>\n{collected_thinking}\n</think>\n\n{collected_text}"
+        enable_thinking = (config.chat_template_kwargs or {}).get("enable_thinking", True)
+        if enable_thinking is not False:
+            final_content = f"<think>\n{collected_thinking}\n</think>\n\n{collected_text}"
 
     yield AssistantMessage(
         content=final_content,

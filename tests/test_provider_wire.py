@@ -168,6 +168,71 @@ def test_stub_boundary_exactly_at_threshold_not_stubbed():
     assert out[1].tool_calls[0].args["content"] == content
 
 
+def _stream_chunk(content=None, reasoning=None, finish=None):
+    """Build a minimal SSE-shaped chunk for the openai-python iter."""
+    delta = MagicMock()
+    delta.content = content
+    delta.reasoning_content = reasoning
+    delta.tool_calls = None
+    choice = MagicMock()
+    choice.delta = delta
+    choice.finish_reason = finish
+    chunk = MagicMock()
+    chunk.choices = [choice]
+    chunk.usage = None
+    return chunk
+
+
+def _run_stream_with_chunks(chunks, *, config: Config):
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.return_value = iter(chunks)
+    final = None
+    with patch("tigger.provider._get_client", return_value=fake_client):
+        from tigger.types import AssistantMessage
+        for ev in stream("sys", [Message(role="user", content="go")], [], config):
+            if isinstance(ev, AssistantMessage):
+                final = ev
+    return final
+
+
+def test_reasoning_dropped_when_thinking_disabled():
+    """Iter-4: when chat_template_kwargs.enable_thinking is False, reasoning
+    tokens emitted by the server (Qwen3.6-27b family on LM Studio) must NOT
+    be wrapped into the message history."""
+    cfg = Config(
+        base_url="http://x", model="m", read_timeout=0,
+        chat_template_kwargs={"enable_thinking": False, "preserve_thinking": False},
+    )
+    chunks = [
+        _stream_chunk(reasoning="Let me think..."),
+        _stream_chunk(content="answer"),
+        _stream_chunk(finish="stop"),
+    ]
+    msg = _run_stream_with_chunks(chunks, config=cfg)
+    assert msg is not None
+    assert "<think>" not in msg.content
+    assert msg.content == "answer"
+
+
+def test_reasoning_wrapped_when_thinking_enabled():
+    """Default / explicit enable_thinking=True keeps the wrap (history shows
+    reasoning so the UI can re-render it)."""
+    cfg = Config(
+        base_url="http://x", model="m", read_timeout=0,
+        chat_template_kwargs={"enable_thinking": True},
+    )
+    chunks = [
+        _stream_chunk(reasoning="hmm"),
+        _stream_chunk(content="answer"),
+        _stream_chunk(finish="stop"),
+    ]
+    msg = _run_stream_with_chunks(chunks, config=cfg)
+    assert msg is not None
+    assert msg.content.startswith("<think>")
+    assert "hmm" in msg.content
+    assert msg.content.endswith("answer")
+
+
 def test_stub_two_turn_history_only_old_write_stubbed_via_stream():
     """Integration: across the wire, a two-turn sequence with a 28KB write
     in turn 1 has the assistant tool_call args replaced with a stub on the
