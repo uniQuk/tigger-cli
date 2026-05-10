@@ -36,7 +36,7 @@ _THEME = Theme({
     "markdown.h2": "bold #ff8c00",
     "markdown.h3": "bold #ff6600",
     "markdown.strong": "bold #ffb300",
-    "markdown.emph": "italic #ff8c00",
+    "markdown.em": "italic #ff8c00",
     # No markdown.code_block — Rich routes fenced blocks through Pygments
     # (default monokai); a foreground style here does nothing.
 })
