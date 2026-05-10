@@ -14,7 +14,7 @@ from tigger.reload import ReloadReport, SubsystemDelta
 
 def _make_report(**deltas: SubsystemDelta) -> ReloadReport:
     r = ReloadReport()
-    for _, delta in deltas.items():
+    for delta in deltas.values():
         r.add(delta)
     return r
 

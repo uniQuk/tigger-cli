@@ -67,5 +67,5 @@ def test_run_setup_wizard_empty_api_key_defaults_to_local(monkeypatch, tmp_path)
 
     config_path, _ = ui_mod.run_setup_wizard(project_dir=tmp_path)
     data = json.loads(config_path.read_text())
-    prov = list(data["providers"].values())[0]
+    prov = next(iter(data["providers"].values()))
     assert prov["api_key"] == "local"
