@@ -45,7 +45,7 @@ def test_snip_returns_correct_count():
     old = [_tool_msg("x" * 500) for _ in range(8)]
     recent = [_msg("user", "q")]
     msgs = old + recent
-    result, snipped = snip_old_results(msgs)
+    _, snipped = snip_old_results(msgs)
     # boundary = max(1, 9 * 3 // 4) = 6, so 6 old messages in old portion
     # all 6 have content > 200 chars
     assert snipped == 6
@@ -63,7 +63,7 @@ def test_maybe_compact_noop_under_threshold():
 def test_maybe_compact_returns_compact_result_with_snip_count():
     cfg = _cfg(context_limit=100)
     msgs = [_tool_msg("x" * 300) for _ in range(8)]
-    result, cr = maybe_compact(msgs, cfg, provider_fn=None)
+    _, cr = maybe_compact(msgs, cfg, provider_fn=None)
     assert cr.snipped > 0
     assert cr.summarized == 0
 
@@ -318,7 +318,7 @@ def test_maybe_compact_with_summarize():
 
     cfg = _cfg(context_limit=100)
     msgs = [_tool_msg("x" * 300) for _ in range(8)]
-    result, cr = maybe_compact(msgs, cfg, fake_provider)
+    _, cr = maybe_compact(msgs, cfg, fake_provider)
     assert cr.snipped > 0
     assert cr.summarized > 0
     assert cr.tokens_before > cr.tokens_after

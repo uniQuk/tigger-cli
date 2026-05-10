@@ -99,7 +99,7 @@ def test_maybe_compact_persists_summary_on_summarize(tmp_path):
     summaries_dir = tmp_path / "summaries"
     cfg = _cfg(context_limit=100)
     msgs = [_tool_msg("x" * 300) for _ in range(8)]
-    result, cr = maybe_compact(msgs, cfg, _fake_provider, summaries_dir=summaries_dir)
+    _, cr = maybe_compact(msgs, cfg, _fake_provider, summaries_dir=summaries_dir)
     assert cr.summarized > 0
     files = list(summaries_dir.glob("*.md"))
     assert len(files) == 1
@@ -111,7 +111,7 @@ def test_maybe_compact_no_persist_without_summaries_dir():
     cfg = _cfg(context_limit=100)
     msgs = [_tool_msg("x" * 300) for _ in range(8)]
     # summaries_dir=None (default) — should not raise
-    result, cr = maybe_compact(msgs, cfg, _fake_provider)
+    _, cr = maybe_compact(msgs, cfg, _fake_provider)
     assert cr.summarized > 0
 
 
@@ -119,7 +119,7 @@ def test_maybe_compact_no_persist_when_no_summarization(tmp_path):
     summaries_dir = tmp_path / "summaries"
     cfg = _cfg(context_limit=8192)
     msgs = [_msg("user", "short")]
-    result, cr = maybe_compact(msgs, cfg, None, summaries_dir=summaries_dir)
+    _, cr = maybe_compact(msgs, cfg, None, summaries_dir=summaries_dir)
     assert cr.summarized == 0
     assert not summaries_dir.exists()
 

@@ -18,7 +18,7 @@ def test_run_setup_wizard_creates_config(monkeypatch, tmp_path):
     ])
     monkeypatch.setattr("builtins.input", lambda _: next(inputs))
 
-    config_path, config_data = ui_mod.run_setup_wizard(project_dir=tmp_path)
+    config_path, _ = ui_mod.run_setup_wizard(project_dir=tmp_path)
 
     assert config_path == tmp_path / ".tigger" / "config.json"
     assert config_path.exists()
