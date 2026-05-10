@@ -181,32 +181,24 @@ def test_gate_caps_large_budget_to_tool_arg_ceiling(tmp_path):
     assert not target.exists()
 
 
-def test_active_output_budget_is_sent_in_environment():
-    seen_envs: list[str | None] = []
+def test_tool_arg_ceiling_caps_schema_when_max_tokens_unbounded():
+    """The 4096-char hard ceiling applies to write/edit schemas even when the
+    user-configured budget is huge and max_tokens is unbounded — matching the
+    ceiling enforced when max_tokens is set."""
+    seen_tools: list[list[dict]] = []
 
     def provider(system, messages, tools, config, environment=None):
-        seen_envs.append(environment)
-        yield AssistantMessage(content="done", tool_calls=[])
-
-    ctx = _ctx(output_budget=32768, max_tokens=8192)
-    list(run("go", ctx, _registry(), provider_fn=provider))
-
-    assert seen_envs[0] is not None
-    assert "Active write/edit payload budget: 4096 chars" in seen_envs[0]
-
-
-def test_tool_arg_ceiling_still_applies_when_max_tokens_is_unbounded():
-    seen_envs: list[str | None] = []
-
-    def provider(system, messages, tools, config, environment=None):
-        seen_envs.append(environment)
+        seen_tools.append(tools)
         yield AssistantMessage(content="done", tool_calls=[])
 
     ctx = _ctx(output_budget=32768, max_tokens=0)
     list(run("go", ctx, _registry(), provider_fn=provider))
 
-    assert seen_envs[0] is not None
-    assert "Active write/edit payload budget: 4096 chars" in seen_envs[0]
+    by_name = {s["function"]["name"]: s for s in seen_tools[0]}
+    write_content = (
+        by_name["write"]["function"]["parameters"]["properties"]["content"]
+    )
+    assert write_content["maxLength"] == 4096
 
 
 def test_active_output_budget_is_applied_to_tool_schemas():

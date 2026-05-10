@@ -382,6 +382,10 @@ def run(
         # Dynamic per-turn content (active mode body, lazy MCP tool listing)
         # is passed separately so the provider can inject it as an
         # <environment> tail message — keeping the prompt prefix cacheable.
+        # The output budget is NOT echoed here: the same constraint already
+        # rides on every write/edit schema's description (see
+        # `_with_output_budget_schema_limits`), and the model sees it next to
+        # the field at decode time. Sending it twice wastes prompt tokens.
         system = ctx.system_prompt
         env_parts: list[str] = []
         mode_body = _active_mode_body(ctx)
@@ -390,13 +394,6 @@ def run(
         lazy_line = _lazy_tools_prompt_line(registry)
         if lazy_line:
             env_parts.append(lazy_line)
-        if active_output_budget > 0:
-            env_parts.append(
-                "Active write/edit payload budget: "
-                f"{active_output_budget} chars per tool call. "
-                "Keep write.content and edit old_string/new_string fields under "
-                "this limit; use stub-then-edit for larger files."
-            )
         environment = "\n\n".join(env_parts) if env_parts else None
         # Pass `environment` as a keyword arg only when set, so non-tigger
         # callers of provider_fn (e.g. compaction.summarize_old) and test

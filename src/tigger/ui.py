@@ -160,7 +160,8 @@ def _tool_counter_message() -> str:
         return f"[#999999]\u23fa {nice}[/]"
     counts: dict[str, int] = {}
     for name, _ in _tool_buffer:
-        counts[_short_tool_name(name)] = counts.get(_short_tool_name(name), 0) + 1
+        short = _short_tool_name(name)
+        counts[short] = counts.get(short, 0) + 1
     parts = ", ".join(f"{n}\u00d7{c}" if c > 1 else n for n, c in counts.items())
     total = len(_tool_buffer)
     return f"[#999999]\u23fa {total} tools ({parts})[/]"
