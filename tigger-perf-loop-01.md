@@ -326,6 +326,29 @@ already in good shape.
 
 - Tests: 801 → 801 (green, doc-only commit).
 
+### Iter 16 — DONE (loop tick 12, biggest win of the loop)
+**Drop the entire `## Workflow Examples` section** from `assets/system.md`.
+Four 6-step example workflows (Fix a Bug, Add a Feature, Explore How
+Something Works, Review/Understand a Codebase) — total 46 lines /
+~400 prompt tokens. The Tool Sequencing section above already covers
+the same workflows in 5 compact bullets, and the per-tool descriptions
+already say when to use each tool.
+
+**Live A/B re-run of the same tool-use prompt** (`grep TODO …, reply
+with only the count`) **after the trim:**
+
+| Model | Before | After | Speedup |
+|---|---|---|---|
+| `qwen/qwen3.6-27b` (default) | 178 s | **93 s** | ≈1.9× |
+| `qwen/qwen3.6-35b-a3b` | 34 s | **12.7 s** | ≈2.7× |
+
+Single-run numbers (some variance), but the directional improvement is
+clear and consistent across both models. Less prefill on local Qwen =
+less wall time. System prompt: 233 → **121 lines** since loop start
+(48% reduction over the loop).
+
+- Tests: 801 → 801 (green, 4.33 s).
+
 ## Updated backlog
 
 - **Live model behaviour:** local `qwen3.6-27b` over-investigates trivial
