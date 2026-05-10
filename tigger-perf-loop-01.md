@@ -365,6 +365,24 @@ less wall time. System prompt: 233 → **121 lines** since loop start
   within the same order as expected.
 - Tests: 801 → 801 (green, 4.31 s).
 
+### Iter 18 — DONE (loop tick 14)
+- **Drop the entire `### Anti-Patterns` block** (4 bullets / 6 lines).
+  Each anti-pattern was a specific case of the rule already in the
+  `### bash` tool description: *"Do not use bash for operations that a
+  dedicated tool handles better (reading files, searching code, finding
+  files)."* The bullets restated cat/grep/find/generic-bash one at a
+  time. Pure duplication.
+- **Merge two adjacent Code-Quality bullets** that were near-paraphrases:
+  "Do not refactor / improve beyond ask" + "Do not add features /
+  abstractions beyond ask" → one combined rule. The original two were
+  read by the model as the same constraint stated twice.
+- Live verify against 35b: `Use bash to count lines in src/tigger/main.py.
+  Reply with only the number.` → returned `858` in 25 s with no preamble
+  (and `wc -l` confirms 858). Tool-use behaviour intact.
+- System prompt: 116 → **108 lines** (54% reduction over the whole
+  loop, from 233 originally).
+- Tests: 801 → 801 (green, 4.35 s).
+
 ## Updated backlog
 
 - **Live model behaviour:** local `qwen3.6-27b` over-investigates trivial

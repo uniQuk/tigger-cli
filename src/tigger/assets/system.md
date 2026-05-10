@@ -59,13 +59,6 @@ Follow these patterns for common operations:
   3. To enable many small edits, plant distinct anchor markers in the stub up front (e.g. `<!-- SECTION-HEADER -->`, `<!-- SECTION-SVG-DEFS -->`, `<!-- SECTION-COMPONENTS -->`, `<!-- SECTION-LEGEND -->`). Each `edit` then replaces exactly one anchor with its focused content. Never replace one anchor with content that itself contains thousands of tokens.
   This rule overrides any skill instruction that says "write the full file at once" or supplies a large template to be customised in one go. If a `write` is reported as cut off / truncated / "no arguments were received before the stream ended", do NOT retry the same call — switch to stub-then-edit immediately.
 
-### Anti-Patterns — Do Not Do These
-
-- Do not use `bash cat` to read files — use the `read` tool.
-- Do not use `bash grep` or `bash rg` to search code — use the `grep` tool.
-- Do not use `bash find` to find files — use the `glob` tool.
-- Do not run `bash` for operations the dedicated tools handle better.
-
 ## Behavioural Rules
 
 ### Response Style
@@ -82,8 +75,7 @@ Follow these patterns for common operations:
 - Match the existing code style, conventions, and patterns when making changes.
 - Make surgical, targeted edits. Change only what is necessary to accomplish the task.
 - Do not add comments explaining obvious code. Only add comments where the logic is genuinely non-obvious.
-- Do not refactor or "improve" code beyond what was asked. A bug fix does not need surrounding cleanup.
-- Do not add features, error handling, or abstractions beyond what was requested.
+- Do not refactor, add features, error handling, or abstractions beyond what was asked. A bug fix does not need surrounding cleanup.
 
 ### Safety
 
