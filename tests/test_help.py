@@ -1,8 +1,7 @@
 """Tests for the help system (Unit 2)."""
 from __future__ import annotations
-from functools import partial
 from tigger.commands.misc import cmd_help
-from tigger.commands import COMMAND_DESCRIPTIONS, COMMAND_HELP
+from tigger.commands import COMMAND_DESCRIPTIONS
 from tigger.types import RunContext
 
 

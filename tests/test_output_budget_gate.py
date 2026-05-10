@@ -1,7 +1,6 @@
 """Dispatcher-gate tests for output budget enforcement (Unit 2)."""
 from __future__ import annotations
 
-import pathlib
 
 from tigger.loop import _check_output_budget, run, run_forked
 from tigger.skills import SkillDef
@@ -9,7 +8,6 @@ from tigger.tools import ToolDef, ToolRegistry
 from tigger.types import (
     AssistantMessage,
     Config,
-    Message,
     RunContext,
     TextChunk,
     ToolCallRecord,

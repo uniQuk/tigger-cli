@@ -1,5 +1,4 @@
 import datetime
-import pathlib
 from tigger.types import Config, Message, TextChunk
 from tigger.compaction import (
     maybe_compact, persist_summary, load_recent_summary,

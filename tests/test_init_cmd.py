@@ -1,5 +1,4 @@
 from __future__ import annotations
-import pathlib
 from tigger.types import Config, RunContext
 from tigger.commands.init import cmd_init
 from tigger._constants import CONFIG_DIR

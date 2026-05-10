@@ -1,4 +1,3 @@
-import json
 import pathlib
 from tigger.types import Message, ToolCallRecord
 from tigger.sessions import save_message, load_session, list_sessions, new_session_id, _message_to_dict, _message_from_dict, project_id, project_session_dir

@@ -1,4 +1,3 @@
-import pytest
 from tigger.types import Config, Message, RunContext, TextChunk
 from tigger.commands.compact import cmd_compact
 

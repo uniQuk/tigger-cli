@@ -1,7 +1,6 @@
-from unittest.mock import patch, MagicMock
 from tigger.types import (
-    Config, RunContext, Message, ToolCallRecord, AssistantMessage,
-    TextChunk, ToolStartEvent, ToolEndEvent, TurnDoneEvent, PermissionRequest,
+    Config, RunContext, ToolCallRecord, AssistantMessage,
+    TextChunk, ToolEndEvent, TurnDoneEvent, PermissionRequest,
 )
 from tigger.tools import ToolRegistry, ToolDef
 from tigger.loop import run, run_forked

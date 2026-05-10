@@ -1,7 +1,7 @@
 from __future__ import annotations
 import pathlib
 import textwrap
-from tigger.skills import load_modes_dir, ModeRef
+from tigger.skills import load_modes_dir
 
 
 def _make_mode(

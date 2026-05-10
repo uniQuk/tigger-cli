@@ -1,7 +1,6 @@
 """Perf-instrumentation tests for `loop.run` (R7, R8)."""
 from __future__ import annotations
 
-import io
 import pathlib
 
 from tigger.loop import run
@@ -9,7 +8,6 @@ from tigger.tools import ToolRegistry
 from tigger.types import (
     AssistantMessage,
     Config,
-    Message,
     RunContext,
     TextChunk,
     ToolCallRecord,

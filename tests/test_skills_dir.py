@@ -1,7 +1,6 @@
 import pathlib
 import textwrap
-import pytest
-from tigger.skills import load_skills_dir, SkillDef
+from tigger.skills import load_skills_dir
 
 
 def _make_skill(

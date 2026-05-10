@@ -1,5 +1,4 @@
 from __future__ import annotations
-from unittest.mock import patch
 from tigger.types import Config, RunContext, TextChunk, AssistantMessage
 from tigger.tools import ToolRegistry
 from tigger.skills import AgentDef

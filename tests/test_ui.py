@@ -365,7 +365,7 @@ def test_render_event_recent_tools_still_updated(monkeypatch):
 # --- ThinkingEvent and activity status tests ---
 
 from tigger.types import ThinkingEvent
-from tigger.ui import _start_activity, _stop_activity, _tool_counter_message
+from tigger.ui import _tool_counter_message
 
 
 def test_thinking_event_starts_spinner(monkeypatch):

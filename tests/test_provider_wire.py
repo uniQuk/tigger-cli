@@ -4,7 +4,7 @@ from __future__ import annotations
 from unittest.mock import patch, MagicMock
 
 from tigger.provider import stream
-from tigger.types import AssistantMessage, Config, Message, ToolCallRecord
+from tigger.types import Config, Message, ToolCallRecord
 
 
 def _cfg() -> Config:

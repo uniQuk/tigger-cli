@@ -9,7 +9,7 @@ import json
 import pathlib
 
 from tigger.config import load_config
-from tigger.skills import SkillDef, load_skills_dir, parse_output_budget
+from tigger.skills import load_skills_dir, parse_output_budget
 from tigger.types import Config, RunContext
 
 

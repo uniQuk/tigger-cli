@@ -1,7 +1,6 @@
 import dataclasses
 from tigger.types import (
-    Config, RunContext, Message, ToolCallRecord, ToolDef,
-    TextChunk, ToolStartEvent, ToolEndEvent, PermissionRequest,
+    Config, RunContext, Message, ToolCallRecord, TextChunk, ToolStartEvent, ToolEndEvent, PermissionRequest,
     TurnDoneEvent, AssistantMessage, TrustLevel, ProviderConfig,
     ModelConfig,
 )

@@ -1,6 +1,6 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from tigger.types import (
-    Config, RunContext, TextChunk, AssistantMessage, TurnDoneEvent,
+    Config, RunContext, TextChunk, AssistantMessage,
 )
 from tigger.tools import ToolRegistry
 
@@ -276,7 +276,6 @@ def test_repl_slash_exit_breaks_loop(mock_startup, monkeypatch, capsys):
 def test_repl_unknown_slash_command_suggests_match(mock_startup, monkeypatch, capsys):
     """Iter 36 did-you-mean: typo /halp suggests /help."""
     from tigger.main import StartupResult, repl
-    from tigger.commands.misc import cmd_help
     import pathlib
     import builtins
 

@@ -4,8 +4,6 @@ from tigger.skills import (
     load_agents,
     match_skill,
     warn_on_command_collisions,
-    SkillDef,
-    AgentDef,
 )
 
 SKILLS_MD = textwrap.dedent("""

@@ -1,5 +1,3 @@
-import pathlib
-import tempfile
 from tigger.input_processing import expand_file_refs
 
 

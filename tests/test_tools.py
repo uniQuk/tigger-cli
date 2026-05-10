@@ -1,5 +1,4 @@
 import pathlib
-import pytest
 from tigger.tools import ToolRegistry, register_all
 from tigger.types import ToolDef
 

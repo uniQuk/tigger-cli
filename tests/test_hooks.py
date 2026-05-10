@@ -2,7 +2,7 @@
 from __future__ import annotations
 import pathlib
 import textwrap
-from tigger.hooks import HookDef, HookResult, load_hooks_dir, evaluate_hooks
+from tigger.hooks import HookDef, load_hooks_dir, evaluate_hooks
 from tigger.types import Config, RunContext
 
 

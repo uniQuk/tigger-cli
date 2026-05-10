@@ -1,10 +1,8 @@
-import textwrap, pathlib, tempfile
-from io import StringIO
-from unittest.mock import patch
+import textwrap
 
 from tigger.commands.skills import cmd_skills
-from tigger.skills import SkillDef, load_skills, load_skills_dir
-from tigger.types import Config, RunContext, Message
+from tigger.skills import SkillDef, load_skills_dir
+from tigger.types import Config, RunContext
 
 
 def _ctx() -> RunContext:

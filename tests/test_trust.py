@@ -1,6 +1,4 @@
 import json
-import pathlib
-import pytest
 from tigger.types import TrustLevel
 from tigger.trust import is_trusted, write_trusted, check_trust
 

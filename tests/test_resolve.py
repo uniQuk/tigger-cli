@@ -1,7 +1,6 @@
 from __future__ import annotations
 import pathlib
 import textwrap
-import pytest
 from tigger.resolve import resolve_file, resolve_skills, resolve_agents, resolve_modes, is_global_config, seed_global
 
 

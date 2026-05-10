@@ -1,6 +1,5 @@
 import json
 import pathlib
-import pytest
 from tigger.types import Config, RunContext, ProviderConfig
 from tigger.commands.provider import cmd_provider
 

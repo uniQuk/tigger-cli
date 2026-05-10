@@ -1,5 +1,3 @@
-import pathlib
-import tempfile
 from tigger.types import Config, RunContext, Message, TextChunk
 from tigger.commands.summary import cmd_summary
 

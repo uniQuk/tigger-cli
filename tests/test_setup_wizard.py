@@ -1,6 +1,5 @@
 import json
 import pathlib
-import pytest
 
 
 def test_run_setup_wizard_creates_config(monkeypatch, tmp_path):
