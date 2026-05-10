@@ -246,19 +246,38 @@ as backlog items.
 
 - Tests: 802 → 802 (green, 4.62 s).
 
+### Iter 12 — DONE (loop tick 8)
+- **Trim `## Self-Knowledge` from 71 lines to 7.** The original block
+  contained the full YAML schema for skill / agent / hook frontmatter,
+  the configuration table, and the "Extending Tigger" how-to. Almost
+  none of this is load-bearing for the model's day-to-day coding work
+  — the schemas live in `/init` templates that the user creates as
+  needed, and the model can read those if a meta question comes up.
+  Kept: a one-line "you are inside tigger-code", the `/`-command list,
+  and a pointer to `/help` and `/init` for schema details.
+- System prompt size: 233 → 166 lines (-29 %). ~600 prompt tokens saved
+  per turn.
+- Live re-test of "What language is this project?" — model still
+  investigates verbosely. Confirms the pathology is in model weights,
+  not prompt size. The token savings still compound on long sessions
+  (smaller prefill, better KV-cache reuse).
+- Tests: 802 → 802 (green, 4.56 s).
+
 ## Updated backlog
 
 - **Live model behaviour:** local `qwen3.6-27b` over-investigates trivial
-  questions even after stronger prompt directives. Worth experimenting
-  with a *much* shorter system prompt (drop the workflow examples, the
-  long "Writing large files" section, etc.) to see if reducing prompt
-  noise helps the model anchor on the conciseness rule. Risky — those
-  sections were added to fix concrete failure modes — so any trim needs
-  multi-prompt A/B coverage, not single-shot.
-- The streaming throttle (iter 1) and prompt dedups (iters 2, 6, 7, 9, 11)
-  combine to a measurable but small token savings per turn (~70-100
-  prompt tokens). The bigger latency win for trivial questions is purely
-  a model-behaviour problem, not a prompt-token-count problem.
+  questions even after stronger prompt directives AND a 29% prompt trim.
+  Pathology lives in the weights. Worth trying other models on the same
+  endpoint (`mistral-medium-3.5-128b`, `google_gemma-4-31b-it`,
+  `qwen3.6-35b-a3b`) — but `tigger-code --once` has no `--model` flag
+  yet. Would need either (a) a small CLI flag addition (~10 LOC, but
+  the user's stated bias is "prefer deletion") or (b) a temporary
+  config edit per A/B run.
+- Combined wins so far: streaming throttle (iter 1) + prompt dedups
+  (iters 2, 6, 7, 9, 11, 12) save ~700 prompt tokens / turn and reduce
+  Markdown re-parse work by ~10× on long streams. The bigger latency
+  win for trivial questions is purely a model-behaviour problem, not a
+  prompt-token-count problem — single-prompt A/B confirmed this twice.
 
 ## Backlog for the next loop tick
 
