@@ -14,7 +14,9 @@ For each of the 6 configured models in `.tigger/config.json`:
 3. Capture wall-clock + token-rate baselines for chat and tool-call prompts.
 4. Drive a perf or quality fix per loop tick — small, surgical, tests green.
 
-Models under test (slug → wire id):
+Models under test (slug → wire id). Updated iter-10: the gemma slugs
+were renamed to `-unsloth` to disambiguate from a new `bartowski`
+variant the user added.
 
 | # | Slug                                    | Wire id                           | Thinking | Sampler |
 |---|-----------------------------------------|-----------------------------------|----------|---------|
@@ -22,8 +24,9 @@ Models under test (slug → wire id):
 | 2 | `qwen/qwen3.6-27b-thinking`             | `qwen/qwen3.6-27b`                | on       | t=0.6, top_p=0.95 |
 | 3 | `qwen/qwen3.6-27b-instruct`             | `qwen/qwen3.6-27b`                | off      | t=0.7, top_p=0.80 |
 | 4 | `qwen_qwen3.6-27b@q4_k_l-instruct`      | `qwen_qwen3.6-27b@q4_k_l` (q4)    | off      | t=0.7, pp=1.5 |
-| 5 | `gemma-4-31b-it`                        | `gemma-4-31b-it`                  | n/a      | t=1.0, top_p=0.95, top_k=64, min_p=0.5 |
-| 6 | `gemma-4-26b-a4b-it`                    | `gemma-4-26b-a4b-it` (MoE)        | n/a      | t=0.7, min_p=0.5 |
+| 5 | `gemma-4-31b-it-unsloth`                | `gemma-4-31b-it`                  | n/a      | t=1.0, top_p=0.95, top_k=64, min_p=0.5 |
+| 6 | `gemma-4-26b-a4b-it-unsloth`            | `gemma-4-26b-a4b-it` (MoE)        | n/a      | t=0.7, min_p=0.5 |
+| 7 | `google_gemma-4-31b-it-bartowski`       | `google_gemma-4-31b-it`           | n/a      | t=0.7, top_p=0.80 |
 
 ## Bench harness
 
@@ -403,6 +406,45 @@ goes to the sink. Removed from backlog.
 tigger_hint` mocks an `openai.APIError` with the jinja signature and
 asserts the hint appears in stderr. 4.35 s.
 
+### Iter 10 — DONE (docs-only)
+
+**Config evolved between ticks.** The user added three new gemma slugs:
+`gemma-4-31b-it-unsloth`, `gemma-4-26b-a4b-it-unsloth`, and
+`google_gemma-4-31b-it-bartowski`. The original `gemma-4-31b-it` and
+`gemma-4-26b-a4b-it` slugs are gone. Updated the model table above
+(now 7 entries, not 6).
+
+**bartowski variant probe.** Direct curl with `tools=[...]`:
+
+| variant                              | tool-template renders? | output           |
+|--------------------------------------|------------------------|------------------|
+| `gemma-4-31b-it` (unsloth)           | timed out cold-load   | —                |
+| `gemma-4-26b-a4b-it` (unsloth)       | no — same jinja error | —                |
+| `google_gemma-4-31b-it` (bartowski)  | **yes**                | glitch tokens    |
+
+Bartowski's chat template DOES accept the OpenAI `tools` array (no
+jinja error). But the generated output is `<pad><unused19><unused8>...
+[multimodal]<unk>...` — the model produces only special-vocab garbage
+when asked to use tools. tigger ran successfully (EC=0, 6–74 output
+tokens) but the content is unusable.
+
+This is a separate failure mode from the iter-5 jinja crash:
+- jinja-error (unsloth gemma) = template can't render `tools` → EC=2
+  with the iter-9 hint surfaces.
+- glitch-tokens (bartowski gemma) = template renders fine, but the
+  model's tokenizer or instruction-following is broken under the
+  tigger system prompt + tool call format → EC=0, garbage stdout.
+
+Net for the user's perf-loop goal: gemma family is still not a viable
+agent model on this LM Studio host, regardless of variant. Recommend
+sticking to the qwen family for tigger work.
+
+**No tigger code change this iter.** The bartowski case isn't a
+client-side bug — model-side tokenizer/template incompatibility. Adding
+a "garbage output" detector would be intrusive and false-positive prone.
+
+**Tests:** 809 → 809. 4.35 s.
+
 ### Backlog for next ticks
 
 - The MCP eager tier ships ~2 KB of microsoft-learn schemas on every
@@ -411,3 +453,5 @@ asserts the hint appears in stderr. 4.35 s.
   user already has `/mcp tokens` to see the cost.
 - Graceful no-tools fallback for chat-only models like gemma-IT —
   still out of scope unless a small, surgical change emerges.
+- bartowski-style "model accepted but garbage" cases — out of scope
+  for client-side detection.
