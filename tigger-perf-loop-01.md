@@ -192,6 +192,15 @@ Baseline: 807 tests, ~4.5s
   third-time restate. Saves a few prompt tokens per turn.
 - Tests: 803 → 802 (green, 4.67 s).
 
+### Iter 10 — DONE (loop tick 7)
+- **`compaction.maybe_compact`:** in the layer-1 early-return path,
+  `estimate_tokens(messages)` was being called twice in succession with
+  the same list — once for the threshold check, again to populate
+  `tokens_after`. The cache hits but still walks the list to compute the
+  cache key. Capture the value once into `post_snip_tokens` and reuse.
+  Trivial; runs whenever compaction layer 1 fires.
+- Tests: 802 → 802 (green, 4.70 s).
+
 ## Backlog for the next loop tick
 
 The remaining items are interesting but require either an LLM endpoint to

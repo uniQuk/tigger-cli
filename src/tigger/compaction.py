@@ -274,11 +274,11 @@ def maybe_compact(
                                        tokens_before=tokens_before,
                                        tokens_after=tokens_before)
     messages, snipped = snip_old_results(messages)
-    if not force and estimate_tokens(messages) < threshold * 0.95:
-        tokens_after = estimate_tokens(messages)
+    post_snip_tokens = estimate_tokens(messages)
+    if not force and post_snip_tokens < threshold * 0.95:
         return messages, CompactResult(snipped=snipped, summarized=0,
                                        tokens_before=tokens_before,
-                                       tokens_after=tokens_after)
+                                       tokens_after=post_snip_tokens)
     summarized = 0
     if provider_fn is not None:
         messages, summarized = summarize_old(messages, config, provider_fn)
