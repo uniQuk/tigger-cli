@@ -383,6 +383,16 @@ less wall time. System prompt: 233 → **121 lines** since loop start
   loop, from 233 originally).
 - Tests: 801 → 801 (green, 4.35 s).
 
+### Iter 19 — DONE (loop tick 15)
+- **Trim a duplicate destructive-command line from `### bash`.** The
+  bash tool description ended with "Before running a command that
+  could be destructive, explain what it does and confirm with the
+  user" — Core Mandate #5 already says "Confirm before running
+  destructive commands (rm, git reset --hard, DROP TABLE, etc.)".
+  Same rule, two places.
+- System prompt: 108 → **106 lines** (-55% from 233).
+- Tests: 801 → 801 (green, 4.36 s).
+
 ## Updated backlog
 
 - **Live model behaviour:** local `qwen3.6-27b` over-investigates trivial

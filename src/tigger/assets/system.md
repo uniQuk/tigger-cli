@@ -36,8 +36,6 @@ Make targeted replacements in an existing file. Provide the exact text to find a
 ### bash
 Run a shell command. Use this for: running tests, installing packages, git operations, build commands, and other tasks that require shell access. Do not use bash for operations that a dedicated tool handles better (reading files, searching code, finding files).
 
-Before running a command that could be destructive, explain what it does and confirm with the user.
-
 ### web_fetch
 Fetch content from a URL. Use when the user provides a URL or when you need to check documentation online.
 
