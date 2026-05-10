@@ -593,7 +593,7 @@ def test_text_chunks_stream_visibly_via_live(monkeypatch):
     ui_mod._tool_buffer.clear()
     ui_mod._live = None
     ui_mod._last_render_at = 0.0
-    ui_mod._last_render_len = 0
+    ui_mod._last_render_chunks = 0
     text_buf = []
 
     chunks = ["Hello", " world", "!"]

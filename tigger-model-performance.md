@@ -308,12 +308,38 @@ After:
 
 **Tests:** 808 → 808 (no test churn). 4.42 s.
 
+### Iter 7 — DONE
+
+**Streaming hot-path simplification (`ui._start_or_update_live`).** The
+function ran `total_len = sum(len(s) for s in text_buf)` on every
+TextChunk to fingerprint the buffer for an early-skip check
+(`if total_len == _last_render_len: return`). But provider only yields
+TextChunk for non-empty `delta.content` (`provider.py:311`), so
+`text_buf` strictly grows by appending — the `total_len ==` guard
+never fired. The O(N) sum was wasted work on the most thermally hot
+path in the TUI (N = chunk count, can hit 2000+ on long streams).
+
+Replaced with `_last_render_chunks: int` (chunk count) and dropped the
+dead guard. The `_flush_text` sync check now uses `len(text_buf)`
+instead of the same O(N) sum.
+
+Net: -10 lines, fewer global mutations, every streamed token does one
+fewer O(N) walk before hitting the throttle check. Behaviour
+unchanged: throttle interval is still 80 ms (12 Hz Rich Live cadence),
+final flush still syncs the last frame.
+
+**Live verify on 35b-a3b** ("List integers 1 to 5, one per line"):
+output streams correctly chunk-by-chunk; `1\n2\n3\n4\n5` rendered;
+1.97 s wall, 42 output tokens, 21 tok/s.
+
+**Tests:** 808 → 808. 4.48 s. One test (`test_ui.py:596`) updated to
+the renamed global.
+
 ### Backlog for next ticks
 
-- **Iter 7+:** prompt duplication / redraw cost. The MCP eager tier
-  ships ~2 KB of microsoft-learn schemas on every turn for the user's
-  config. `tier: lazy` in `mcp.json` would defer those to
-  `mcp_promote`. Config decision (not a tigger code change), worth
-  surfacing as a `/mcp` command hint in a future iter.
+- The MCP eager tier ships ~2 KB of microsoft-learn schemas on every
+  turn for the user's config. `tier: lazy` in `mcp.json` would defer
+  those to `mcp_promote`. Config decision, worth surfacing as a `/mcp`
+  command hint in a future iter.
 - Graceful no-tools fallback for chat-only models like gemma-IT —
   still out of scope unless a small, surgical change emerges.
