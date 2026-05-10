@@ -378,9 +378,12 @@ def stream(
             # cost generating it — flag the footgun so the user can cap
             # max_tokens or switch to a non-thinking model variant.
             _thinking_ignored_warned.add(config.model)
+            think_chars = len(collected_thinking)
+            think_tok_est = think_chars // 4
             sys.stderr.write(
                 f"[provider] {config.model!r}: server streamed "
-                f"reasoning_content despite "
+                f"reasoning_content (~{think_tok_est} tok / {think_chars} "
+                f"chars this turn) despite "
                 f"chat_template_kwargs.enable_thinking=False. Reasoning "
                 f"is dropped from history, but the model still spent "
                 f"latency generating it. Cap max_tokens or switch to a "

@@ -818,3 +818,164 @@ printing anything, this was a real source of silent ambiguity.
   observation. A 3-run consistency probe with the same bash prompt
   would show whether double-fire is reproducible or single-run noise.
   Could justify a "ensure_one_tool_call" hook if reproducible.
+
+### Iter 9 — DONE
+
+**Dimension covered:** output-consistency probe (3× same-prompt runs
+on one model). Also picks up iter 6's parked "is the output-token
+variance reproducible?" followup and re-validates iter 2/3's claim
+that `qwen/qwen3.6-35b-a3b` honours `enable_thinking: false`.
+
+**Bench runs.** `qwen/qwen3.6-35b-a3b --no-think` with three
+fingerprinted prompts that differ only in the trailing index digit:
+`"Reply with exactly: pong-consistency-{1,2,3}"`.
+
+| run | wall_s | last_in | total_out | finish | EC | output             |
+|----:|-------:|--------:|----------:|--------|---:|--------------------|
+| 1   | 1.81   | 4914    | **33**    | stop   | 0  | `pong-consistency-1` |
+| 2   | 1.24   | 4914    |  **8**    | stop   | 0  | `pong-consistency-2` |
+| 3   | 1.54   | 4914    | **21**    | stop   | 0  | `pong-consistency-3` |
+
+- **`last_in` is bytewise stable at 4914 across all three runs** —
+  prefix-cache eligibility is intact between runs; the input never
+  shifts.
+- **`total_out` varies 8 → 33 (4.1×)** for visually-identical
+  answers (~19 chars each). Wall varies 1.24–1.81 s.
+- All three returned the correct exact string; EC=0 across.
+
+**Independent TIGGER_PERF=1 trace** (warm-model rerun, different
+fingerprints `pong-trace-{a,b,c}`):
+
+```
+[perf] T(a)  in=4913  out=22  wall=1.51s  finish=stop  cache=0.000
+[perf] T(b)  in=4913  out=36  wall=1.78s  finish=stop  cache=0.000
+[perf] T(c)  in=4913  out=22  wall=1.53s  finish=stop  cache=0.000
+```
+
+Same pattern: output_tokens varies 22–36 for ~13-char answers.
+
+**SURPRISE FINDING: iter-2 thinking-ignored warning fires on EVERY
+single run.**
+
+Every TIGGER_PERF trace this iter emitted:
+
+```
+[provider] 'qwen/qwen3.6-35b-a3b': server streamed reasoning_content
+despite chat_template_kwargs.enable_thinking=False. Reasoning is
+dropped from history, but the model still spent latency generating it.
+Cap max_tokens or switch to a non-thinking model variant.
+```
+
+This **invalidates iter 3's claim**: iter 3 explicitly recorded
+"**No `[provider]` thinking-ignored warning** — confirms iter 2's
+claim that this model genuinely honours `enable_thinking:false`."
+Current tree disagrees. Either the LM Studio server has been
+re-pointed/re-configured since iter 3 to enable reasoning by default,
+or iter 3's warm-cache run somehow suppressed the reasoning stream
+(unlikely — the warning is unconditional on `collected_thinking`
+being non-empty when `enable_thinking is False`).
+
+**Treat the iter-3 conclusion as superseded.** On the current
+tree, **the 35b-a3b model on this LM Studio host streams
+reasoning_content despite `enable_thinking: false`** — same footgun
+that iter 2 originally documented for 27b.
+
+**SURPRISE FINDING #2: iter 6's "output-tokens jumped 4× when tools
+disabled" attribution is wrong.**
+
+Iter 6 observed baseline 8 tok vs variant-B 33 tok output and
+concluded "the model is chattier when it has no tool context to
+anchor on". This iter shows variance of 8 → 33 across runs **with
+identical tool roster** — same range, just from per-run sampling
+noise on the thinking stream. The variance is not tool-related; it's
+how much hidden reasoning the model decides to generate before
+producing the visible answer. Stripping tools didn't bloat output;
+the iter 6 baseline happened to land on a low-thinking roll.
+
+**Token cost of the wasted thinking.**
+
+The hidden reasoning shows up in `output_tokens` (server-side meter)
+but **is stripped from the visible answer before it reaches stdout**
+(`provider.py:370-389` — `<think>` wrap only happens when
+`enable_thinking is not False`; otherwise the content goes straight
+into history without the prefix). So:
+
+- visible answer ≈ 4–5 tok (`pong-consistency-1`)
+- output_tokens reported ≈ 8–33 tok
+- thinking-tokens generated ≈ 3–28 tok per turn, **discarded**
+
+On a "Reply with exactly: X" prompt this is up to ~85% of
+output-token cost being thrown away.
+
+**Fix (small, surgical, `provider.py`).** The iter-2 warning fires
+once per process per model with no quantitative data. Added char +
+token-estimate to the warning so users can see how much per turn
+they're paying for content the agent discards:
+
+```python
+think_chars = len(collected_thinking)
+think_tok_est = think_chars // 4
+sys.stderr.write(
+    f"[provider] {config.model!r}: server streamed "
+    f"reasoning_content (~{think_tok_est} tok / {think_chars} "
+    f"chars this turn) despite ..."
+)
+```
+
+The figure represents only **the first turn that triggers the
+warning** (warning is one-shot per process per model) — exactly the
+"this turn" wording. A longer-running session won't see a moving
+average, just the first-turn fingerprint, which is enough to motivate
+a config flip without bloating stderr on every subsequent turn.
+
+**Verified live (`make test`).** Existing iter-2 tests still pass; the
+"thinking..." (11 chars / 2 tok) fixture now also asserts the new
+wording surface (`"11 chars"` + `"this turn"` substrings).
+
+**Corrections to prior iter framings.**
+
+- **Iter 3:** "No `[provider]` thinking-ignored warning — confirms
+  this model genuinely honours `enable_thinking:false`." **Currently
+  false on the tree.** 35b-a3b streams reasoning on every run.
+- **Iter 6:** "the model is chattier when it has no tool context to
+  anchor on" — the 4× swing is per-run noise, not tool-attributable.
+  Tool removal may still have a small effect, but the iter-6 single-
+  run measurement can't isolate it.
+
+**Root cause:** the iter-3 measurement was a single-sample
+observation on a fast warm prefix and happened to land in the
+no-reasoning-this-turn slice of the distribution (or the LM Studio
+host has since been reconfigured to enable reasoning by default —
+not directly verifiable from inside the bench loop). Either way, the
+"this model honours enable_thinking:false" generalisation was
+unsafe.
+
+**Files touched:**
+- `src/tigger/provider.py` (4-line edit to warning string)
+- `tests/test_provider_wire.py` (2 new substring assertions on the
+  existing iter-2 test)
+- `tigger-model-performance.md`
+
+**Tests delta:** 824 → 824 (unchanged) in 4.35 s. Edits attached to
+existing tests rather than adding new ones.
+
+**Followups parked for iter 10+:**
+
+- **Cap max_tokens on 35b-a3b** to bound the thinking-budget waste —
+  current config has `max_tokens: 8192` for this model entry, which
+  in a thinking-streaming run lets a single turn burn up to 8 KB of
+  reasoning before the cap. A pragmatic cap (say 2048) would limit
+  the per-turn footgun. Park as a config tweak rather than a code
+  change — needs user judgement on the tradeoff.
+- **Re-run iter-3's wire-kwargs A/B with current state** to confirm
+  whether the `enable_thinking=False` round-trip is intact and the
+  server is the variable, vs the kwargs themselves being mishandled
+  by tigger. The iter-3 dump showed clean kwargs; if iter 10 sees
+  the same clean kwargs but warnings still fire, the LM Studio host
+  is the smoking gun.
+- The "warning fires once per process per model" semantics is fine
+  for single-shot `--once` runs but could undercount in long REPL
+  sessions where reasoning behaviour shifts with prompt content.
+  Park as a UX question: should the warning fire once *per noticeable
+  spike* (e.g. every 1000 wasted thinking-tokens) rather than once
+  per process? Likely overkill.

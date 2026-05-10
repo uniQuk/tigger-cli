@@ -257,6 +257,11 @@ def test_warns_once_when_thinking_disabled_but_server_streams_reasoning(capsys):
     assert "qwen/qwen3.6-27b" in captured.err
     assert "enable_thinking=False" in captured.err
     assert "reasoning_content" in captured.err
+    # Iter 9: the warning surfaces the thinking-token cost so users can
+    # see how much latency they're paying per turn for content that gets
+    # dropped from history. "thinking..." is 11 chars → ~2 tok.
+    assert "11 chars" in captured.err
+    assert "this turn" in captured.err
 
     # Second call with the same wire-model must NOT re-warn.
     chunks_second = [
