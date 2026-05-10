@@ -1508,3 +1508,47 @@ The 66× ratio is the empirical "host served prefix from KV cache" signature on 
 
 - Sweep the other 5 model entries to build a per-model `(decode_rate, cached_prefill_rate)` table. Needed before surfacing a "cache likely hit" UI signal — generic threshold isn't safe.
 - Consider whether to drop `cache_hit_estimate` now that `apparent_prefill_tok_per_s` is the better-typed signal. Removing a column would break existing TSV consumers; deprecation-with-note rather than removal is the conservative path.
+
+### Iter 20 — DONE
+
+**Dimension covered:** tool-call workload + multi-turn perf-column validation on warm `qwen_qwen3.6-27b@q4_k_l-instruct`. Prompt: "List the first 5 files in src/tigger/ as a plain list, no commentary." Drives one tool call (turn 1) followed by a final response (turn 2) — first multi-turn observation on this cycle, so `cache_hit_estimate` finally evaluates to non-zero alongside the iter-18 `apparent_prefill_tok_per_s`.
+
+**Wall-clock used:** ~2m of 7m.
+
+**Bench numbers (two-turn TSV via TIGGER_PERF=/tmp/iter20_perf.tsv):**
+
+| turn | wall_s | in_t | out_t | finish      | tools | t/s  | cache_hit | app_prefill |
+|------|--------|------|-------|-------------|-------|------|-----------|-------------|
+| 1    | 20.58  | 4924 | 67    | tool_calls  | 1     | 3.25 | 0.000     | 239         |
+| 2    | 32.82  | 5645 | 184   | stop        | 0     | 5.61 | 0.872     | 172         |
+
+Output (correct, alphabetical, no commentary as instructed):
+
+```
+- __init__.py
+- _constants.py
+- _spinners.py
+- compaction.py
+- completer.py
+```
+
+**Verified / changed:** docs only.
+
+**Headline results:**
+
+1. **Tool calling works correctly on q4_k_l.** Turn 1 finished with `finish=tool_calls`, the bash/glob tool was dispatched, and turn 2 produced the right file list. Closes a gap left by iter 6, which only confirmed schema-level routing.
+
+2. **`cache_hit_estimate` evaluates correctly on multi-turn.** Turn 2: `1 - (5645 − 4924)/5645 = 0.872`. 87.2 % of the prompt tokens repeated from turn 1 — the system prompt + tool registry. Heuristic behaves as documented when there IS a prior turn to compare against. Single-shot `--once` was always going to read 0; that's structural, not a bug.
+
+3. **`apparent_prefill_tok_per_s` is informative across turns.** Turn 1 reads 239 tok/s, turn 2 drops to 172 tok/s — even though turn 2 reuses most of the prefix, its larger output share (184 vs 67) pulls wall toward the decode-bound regime, lowering `local_tokens / wall`. So the column reflects *both* prefill and decode: it's not a pure cache-hit gauge, it's a "how decode-bound was this turn" gauge that goes high on cache hits AND on tiny output / lots-of-input ratios. Worth a docstring note on the column.
+
+4. **Tool-call decode rate is half the chat-only rate.** 3.25 tok/s on the tool-call assembly vs 5.61 tok/s on the prose response. Likely structured-output cost (JSON formatting + schema validation).
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.45 s. No code change.
+
+**Parked for later:**
+
+- The `apparent_prefill_tok_per_s` docstring at `loop.py:474` should call out the decode-share confound. Small comment edit — fits in an iter-21+ change-iter slot.
+- Per-model `(decode_rate, cached_prefill_rate)` table sweep from iter 19's parked still open.
