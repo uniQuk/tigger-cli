@@ -601,6 +601,7 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             if "TimeoutError" in type(exc).__name__ or "timed out" in str(exc).lower():
                 ui._stop_activity()
                 ui._stop_live()
+                ui._reset_tool_buffer()
                 ui.print_error_panel(
                     "Request timed out",
                     "The model server didn't respond.",

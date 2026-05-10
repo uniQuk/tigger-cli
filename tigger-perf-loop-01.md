@@ -110,6 +110,18 @@ Baseline: 807 tests, ~4.5s
   `console.file`, and is a one-line correctness fix.
 - Tests: 806 → 806 (green).
 
+### Iter 4 — DONE (loop tick 2)
+- **Bug fix:** the `Request timed out` exception branch in `main.py` REPL
+  was the only error path that didn't call `ui._reset_tool_buffer()`.
+  Stale tool entries from the aborted turn would leak into the next
+  turn's flush as phantom rows. Add the missing call to match the
+  `KeyboardInterrupt`, `httpx.*`, and `openai.APIError` branches.
+- **Dedup:** in `mcp.connect_all`, two consecutive `except` handlers
+  (`McpTransportError` then `Exception`) had byte-identical bodies. Since
+  `McpTransportError` is already an `Exception` subclass, a single
+  `except Exception` covers both. Removes 5 lines, no behavior change.
+- Tests: 806 → 806 (green, 4.65 s).
+
 ## Backlog for the next loop tick
 
 The remaining items are interesting but require either an LLM endpoint to

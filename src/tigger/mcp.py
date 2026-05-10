@@ -570,12 +570,9 @@ def connect_all(
             )
             _connections.append(conn)
 
-        except McpTransportError as exc:
-            console.print(
-                f"      [yellow]\\[mcp] Warning:[/yellow] failed to connect to "
-                f"[magenta]{cfg.name}[/magenta]: [red]{exc}[/red]"
-            )
         except Exception as exc:
+            # McpTransportError is a subclass of Exception; both branches
+            # had identical bodies, so a single handler covers them.
             console.print(
                 f"      [yellow]\\[mcp] Warning:[/yellow] failed to connect to "
                 f"[magenta]{cfg.name}[/magenta]: [red]{exc}[/red]"
