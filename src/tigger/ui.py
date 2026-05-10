@@ -911,18 +911,34 @@ def _build_text_renderable(text: str):
 # non-text event (tool / think / turn-done) arrives, the live is stopped —
 # the last frame stays in place and ``text_buf`` is cleared.
 _live: Live | None = None
+_last_render_at: float = 0.0
+_last_render_len: int = 0
+# Rebuild interval matches Rich Live's 12Hz paint cadence (~83ms). Token-rate
+# streams from local models can fire 30+ chunks/sec; rebuilding the Markdown
+# tree on each one re-parses the entire response O(n²). Throttling here keeps
+# user-perceived smoothness while cutting parse work to ~12 rebuilds/sec.
+_RENDER_MIN_INTERVAL = 0.08
 
 
 def _start_or_update_live(text_buf: list[str]) -> None:
     """Start a Live and/or update its renderable to the current text buffer.
 
-    Called on every TextChunk so the user sees text as it streams.
+    Called on every TextChunk; rebuild is throttled so high-rate streams don't
+    re-parse the entire response on each token.
     """
-    global _live
+    global _live, _last_render_at, _last_render_len
     if not text_buf:
+        return
+    total_len = sum(len(s) for s in text_buf)
+    if total_len == _last_render_len:
+        return
+    now = time.monotonic()
+    if _live is not None and (now - _last_render_at) < _RENDER_MIN_INTERVAL:
         return
     full = "".join(text_buf)
     renderable = _build_text_renderable(full)
+    _last_render_at = now
+    _last_render_len = total_len
     if _live is None:
         _live = Live(
             renderable,
@@ -943,10 +959,12 @@ def _stop_live() -> None:
     Live's background refresh thread doesn't keep ticking after the turn is
     aborted. The last rendered frame stays on screen.
     """
-    global _live
+    global _live, _last_render_at, _last_render_len
     if _live is not None:
         _live.stop()
         _live = None
+    _last_render_at = 0.0
+    _last_render_len = 0
 
 
 def _reset_tool_buffer() -> None:
@@ -970,11 +988,16 @@ def _flush_text(text_buf: list[str]) -> None:
     tests) render the accumulated text explicitly so behaviour matches the
     streaming path.
     """
-    global _live
+    global _live, _last_render_at, _last_render_len
     if _live is not None:
-        # Last live frame already shows the full content; keep it.
+        # If a recent chunk was throttled the live's renderable may lag the
+        # buffer; sync once before stop so the last on-screen frame is final.
+        if text_buf and sum(len(s) for s in text_buf) != _last_render_len:
+            _live.update(_build_text_renderable("".join(text_buf)))
         _live.stop()
         _live = None
+        _last_render_at = 0.0
+        _last_render_len = 0
         text_buf.clear()
         return
     if not text_buf:

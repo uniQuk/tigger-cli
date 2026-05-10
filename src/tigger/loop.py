@@ -688,7 +688,10 @@ def run(
                 _post_ctx = {"tool_name": tc.name, "tool_args": tc.args}
                 _post_result = evaluate_hooks("PostToolUse", _post_ctx, hook_defs)
                 for msg in _post_result.messages:
-                    print(f"[hook] {msg}")
+                    from tigger.ui import console as _console
+                    _console.print(
+                        f"      [yellow]\\[hook][/yellow] {msg}"
+                    )
                 post_hook_feedback = _post_result.feedback
 
             yield end_event
