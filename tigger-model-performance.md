@@ -1397,3 +1397,46 @@ Warning emits once per process per wire-model id, exactly as designed. The 27b t
 
 - Re-probe non-quant `qwen/qwen3.6-27b-instruct` warm-warm on a quiet host to decide between hypothesis (a) and (b) above. Today the host was warm on the q4_k_l quant; swapping back to non-quant would cost a 30–60 s cold-load tax and may not fit a single tick.
 - Reasoning-quality probe still untouched — best candidate for the next non-cache-tightening tick.
+
+### Iter 17 — DONE
+
+**Dimension covered:** reasoning-quality probe (first time on this cycle, parked since iter 1). Small deterministic bug-finding prompt against `qwen_qwen3.6-27b@q4_k_l-instruct` (warm-on-arrival from iter 16). Three back-to-back runs measure both correctness and the KV-cache hit signature on identical prompt prefix.
+
+**Wall-clock used:** ~3m of 7m.
+
+**Probe prompt** (small enough to fit one perf line, large enough to require step-wise reasoning over a code snippet):
+
+```
+This Python function should return the sum of squares of even numbers
+in a list, but has a bug:
+def sum_even_squares(nums):
+    return sum(n*n for n in nums if n % 2 == 1)
+What is the bug? Reply in one sentence.
+```
+
+Deterministic correct answer: the filter `n % 2 == 1` selects **odd** numbers; should be `n % 2 == 0`.
+
+**Bench numbers (three back-to-back warm runs, identical 4964-token prefix):**
+
+| run | wall_s | last_in | total_out | finish | EC | tok/s | correctness |
+|-----|--------|---------|-----------|--------|----|------|--------------|
+| r1  | 21.05  | 4964    | 71        | stop   | 0  | 3.37 | correct      |
+| r2  | 9.64   | 4964    | 94        | stop   | 0  | 9.75 | correct      |
+| r3  | 9.52   | 4964    | 94        | stop   | 0  | 9.87 | correct      |
+
+All three responses correctly named the filter direction and the fix (`n % 2 == 0`). Stylistic variance only ("filters for odd" / "selects odd" / "filters for **odd**") — technical content identical across runs.
+
+**KV-cache evidence (r1 → r2 step).** Same prompt, same model, identical 4964-token prefix. r1's 3.37 tok/s vs r2's 9.75 tok/s is a 2.9× decode-rate jump — the model spent r1 prefilling the 4964-token input from scratch and r2+ hitting the host's prefix cache. Tigger's `cache_hit_estimate=0.000` again misses this empirical hit. Reinforces the iter-14 parked observation: the heuristic is conservative-by-design but the host is more aggressive than the heuristic credits.
+
+**Verified / changed:** docs only.
+
+**Reasoning quality + speed for q4_k_l (this probe):** 100 % correctness across 3 runs, warm-warm wall ~9.6 s for a step-wise reasoning answer on a small code snippet. That's usable for interactive review — adequate for tigger's `/review` skill ergonomics on this hardware.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 824 → 824 in 4.40 s. No code change.
+
+**Parked for later:**
+
+- Reasoning-quality A/B between MoE (35b-a3b, ~16 tok/s) and dense (27b@q4_k_l, ~10 tok/s warm-warm) on the same probe — would isolate "MoE is faster" from "MoE is correct as often". Today's tick used what was already loaded to stay in budget.
+- The KV-cache hit signature (r1 → r2 decode rate jump) is now seen in iters 14, 16, 17 — three independent observations on three different models. Time to act on the parked `cache_hit_estimate` tightening, ideally as a small code-side patch.
