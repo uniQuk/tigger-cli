@@ -689,6 +689,12 @@ def main() -> None:
              "(chat_template_kwargs.enable_thinking=False). "
              "Useful with --once for fast non-thinking responses.",
     )
+    parser.add_argument(
+        "--model", default=None, metavar="NAME",
+        help="Override the model wire id sent to the provider for this "
+             "invocation. Useful with --once for A/B testing different "
+             "models on the same endpoint.",
+    )
     parsed = parser.parse_args()
 
     # Detect interactive context: only prompt for trust when stdin is a TTY.
@@ -730,6 +736,41 @@ def main() -> None:
         result.ctx.config = dataclasses.replace(
             result.ctx.config, chat_template_kwargs=kwargs,
         )
+    if parsed.model is not None:
+        # Restrict CLI override to configured models so this flag can't be
+        # used to call arbitrary wire ids the endpoint happens to expose.
+        # Tries provider/model first, then falls back to slug-search — slugs
+        # like "qwen/qwen3.6-35b-a3b" contain '/' so the provider-prefix
+        # parse can fail and we still need the slug match.
+        from tigger.config import switch_model
+        cfg = result.ctx.config
+        target = parsed.model
+        chosen: tuple[str, str] | None = None
+        if "/" in target:
+            prov_name, model_name = target.split("/", 1)
+            if prov_name in cfg.providers and model_name in cfg.providers[prov_name].model_names:
+                chosen = (prov_name, model_name)
+        if chosen is None:
+            matches = [
+                (p, target) for p, prov in cfg.providers.items()
+                if target in prov.model_names
+            ]
+            if len(matches) == 1:
+                chosen = matches[0]
+            elif len(matches) > 1:
+                ui.print_error(
+                    f"--model {target!r} matches multiple providers; "
+                    f"use provider/model form: {', '.join(f'{p}/{target}' for p, _ in matches)}"
+                )
+                sys.exit(1)
+        if chosen is None:
+            available = sorted({m for prov in cfg.providers.values() for m in prov.model_names})
+            ui.print_error(
+                f"--model {target!r}: not in any configured provider. "
+                f"Available: {', '.join(available)}"
+            )
+            sys.exit(1)
+        result.ctx.config = switch_model(cfg, *chosen)
 
     # Validate mode against resolved mode names
     mode_names = {m.name for m in result.ctx.modes}

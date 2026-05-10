@@ -263,6 +263,28 @@ as backlog items.
   (smaller prefill, better KV-cache reuse).
 - Tests: 802 → 802 (green, 4.56 s).
 
+### Iter 13 — DONE (loop tick 9, live model A/B)
+- **New `--model NAME` CLI flag.** Mirrors the `/model` slash command's
+  resolution: tries provider/model form first, falls back to slug-
+  search across configured providers. Only models declared in
+  `.tigger/config.json` are accepted; unknown names are rejected with
+  the available list shown. Sidesteps the previous gap where A/B-ing
+  different models required editing config and reverting.
+- **Live A/B across configured Qwen variants:**
+  - `qwen/qwen3.6-27b` (no-think): 5–7 min, verbose investigation.
+  - `qwen/qwen3.6-35b-a3b`: also verbose, similar pattern, completed
+    in ~3–4 min and offered a follow-up question.
+  - `qwen/qwen3.6-27b-instruct` (no-think config): hung past 4 min on
+    the same prompt — possibly endpoint instability or a
+    config-specific stall.
+- **Read:** the over-investigation pathology is endemic across the
+  configured Qwen variants on this endpoint, not specific to one
+  model. Prompt-engineering wins continue to be inconclusive at this
+  scale; the latency improvement would come from either a different
+  model family (mistral, gemma) or the user explicitly constraining
+  prompts.
+- Tests: 802 → 802 (green, 4.76 s).
+
 ## Updated backlog
 
 - **Live model behaviour:** local `qwen3.6-27b` over-investigates trivial
