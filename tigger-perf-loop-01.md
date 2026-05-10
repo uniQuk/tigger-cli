@@ -418,6 +418,57 @@ less wall time. System prompt: 233 → **121 lines** since loop start
   needed (existing test uses short content).
 - Tests: 801 → 801 (green, 4.31 s).
 
+### Iter 23 — DONE (loop tick 21, log catch-up)
+- Caught the perf-loop log up with iters 20–22 entries.
+
+### Iter 24 — DONE (loop tick 22, real Markdown find)
+- Empirically verified each markdown.* theme key. Found
+  `markdown.code_block` was DEAD config — Rich routes fenced blocks
+  through Pygments (default monokai), not that style class. Same render
+  with vs without the entry. Dropped it.
+
+### Iter 25 — DONE (loop tick 23, second real Markdown find)
+- Same verify-it-works angle: `markdown.emph` was the wrong Rich style
+  key (correct is `markdown.em`). The intended amber palette for italic
+  text never applied. Renamed — now actually takes effect.
+
+### Iter 26 — DONE (loop tick 25, ruff F401)
+- Auto-fix removed 47 unused imports across 27 files. -30 lines, no
+  behaviour change.
+
+### Iter 27 — DONE (loop tick 26, ruff F841)
+- 6 unused locals across 3 test files: `events = list(run(...))` × 4
+  (only side-effect mattered), one dead `out = capsys.readouterr().out
+  + .err`, one dead `captured_budget: dict = {}`.
+
+### Iter 28 — DONE (loop tick 27, SIM103)
+- `permissions.check` had `if cond: return True; return False` —
+  replaced with direct `return cond`. -2 lines.
+
+### Iter 29 — DONE (loop tick 28, RUF100)
+- 6 `# noqa: <RULE>` directives suppressed rule codes (F811, BLE001,
+  E402) that aren't in our ruff config. Auto-fix dropped them.
+
+### Iter 30 — DONE (loop tick 29, RUF059 with caught regression)
+- 7 unused unpacked vars: `result, cr = …` → `_, cr = …`. One initial
+  `replace_all` hit a test that DID use `result`, caught immediately by
+  pytest's `NameError` and reverted. Lesson: replace_all on generic
+  patterns needs scanning each match for actual usage.
+
+### Iter 31 — DONE (loop tick 30, B904 + B007)
+- `mcp.SseTransport.send`: added `from None` to the `queue.Empty` →
+  `McpTransportError` re-raise so the user-facing traceback isn't
+  cluttered with the queue plumbing.
+- `tools._is_private_or_local`: `for family, _, _, _, sockaddr in
+  infos:` → `for *_, sockaddr in infos:` — same five-tuple unpack,
+  cleaner intent.
+
+### Iter 32 — DONE (loop tick 31, PERF102 + RUF015)
+- `for _, delta in d.items()` → `for delta in d.values()` (loop
+  matches its actual usage).
+- `list(data["providers"].values())[0]` → `next(iter(...))` (no list
+  materialisation).
+
 ## Updated backlog
 
 - **Live model behaviour:** local `qwen3.6-27b` over-investigates trivial
