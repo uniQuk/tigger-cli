@@ -90,3 +90,69 @@ semantics. Park for iter 2+.
 **Files touched.** `tigger-model-performance.md` only (docs).
 
 **Tests.** 817 → 817, 4.45 s.
+
+### Iter 2 — DONE
+
+**Investigated the iter-1 anomaly.** `default_model:
+"google_gemma-4-31b-it-bartowski"` in `.tigger/config.json` has no
+matching key in `providers.lmstudio.models` (closest is
+`"google/gemma-4-31b LMStudio"`, with a space and different
+capitalisation).
+
+**What was happening on the wire (no `--model` flag, `--no-think`):**
+
+```
+"model": "google_gemma-4-31b-it-bartowski"          ← raw slug passed through
+"temperature": 0.7, "top_p": 0.95, "presence_penalty": 0.0
+"extra_body": {top_k:20, min_p:0.0, repetition_penalty:1.0,
+               chat_template_kwargs:{enable_thinking:false,
+                                     preserve_thinking:true}}
+```
+
+Two silent failures stacked:
+
+1. `_resolve_active_model` (`config.py:51`) only resolves overrides
+   when the slug is **in** the provider's `models` dict. An unmatched
+   slug returns `(slug, slug, {})` — wire id = the raw string, zero
+   overrides applied. LM Studio happily accepts the unknown slug and
+   serves *something* (1.83 s, EC=0).
+2. With `overrides={}`, the `pick()` fallthrough in `load_config`
+   reaches for the **top-level** `chat_template_kwargs`, which carries
+   `preserve_thinking: true` — a Qwen-specific flag that would crash
+   a real gemma jinja template (`UndefinedValue`). Bartowski's template
+   tolerates it; an unsloth/google build wouldn't.
+
+**Fix (small, surgical, `config.py`).** When `default_model` is set
+but doesn't match any entry in `providers.{active}.models`, emit a
+`UserWarning` naming the bad slug and listing the known ones.
+Non-breaking: the slug still rides through as the wire id so dynamic
+LM-Studio model names keep working. The user just gets a clear signal
+that per-model overrides aren't being applied.
+
+**Verified live (`tigger-code --once "x"` with current project config):**
+
+```
+.../tigger/main.py:93: UserWarning: default_model
+'google_gemma-4-31b-it-bartowski' has no matching entry in
+providers.lmstudio.models; the slug will be sent verbatim as the wire
+id and per-model overrides will not apply. Known slugs:
+['qwen/qwen3.6-35b-a3b', 'qwen/qwen3.6-27b-thinking',
+ 'qwen/qwen3.6-27b-instruct', 'qwen_qwen3.6-27b@q4_k_l-instruct',
+ 'google/gemma-4-31b LMStudio', 'google/gemma-4-26b-a4b LMStudio']
+```
+
+The list-of-known-slugs makes typo-class bugs (capitalisation, spaces
+vs underscores, prefix mismatch) self-diagnosing.
+
+**Files touched.** `src/tigger/config.py`, `tests/test_config.py`,
+`tigger-model-performance.md`.
+
+**Tests.** 817 → 819. Two new tests:
+- `test_default_model_unmatched_in_provider_models_warns`
+- `test_default_model_matched_in_provider_models_does_not_warn`
+Suite: 4.42 s.
+
+**Followup for a later iter (not in scope here):** the user's project
+config is itself misconfigured — `default_model` should be one of the
+listed slugs. Worth proposing a one-line fix once we've benched the
+intended default. Park for iter 3+.

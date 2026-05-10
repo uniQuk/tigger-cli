@@ -158,6 +158,15 @@ def load_config(path: pathlib.Path) -> Config:
             raise ValueError(f"provider {active_provider!r} has no models and no default_model set")
         dm = data.get("default_model")
         active_model = prov_model_names[0] if dm is None else dm
+        if dm is not None and prov_model_names and dm not in prov_model_names:
+            warnings.warn(
+                f"default_model {dm!r} has no matching entry in "
+                f"providers.{active_provider}.models; the slug will be sent "
+                f"verbatim as the wire id and per-model overrides will not "
+                f"apply. Known slugs: {prov_model_names!r}",
+                UserWarning,
+                stacklevel=2,
+            )
         active_prov = providers[active_provider]
     else:
         # Old flat format — backward compat migration

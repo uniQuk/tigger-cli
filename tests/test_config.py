@@ -477,6 +477,58 @@ def test_disable_tools_round_trips_through_write_config(tmp_path):
     assert reloaded.providers["loc"].models["gemma"].disable_tools is True
 
 
+def test_default_model_unmatched_in_provider_models_warns():
+    """A `default_model` that has no matching key in the provider's models
+    dict (typo, stale slug, dynamic LM Studio name) silently falls through
+    today — the slug rides verbatim to the wire and per-model overrides
+    are lost. Emit a UserWarning so the misconfiguration surfaces."""
+    p = _write({
+        "default_provider": "loc",
+        "default_model": "google_gemma-4-31b-it-bartowski",  # no such key
+        "providers": {
+            "loc": {
+                "base_url": "http://x",
+                "models": {
+                    "gemma": {"temperature": 1.0},
+                    "qwen": {"temperature": 0.7},
+                },
+            },
+        },
+    })
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        cfg = load_config(p)
+    user_warnings = [w for w in caught if issubclass(w.category, UserWarning)]
+    assert len(user_warnings) == 1
+    msg = str(user_warnings[0].message)
+    assert "google_gemma-4-31b-it-bartowski" in msg
+    assert "no matching entry" in msg
+    assert "Known slugs" in msg
+    # The slug still rides through as the wire id (non-breaking) — this is
+    # just a warning, not a hard failure.
+    assert cfg.model == "google_gemma-4-31b-it-bartowski"
+    assert cfg.model_slug == "google_gemma-4-31b-it-bartowski"
+
+
+def test_default_model_matched_in_provider_models_does_not_warn():
+    """Sanity: a default_model that DOES match a provider entry is silent."""
+    p = _write({
+        "default_provider": "loc",
+        "default_model": "qwen",
+        "providers": {
+            "loc": {
+                "base_url": "http://x",
+                "models": {"qwen": {"temperature": 0.7}},
+            },
+        },
+    })
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        load_config(p)
+    user_warnings = [w for w in caught if issubclass(w.category, UserWarning)]
+    assert user_warnings == []
+
+
 def test_write_config_updates_default_model(tmp_path):
     """Switching the active model and saving updates `default_model` so the
     next session picks up where the user left off."""
