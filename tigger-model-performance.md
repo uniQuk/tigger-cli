@@ -1572,3 +1572,56 @@ Output (correct, alphabetical, no commentary as instructed):
 **Parked for later:**
 
 - The per-model `(decode_rate, cached_prefill_rate)` table sweep from iter 19 remains the highest-value next move. With the docstring caveat now in place, a calibration tick could safely propose a `cache_likely_hit` UI signal.
+
+### Iter 22 — DONE
+
+**Dimension covered:** reasoning-quality probe — second class of problem to test whether iter-17's 3/3 result was prompt-specific or generalises. Probe: identify the big-O of a nested-loop snippet. Answer is unambiguous (`O(n²)`). Still on the warm `qwen_qwen3.6-27b@q4_k_l-instruct` from prior ticks.
+
+**Wall-clock used:** ~2m of 7m.
+
+**Probe prompt:**
+
+```
+What is the time complexity of this Python function in big-O notation?
+Reply with only the big-O expression, no explanation.
+def f(n):
+    total = 0
+    for i in range(n):
+        for j in range(i):
+            total += 1
+    return total
+```
+
+Correct answer: `O(n²)` (or any equivalent: `O(n^2)`, `O(n*n)`).
+
+**Bench numbers (3 back-to-back warm runs, identical 4967-token prefix):**
+
+| run | wall_s | in_t | out_t | finish | t/s  | app_prefill | answer  | correct |
+|-----|--------|------|-------|--------|------|-------------|---------|---------|
+| r1  | 23.44  | 4967 | 99    | stop   | 4.22 | 212         | `O(n²)` | yes     |
+| r2  | 8.74   | 4967 | 86    | stop   | 9.84 | 568         | `O(n²)` | yes     |
+| r3  | 8.93   | 4967 | 88    | stop   | 9.85 | 556         | `O(n²)` | yes     |
+
+3/3 correct. The model picked the unicode squared character `²` (prettier; mathematically identical to `^2`).
+
+**Verified / changed:** docs only.
+
+**Cross-iter q4_k_l warm-warm decode-rate consistency (now three independent probes):**
+
+| iter | probe                | warm decode tok/s   | app_prefill (warm) |
+|------|----------------------|---------------------|---------------------|
+| 17   | bug-finding          | 9.75, 9.87          | (not yet emitted)   |
+| 19   | bug-finding (rerun)  | 9.64                | 638                 |
+| 22   | big-O complexity     | 9.84, 9.85          | 568, 556            |
+
+Decode rate clusters tightly at **9.8 ± 0.1 tok/s** on this host for this model. Apparent_prefill on a fully warm cache lands in **550–640** range. These two numbers can now serve as the q4_k_l row of the iter-19 calibration table.
+
+**Reasoning quality finding (combined):** on q4_k_l in `--no-think` config, two reasoning-style probes (filter-direction bug + nested-loop complexity) both score 6/6 across 3+3 runs. Sample size is small but the variance is essentially nil — q4_k_l is reliable for small deterministic reasoning tasks at ~10 tok/s decode.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.41 s. No code change.
+
+**Parked for later:**
+
+- First two rows of the iter-19 calibration table can be filled in now: q4_k_l (9.8 tok/s decode, ~600 cached_prefill_rate). 35b-a3b and gemma-26b-a4b were measured warm earlier (~16.5 and ~14.6 tok/s decode respectively, in iters 1 and 14) but their `apparent_prefill_tok_per_s` numbers pre-date the iter-18 column — a single tick that re-runs each MoE for one warm sample would close the table cheaply.
