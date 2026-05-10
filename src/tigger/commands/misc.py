@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import pathlib
 
 from tigger.compaction import estimate_tokens
 from tigger.types import RunContext
@@ -131,9 +132,20 @@ def cmd_tokens(args: str, ctx: RunContext) -> None:
         )
 
 
-def cmd_model(args: str, ctx: RunContext) -> None:
-    from tigger.config import switch_model
+def cmd_model(
+    args: str,
+    ctx: RunContext,
+    config_path: pathlib.Path | None = None,
+) -> None:
+    from tigger.config import switch_model, write_config
     from tigger.ui import console
+
+    def _persist() -> None:
+        # Persist `default_model` (and `default_provider`) so the next
+        # session resumes on the model the user actually picked. write_config
+        # is non-destructive — unknown top-level / per-model keys survive.
+        if config_path is not None:
+            write_config(config_path, ctx.config)
 
     providers = ctx.config.providers
 
@@ -148,6 +160,7 @@ def cmd_model(args: str, ctx: RunContext) -> None:
             return
         ctx.config = dataclasses.replace(ctx.config, model=args.strip())
         console.print(f"[dim]✓ Model set to[/dim] [cyan]{args.strip()}[/cyan]")
+        _persist()
         return
 
     # Direct switch: /model provider/model
@@ -170,6 +183,7 @@ def cmd_model(args: str, ctx: RunContext) -> None:
         console.print(
             f"[dim]✓ Switched to[/dim] [cyan]{prov_name}/{model_name}[/cyan]"
         )
+        _persist()
         return
 
     # Direct switch: /model <name> — search all providers
@@ -183,6 +197,7 @@ def cmd_model(args: str, ctx: RunContext) -> None:
             pname, mname = matches[0]
             ctx.config = switch_model(ctx.config, pname, mname)
             console.print(f"[dim]✓ Switched to[/dim] [cyan]{pname}/{mname}[/cyan]")
+            _persist()
             return
         if len(matches) > 1:
             console.print(
@@ -237,6 +252,7 @@ def cmd_model(args: str, ctx: RunContext) -> None:
     pname, mname = numbered[int(choice) - 1]
     ctx.config = switch_model(ctx.config, pname, mname)
     console.print(f"[dim]✓ Switched to[/dim] [cyan]{pname}/{mname}[/cyan]")
+    _persist()
 
 
 def cmd_mode(args: str, ctx: RunContext, modes: list | None = None) -> None:

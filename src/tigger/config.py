@@ -27,7 +27,7 @@ _MODE_RENAME: dict[str, str] = {"ask": "act"}
 _OVERRIDE_FIELDS = (
     "temperature", "max_tokens", "context_limit", "top_p", "top_k",
     "min_p", "presence_penalty", "frequency_penalty",
-    "repetition_penalty", "chat_template_kwargs",
+    "repetition_penalty", "chat_template_kwargs", "disable_tools",
 )
 # All fields the JSON model entry may set; superset of override fields plus identity.
 _MODEL_CONFIG_FIELDS = ("model", "name", *_OVERRIDE_FIELDS, "thinking")
@@ -65,6 +65,11 @@ def _resolve_active_model(
         # a function: got UndefinedValue"). A per-model entry without
         # this field means "no template kwargs", not "inherit global".
         overrides.setdefault("chat_template_kwargs", mcfg.chat_template_kwargs or {})
+        # `disable_tools` is per-model authoritative for the same reason
+        # in reverse: switching from a chat-only model (gemma, True) to a
+        # tools-capable one (qwen, unset) must reset to False rather than
+        # bleeding the previous model's True through the override fall-through.
+        overrides.setdefault("disable_tools", bool(mcfg.disable_tools))
     return wire_id, display_name, overrides
 
 
@@ -211,6 +216,7 @@ def load_config(path: pathlib.Path) -> Config:
             data.get("repetition_penalty", data.get("repeat_penalty")),
         ),
         chat_template_kwargs=pick("chat_template_kwargs", {}) or {},
+        disable_tools=bool(pick("disable_tools", False)),
         system_prompt_extra=data.get("system_prompt_extra") or None,
     )
 
@@ -247,39 +253,71 @@ def find_config(start: pathlib.Path) -> pathlib.Path | None:
 
 
 def write_config(path: pathlib.Path, config: Config) -> None:
-    """Serialize *config* to JSON at *path* in the new providers format."""
+    """Serialize *config* to JSON at *path*, preserving keys we don't own.
+
+    Reads the existing file (if any) and overwrites only the fields tigger
+    manages. Unknown top-level keys, unknown per-provider keys, and unknown
+    per-model keys are preserved verbatim — protects hand-edited fields like
+    top-level sampler defaults (top_p, top_k, min_p, repetition_penalty,
+    presence_penalty, chat_template_kwargs) and any custom annotations from
+    being silently dropped on save.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    providers_data = {}
+
+    existing: dict = {}
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text())
+            if isinstance(loaded, dict):
+                existing = loaded
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    existing_providers = existing.get("providers")
+    if not isinstance(existing_providers, dict):
+        existing_providers = {}
+
+    providers_data: dict = {}
     for name, prov in config.providers.items():
-        providers_data[name] = {
-            "base_url": prov.base_url,
-            "api_key": prov.api_key,
-        }
+        existing_prov = existing_providers.get(name)
+        if not isinstance(existing_prov, dict):
+            existing_prov = {}
+        prov_data = dict(existing_prov)
+        prov_data["base_url"] = prov.base_url
+        prov_data["api_key"] = prov.api_key
         if isinstance(prov.models, dict):
-            models_data = {}
+            existing_models = existing_prov.get("models")
+            if not isinstance(existing_models, dict):
+                existing_models = {}
+            models_data: dict = {}
             for mname, mcfg in prov.models.items():
-                cfg_dict = {}
+                existing_model = existing_models.get(mname)
+                if not isinstance(existing_model, dict):
+                    existing_model = {}
+                cfg_dict = dict(existing_model)
                 for f in _MODEL_CONFIG_FIELDS:
                     val = getattr(mcfg, f)
                     if val is not None:
                         cfg_dict[f] = val
                 models_data[mname] = cfg_dict
-            providers_data[name]["models"] = models_data
+            prov_data["models"] = models_data
         else:
-            providers_data[name]["models"] = prov.models
-    data = {
-        "default_provider": config.active_provider,
-        "default_model": config.model_slug or config.model,
-        "providers": providers_data,
-        "context_limit": config.context_limit,
-        "max_tokens": config.max_tokens,
-        "temperature": config.temperature,
-        "permission_mode": config.permission_mode,
-        "mode": config.mode,
-        "max_depth": config.max_depth,
-        "max_retries": config.max_retries,
-        "bash_safe_prefixes": config.bash_safe_prefixes,
-        "rtk": config.rtk,
-        "read_timeout": config.read_timeout,
-    }
+            prov_data["models"] = prov.models
+        providers_data[name] = prov_data
+
+    data = dict(existing)
+    data["default_provider"] = config.active_provider
+    data["default_model"] = config.model_slug or config.model
+    data["providers"] = providers_data
+    data["context_limit"] = config.context_limit
+    data["max_tokens"] = config.max_tokens
+    data["temperature"] = config.temperature
+    data["permission_mode"] = config.permission_mode
+    data["mode"] = config.mode
+    data["max_depth"] = config.max_depth
+    data["max_retries"] = config.max_retries
+    data["bash_safe_prefixes"] = config.bash_safe_prefixes
+    data["rtk"] = config.rtk
+    data["read_timeout"] = config.read_timeout
+
     path.write_text(json.dumps(data, indent=2) + "\n")

@@ -606,8 +606,9 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
                     "The model's chat template can't render the request. "
                     "Common causes: the model doesn't support `tools`, "
                     "or it doesn't recognise the `chat_template_kwargs` "
-                    "being sent. Try a lmstudio-community variant or "
-                    "switch to /model qwen/qwen3.6-35b-a3b."
+                    "being sent. Try a lmstudio-community variant, "
+                    "set `\"disable_tools\": true` on this model in "
+                    "config.json to run it chat-only, or switch via /model."
                 )
             else:
                 hint = "Try /model to switch, or wait and retry."
@@ -838,7 +839,8 @@ def main() -> None:
                     "hint: the model's chat template can't render the "
                     "request — likely no `tools` support or unknown "
                     "chat_template_kwargs. Try a lmstudio-community "
-                    "variant of this model.\n"
+                    "variant, or set `\"disable_tools\": true` on this "
+                    "model in config.json to run it chat-only.\n"
                 )
             sys.exit(2)
         except Exception as exc:

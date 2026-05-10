@@ -81,7 +81,7 @@ def load_builtin_commands(
     d: dict = {
         "clear":      misc.cmd_clear,
         "tokens":     misc.cmd_tokens,
-        "model":      misc.cmd_model,
+        "model":      partial(misc.cmd_model, config_path=config_path),
         "mode":       partial(misc.cmd_mode, modes=modes),
         "permission": misc.cmd_permission,
         "think":      misc.cmd_think,

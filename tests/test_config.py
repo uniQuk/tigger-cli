@@ -365,3 +365,136 @@ def test_write_config_preserves_dict_models(tmp_path):
     assert prov.models["qwen3"].temperature == 0.3
     assert prov.models["qwen3"].context_limit == 32000
     assert prov.models["llama"].temperature is None
+
+
+def test_write_config_preserves_unknown_top_level_keys(tmp_path):
+    """Hand-edited top-level keys (sampler defaults, custom annotations) must
+    survive a save. Tigger only owns the fields it explicitly serializes;
+    everything else is round-tripped verbatim."""
+    out = tmp_path / "config.json"
+    out.write_text(json.dumps({
+        "providers": {
+            "loc": {
+                "base_url": "http://x/v1",
+                "api_key": "k",
+                "models": {"m1": {"temperature": 0.5}},
+            },
+        },
+        "default_provider": "loc",
+        "default_model": "m1",
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.0,
+        "repetition_penalty": 1.0,
+        "presence_penalty": 0.0,
+        "chat_template_kwargs": {"enable_thinking": True},
+        "system_prompt_extra": "be concise",
+        "custom_user_field": "annotation",
+    }))
+    cfg = load_config(out)
+    write_config(out, cfg)
+    after = json.loads(out.read_text())
+    assert after["top_p"] == 0.95
+    assert after["top_k"] == 20
+    assert after["min_p"] == 0.0
+    assert after["repetition_penalty"] == 1.0
+    assert after["presence_penalty"] == 0.0
+    assert after["chat_template_kwargs"] == {"enable_thinking": True}
+    assert after["system_prompt_extra"] == "be concise"
+    assert after["custom_user_field"] == "annotation"
+
+
+def test_write_config_preserves_unknown_per_model_keys(tmp_path):
+    """Per-model keys we don't recognize (custom annotations, future fields)
+    survive verbatim through save."""
+    out = tmp_path / "config.json"
+    out.write_text(json.dumps({
+        "providers": {
+            "loc": {
+                "base_url": "http://x/v1",
+                "api_key": "k",
+                "models": {
+                    "m1": {
+                        "temperature": 0.5,
+                        "notes": "user-tuned for code review",
+                        "future_sampler_param": 42,
+                    },
+                },
+            },
+        },
+        "default_provider": "loc",
+        "default_model": "m1",
+    }))
+    cfg = load_config(out)
+    write_config(out, cfg)
+    after = json.loads(out.read_text())
+    m = after["providers"]["loc"]["models"]["m1"]
+    assert m["notes"] == "user-tuned for code review"
+    assert m["future_sampler_param"] == 42
+    assert m["temperature"] == 0.5
+
+
+def test_disable_tools_per_model_loads_and_switches():
+    """A model with `disable_tools: true` resolves into Config.disable_tools=True;
+    switching to a model without the flag returns to default False."""
+    p = _write({
+        "default_provider": "loc",
+        "default_model": "gemma",
+        "providers": {
+            "loc": {
+                "base_url": "http://x",
+                "models": {
+                    "gemma": {"temperature": 1.0, "disable_tools": True},
+                    "qwen": {"temperature": 0.7},
+                },
+            },
+        },
+    })
+    cfg = load_config(p)
+    assert cfg.disable_tools is True
+    cfg2 = switch_model(cfg, "loc", "qwen")
+    assert cfg2.disable_tools is False
+
+
+def test_disable_tools_round_trips_through_write_config(tmp_path):
+    """`disable_tools` on a per-model entry survives write_config -> load_config."""
+    out = tmp_path / "config.json"
+    out.write_text(json.dumps({
+        "providers": {
+            "loc": {
+                "base_url": "http://x/v1",
+                "api_key": "k",
+                "models": {"gemma": {"disable_tools": True}},
+            },
+        },
+        "default_provider": "loc",
+        "default_model": "gemma",
+    }))
+    cfg = load_config(out)
+    write_config(out, cfg)
+    reloaded = load_config(out)
+    assert reloaded.disable_tools is True
+    assert reloaded.providers["loc"].models["gemma"].disable_tools is True
+
+
+def test_write_config_updates_default_model(tmp_path):
+    """Switching the active model and saving updates `default_model` so the
+    next session picks up where the user left off."""
+    out = tmp_path / "config.json"
+    out.write_text(json.dumps({
+        "providers": {
+            "loc": {
+                "base_url": "http://x/v1",
+                "api_key": "k",
+                "models": {"a": {}, "b": {}},
+            },
+        },
+        "default_provider": "loc",
+        "default_model": "a",
+    }))
+    cfg = load_config(out)
+    cfg = switch_model(cfg, "loc", "b")
+    write_config(out, cfg)
+    after = json.loads(out.read_text())
+    assert after["default_model"] == "b"
+    assert after["default_provider"] == "loc"

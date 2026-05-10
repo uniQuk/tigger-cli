@@ -1,3 +1,5 @@
+import json
+
 from tigger.types import Config, RunContext, ProviderConfig
 from tigger.commands.misc import cmd_model
 
@@ -65,3 +67,30 @@ def test_model_no_providers_shows_current(capsys):
     cmd_model("", ctx)
     out = capsys.readouterr().out
     assert "m" in out
+
+
+def test_model_switch_persists_default_model(tmp_path, capsys):
+    """When `config_path` is supplied, `/model gpt-4o` writes the new
+    `default_model` back to disk so the next session resumes on it."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({
+        "providers": {
+            "local": {
+                "base_url": "http://localhost/v1",
+                "api_key": "local",
+                "models": ["qwen3", "llama"],
+            },
+            "cloud": {
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-cloud",
+                "models": ["gpt-4o", "gpt-4o-mini"],
+            },
+        },
+        "default_provider": "local",
+        "default_model": "qwen3",
+    }))
+    ctx = _ctx()
+    cmd_model("gpt-4o", ctx, config_path=config_path)
+    on_disk = json.loads(config_path.read_text())
+    assert on_disk["default_model"] == "gpt-4o"
+    assert on_disk["default_provider"] == "cloud"

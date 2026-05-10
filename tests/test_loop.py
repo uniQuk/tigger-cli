@@ -212,6 +212,52 @@ def test_custom_mode_injects_body():
     assert envs[0] is not None and "review mode" in envs[0]
 
 
+def test_disable_tools_sends_empty_tool_list():
+    """Config.disable_tools=True must zero out the tool schemas on the wire,
+    even when the registry has tools registered. Lets gemma quants whose
+    chat templates can't render `tools=[...]` run as chat-only inside tigger.
+    """
+    captured: list[list] = []
+
+    def recording_provider(system, messages, tools, cfg):
+        captured.append(tools)
+        yield TextChunk(content="ok")
+        yield AssistantMessage(content="ok", tool_calls=[])
+
+    def my_tool(args):
+        return "noop"
+    t = ToolDef("my_tool", "", {"type": "object", "properties": {}}, func=my_tool)
+    reg = _registry([t])
+
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass",
+                 disable_tools=True)
+    ctx = RunContext(config=cfg, messages=[], system_prompt="s")
+    list(run("hi", ctx, reg, provider_fn=recording_provider))
+    assert captured == [[]]
+
+
+def test_disable_tools_default_false_passes_tools():
+    """Sanity check the inverse: when disable_tools is False (default), the
+    registered tool schemas reach the provider."""
+    captured: list[list] = []
+
+    def recording_provider(system, messages, tools, cfg):
+        captured.append(tools)
+        yield TextChunk(content="ok")
+        yield AssistantMessage(content="ok", tool_calls=[])
+
+    def my_tool(args):
+        return "noop"
+    t = ToolDef("my_tool", "", {"type": "object", "properties": {}}, func=my_tool)
+    reg = _registry([t])
+
+    ctx = _ctx()
+    list(run("hi", ctx, reg, provider_fn=recording_provider))
+    assert len(captured) == 1
+    names = [s["function"]["name"] for s in captured[0]]
+    assert "my_tool" in names
+
+
 def test_unknown_mode_no_injection():
     """If mode name doesn't match any resolved mode, no injection and no crash."""
     calls: list[str] = []

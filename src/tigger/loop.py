@@ -369,14 +369,21 @@ def run(
             )
             sys.stderr.flush()
 
-        tools_schemas = [
-            s for s in registry.schemas()
-            if allowed is None or s["function"]["name"] in allowed
-        ]
-        tools_schemas = _with_output_budget_schema_limits(
-            tools_schemas,
-            active_output_budget,
-        )
+        if effective_config.disable_tools:
+            # Model opted out of tool calling (e.g. gemma quants whose chat
+            # template can't render `tools=[...]`). Send an empty schema list
+            # so the agent loop degrades to chat-only — assistant replies
+            # come back as text, no tool dispatch.
+            tools_schemas: list[dict] = []
+        else:
+            tools_schemas = [
+                s for s in registry.schemas()
+                if allowed is None or s["function"]["name"] in allowed
+            ]
+            tools_schemas = _with_output_budget_schema_limits(
+                tools_schemas,
+                active_output_budget,
+            )
 
         # System prompt stays bytewise stable across turns within a session.
         # Dynamic per-turn content (active mode body, lazy MCP tool listing)

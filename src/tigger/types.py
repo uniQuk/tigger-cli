@@ -37,6 +37,13 @@ class ModelConfig:
     repetition_penalty: float | None = None
     chat_template_kwargs: dict | None = None
     thinking: bool | None = None
+    # Suppress sending the OpenAI `tools=[...]` array on the wire. Required
+    # for gemma quants from unsloth/bartowski whose stock LM Studio chat
+    # templates can't render tool definitions and reject the request with
+    # "Cannot call something that is not a function: got UndefinedValue".
+    # Model becomes chat-only inside tigger (no agent loop) — same behaviour
+    # plain chat clients get for free by never sending tools.
+    disable_tools: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -84,6 +91,10 @@ class Config:
     frequency_penalty: float | None = None
     repetition_penalty: float | None = None
     chat_template_kwargs: dict = field(default_factory=dict)
+    # Resolved per-active-model toggle. True → loop.py sends `tools=[]` so
+    # models with broken chat templates (gemma unsloth/bartowski quants on
+    # LM Studio) can run as chat-only. Set per-model in config.json.
+    disable_tools: bool = False
     # Optional text appended to the resolved system.md (after memory).
     # Lets a project add a few lines of context without copy-pasting the
     # full bundled prompt. Empty/None means no addition.
