@@ -335,11 +335,49 @@ output streams correctly chunk-by-chunk; `1\n2\n3\n4\n5` rendered;
 **Tests:** 808 → 808. 4.48 s. One test (`test_ui.py:596`) updated to
 the renamed global.
 
+### Iter 8 — DONE
+
+**CLAUDE.md rule cleanup (`commands/mcp_cmd.py`).** Found 7 raw
+`print()` calls that bypass the unified Rich theme — three in
+`_print_server_tier`, two in `_persist_tier_to_user_config`, one in
+`cmd_mcp`'s unknown-subcommand branch, one in the tier-success line.
+All converted to `ui.console.print` with cyan/magenta/yellow/green
+matching the rest of `/mcp`'s output (eager=green, lazy=cyan,
+disabled=yellow, mixed=magenta).
+
+This was the largest cluster of CLAUDE.md "no bare print()" violations
+left in the codebase. Other remaining `print()`s are:
+
+- `trust.py:26,53` — interactive trust prompt that runs BEFORE
+  startup themes a Console; intentional.
+- `input_processing.py:13` — pre-startup stderr warning; intentional.
+- `main.py:453,818,841` — REPL banner lines and the `--once` raw
+  stdout writer; the `--once` writer is the only one that bypasses
+  themed output and that's part of the iter-47 contract (raw stdout).
+
+Existing `test_mcp_tier_runtime.py` (≈10 tests) uses
+`capsys.readouterr().out`. Rich's themed `console.print` writes to
+`sys.stdout` by default, so those tests still capture the output —
+all green without changes.
+
+**Smoke bench on 35b-a3b** (post-streaming-refactor + post-theme):
+
+| prompt                 | turns | wall | total_out | finish |
+|------------------------|-------|------|-----------|--------|
+| simple chat            | 1     | 1.21 | 7         | stop   |
+| tool-call (read pyproj)| 2     | 3.74 | 93        | stop   |
+
+Within iter-3/iter-6 noise; nothing regressed.
+
+**Tests:** 808 → 808. 4.40 s.
+
 ### Backlog for next ticks
 
 - The MCP eager tier ships ~2 KB of microsoft-learn schemas on every
   turn for the user's config. `tier: lazy` in `mcp.json` would defer
-  those to `mcp_promote`. Config decision, worth surfacing as a `/mcp`
-  command hint in a future iter.
+  those to `mcp_promote`. Config decision (not a tigger code change);
+  user already has `/mcp tokens` to see the cost.
 - Graceful no-tools fallback for chat-only models like gemma-IT —
   still out of scope unless a small, surgical change emerges.
+- The startup-time `--quiet` flag silences the welcome banner but
+  not the `[mcp] connected:` notice — drop or unify under `--quiet`?

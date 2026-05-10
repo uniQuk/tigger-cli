@@ -44,7 +44,11 @@ def cmd_mcp(
     if sub == "tokens":
         _cmd_mcp_tokens(connections=connections, registry=registry)
         return
-    print(f"\n  Unknown /mcp sub-command: {sub}\n")
+    from tigger.ui import console
+    console.print(
+        f"\n  [red]Unknown[/red] /mcp [red]sub-command:[/red] {sub!r}. "
+        "[dim]Try[/dim] [cyan]tier[/cyan] | [cyan]tokens[/cyan].\n"
+    )
 
 
 # ── Status (no-arg /mcp) ─────────────────────────────────────────────────
@@ -253,12 +257,16 @@ def _print_server_tier(
     connections: list[McpConnection],
     registry: ToolRegistry,
 ) -> None:
+    from tigger.ui import console
     matching_tools = [t for t in registry.all() if t.name.startswith(f"mcp__{server}__")]
     matching_conn = next((c for c in connections if c.name == server), None)
     if not matching_tools and matching_conn is None:
         valid_names = sorted({c.name for c in connections})
         names_str = ", ".join(valid_names) or "(none)"
-        print(f"\n  Unknown server {server!r}. Connected: {names_str}\n")
+        console.print(
+            f"\n  [red]Unknown server[/red] {server!r}. "
+            f"[dim]Connected:[/dim] {names_str}\n"
+        )
         return
     is_disabled = bool(
         matching_conn
@@ -266,15 +274,20 @@ def _print_server_tier(
         and matching_conn.server_info.get("disabled")
     )
     if is_disabled:
-        print(f"\n  {server}: disabled\n")
+        console.print(f"\n  [magenta]{server}[/magenta]: [yellow]disabled[/yellow]\n")
         return
     tiers = {t.tier for t in matching_tools}
     if len(tiers) == 1:
-        print(f"\n  {server}: {next(iter(tiers))}\n")
+        tier = next(iter(tiers))
+        tcol = "green" if tier == "eager" else ("cyan" if tier == "lazy" else "yellow")
+        console.print(f"\n  [magenta]{server}[/magenta]: [{tcol}]{tier}[/{tcol}]\n")
     else:
         prefix = f"mcp__{server}__"
         breakdown = ", ".join(f"{t.name[len(prefix):]}={t.tier}" for t in matching_tools)
-        print(f"\n  {server}: mixed ({breakdown})\n")
+        console.print(
+            f"\n  [magenta]{server}[/magenta]: [magenta]mixed[/magenta] "
+            f"[dim]({breakdown})[/dim]\n"
+        )
 
 
 def _cmd_mcp_tokens(
@@ -443,13 +456,17 @@ def _count_schema_tokens(tool, enc, fallback) -> int:
 
 def _persist_tier_to_user_config(server: str, tier: str) -> None:
     """Read-modify-write the user mcp.json, preserving unknown keys."""
+    from tigger.ui import console
     path = _user_mcp_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         try:
             data = json.loads(path.read_text())
         except json.JSONDecodeError as exc:
-            print(f"\n  Error: could not parse {path}: {exc}\n")
+            console.print(
+                f"\n  [red]Error:[/red] could not parse [cyan]{path}[/cyan]: "
+                f"[red]{exc}[/red]\n"
+            )
             return
     else:
         data = {}
@@ -457,4 +474,7 @@ def _persist_tier_to_user_config(server: str, tier: str) -> None:
     server_block = servers.setdefault(server, {})
     server_block["tier"] = tier
     path.write_text(json.dumps(data, indent=2) + "\n")
-    print(f"  Saved tier={tier} for '{server}' to {path}")
+    console.print(
+        f"  [dim]✓ Saved[/dim] tier=[cyan]{tier}[/cyan] "
+        f"[dim]for[/dim] [magenta]{server}[/magenta] [dim]to[/dim] [cyan]{path}[/cyan]"
+    )
