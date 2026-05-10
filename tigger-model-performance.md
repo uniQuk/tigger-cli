@@ -1,7 +1,7 @@
 # Tigger model-performance loop
 
 Branch: `perf/model-bench-01` off `main` (commit `51ea0c4`).
-Loop cadence: every 10 min via CronCreate.
+Loop cadence: every 10 min via CronCreate (job `58a63124`, `*/10 * * * *`).
 Endpoint: LM Studio at `192.168.2.122:1234/v1`.
 
 ## Goal
