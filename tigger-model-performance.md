@@ -477,3 +477,107 @@ warm anyway, the savings disappear.
   enable/disable).
 - Identify the 4th MCP tool from iter 4 (`microsoft-learn` ships 3,
   runtime count is 4) — still open.
+
+### Iter 6 — DONE
+
+**Dimension covered:** token-waste hunt + tool-call workload — live
+A/B to validate iter 4's static schema-byte partition. Iter 4 estimated
+the entire tool-schema block at ~1823–2323 tok (823 builtin static +
+1000–1500 MCP guess). This tick measures it on the wire.
+
+**Method.** Two `--once` runs on the same warm model
+(`qwen/qwen3.6-35b-a3b`) with TIGGER_PERF=1, same prompt, same kwargs
+— flipping only `disable_tools` between runs.
+
+- **Baseline (full registry, `_tools_count=13`).**
+  Prompt: `"Reply with exactly: pong-iter6a"`. `disable_tools=false`.
+- **Variant B (registry suppressed via `disable_tools=true`).** Same
+  prompt (changed to `…-iter6b` to bust prompt-cache hits and force a
+  cold prefill). `loop.py:372-377` sends `tools_schemas=[]`,
+  `provider.py:250-251` omits the `tools` key entirely.
+
+Temporary one-key edit to `.tigger/config.json`
+(`models["qwen/qwen3.6-35b-a3b"].disable_tools = true`), reverted after
+the variant run. Diff against HEAD is empty — config not part of
+commit.
+
+**Results.**
+
+| run | input_tok | output_tok | wall_s | finish | EC |
+|---|---:|---:|---:|---|---:|
+| baseline (13 tools) | **4914** |  8 | 1.22 | stop | 0 |
+| variant B (0 tools) | **2895** | 33 | 5.30 | stop | 0 |
+| **Δ input** | **2019** | — | — | — | — |
+
+**Interpretation.**
+
+The 2019-token drop is the wire-cost of the entire tool-schema block.
+Iter 4 predicted the range **1823–2323 tok**; live measurement at
+**2019 tok** sits squarely inside that band. **Static-byte
+partitioning is validated as a viable estimation method** — error
+margin ≈ ±10% of midpoint, dominated by the MCP-schema guess.
+
+**MCP-schema cost (derived).** Subtract iter 4's measured-static
+builtin total (823 tok, 9 tools): `2019 − 823 = 1196 tok` for 4 MCP
+tools, **~299 tok/MCP tool**. About 3.3× the builtin average
+(91 tok/tool). MCP schemas carry richer parameter descriptions, often
+including provider-side instruction text — consistent with the
+hand-loaded ones being more verbose than the terse builtin registry.
+
+**Prefill partition, REVISED with live data:**
+
+| component | tokens | % of 4914 |
+|---|---:|---:|
+| `assets/system.md`        | 2024 | 41.2% |
+| tool schemas (13 total)   | **2019** | **41.1%** |
+| message wrappers + json overhead | ~370 | ~7.5% |
+| MCP system glue / misc    | ~500 |    ~10% |
+
+**Important correction to iter 4's framing.** Iter 4 called
+`system.md` "the single largest line item" and "bigger than the entire
+builtin tool registry combined". The second claim is true (system.md
+2024 tok vs 9 builtins at 823 tok). But the first claim, applied to
+the FULL on-wire tool block (builtins + MCP), is wrong by ~5 tok:
+system.md and tool schemas are **statistically tied** at 41% each.
+Either is a valid reduction target.
+
+**Output-tokens delta as a side observation.** Baseline emitted 8 tok
+(just the requested string); variant B emitted 33 tok. The model is
+chattier when it has no tool context to anchor on — likely added a
+preamble/echo. Output side-effects of removing tools is a separate
+behavioural concern; outside this iter's scope. Parking.
+
+**Wall-time observation.** Baseline 1.22 s (warm prompt-cache hit on
+the iter-3 prefix from earlier session). Variant B 5.30 s — different
+prefix (no `tools=[…]` in the request body), so a cache miss; also
+33 tok of output amplifies. Not a regression — just the expected
+cache-miss tax on a brand-new request shape. Reinforces iter 5's
+recommendation against optimising for cold-prefill cost when warm
+caches drop it to ~0.
+
+**Root cause:** none — clean live validation.
+
+**Files touched:** `tigger-model-performance.md` only.
+(`.tigger/config.json` was flipped + reverted in-flight; commit diff is
+empty for it.)
+
+**Tests delta:** 822 → 822 (unchanged) in 4.35 s. No code change.
+
+**Followups parked for iter 7+:**
+
+- The 4th MCP tool's identity is still unaccounted for: live
+  `_tools_count=13` minus 9 static builtins = 4 MCP entries, but
+  `microsoft-learn` declares 3 per archived note. Could be one of the
+  Context7 tools (`query-docs`, `resolve-library-id`) sneaking in via
+  a non-prefixed surface, or a hooks-registered tool. Grep
+  `.tigger/mcp.json` next tick.
+- Per-tool ranked A/B is the natural extension: now we know the block
+  costs ~2019 tok, the next question is which single MCP tool is the
+  heaviest. Requires the iter-4 followup mechanism (per-tool disable),
+  which `disable_tools: bool` cannot express — would need a
+  `disable_tools: ["name", …]` list extension OR a quick `mcp_disable`
+  config field. Park as a "should we add it" question for iter 8+.
+- Output-tokens jumped 4× with no tools attached. Suggests the system
+  prompt's tool-sequencing rules (iter 5's 633-tok section) act as
+  output-length anchors even when models can't call tools. Worth a
+  3-run consistency probe to confirm vs being a single-run artefact.
