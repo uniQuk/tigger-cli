@@ -1467,3 +1467,44 @@ Worked example from iter 17 (q4_k_l, r2): `local_tokens=4964`, `wall=9.64` → `
 
 - Live-host calibration: run a single tick that captures `apparent_prefill_tok_per_s` for each model in `.tigger/config.json` and records the "model's known decode rate" alongside. That gives the user a per-model threshold ("if >Nx this number, you hit cache") instead of a generic ">1000".
 - Surface the cache-hit signal in the user-visible UI (not just the TSV/stderr column) once we trust the threshold per model. Likely a small `[perf] cache likely hit` log line conditional on `apparent_prefill_tok_per_s > N×tokens_per_sec`.
+
+### Iter 19 — DONE
+
+**Dimension covered:** live validation of the iter-18 `apparent_prefill_tok_per_s` column on the currently-warm `qwen_qwen3.6-27b@q4_k_l-instruct`. Same probe prompt as iter 17 so the prefix is identical and the host's KV cache should be hot.
+
+**Wall-clock used:** ~2m of 7m.
+
+**Live perf line (q4_k_l warm-warm):**
+
+```
+[perf] 1778453899  turn=1  wall_s=7.78  compact_s=0.01  input_tokens=4964
+       output_tokens=75  msgs=2  prompt_chars=317  finish=stop
+       tool_calls=0  continuations=0  delta_chars=317
+       tokens_per_sec=9.64  cache_hit_estimate=0.000
+       apparent_prefill_tok_per_s=638
+```
+
+Sanity check: 4964 / 7.78 = 638.0 — matches the emitted column exactly. The new field reads correctly under the production code path (not just the synthetic fast-clock test from iter 18).
+
+**Verified / changed:** docs only. Behaviour added in iter 18, validated here.
+
+**What the numbers say (q4_k_l warm baseline for this column):**
+
+| signal                            | value | meaning                                |
+|-----------------------------------|-------|----------------------------------------|
+| `tokens_per_sec` (decode)         | 9.64  | warm-warm decode rate                  |
+| `apparent_prefill_tok_per_s`      | 638   | 66× the decode rate                    |
+| `cache_hit_estimate` (heuristic)  | 0.000 | always 0 in --once (no prior turn)     |
+
+The 66× ratio is the empirical "host served prefix from KV cache" signature on this hardware for this model. iter-20+ can sweep the other five model entries and build a per-model threshold table for the parked UI surfacing.
+
+**Also notable:** this is the fastest q4_k_l warm-warm run on record (7.78 s vs prior 9.52 / 9.64 s in iter 17). With 75 visible+reasoning tokens at 9.64 tok/s decode, the math `75/9.64 ≈ 7.78` says wall is now essentially 100% decode-bound — prefill cost has gone to zero on a fully populated cache.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.38 s. No code change.
+
+**Parked for later:**
+
+- Sweep the other 5 model entries to build a per-model `(decode_rate, cached_prefill_rate)` table. Needed before surfacing a "cache likely hit" UI signal — generic threshold isn't safe.
+- Consider whether to drop `cache_hit_estimate` now that `apparent_prefill_tok_per_s` is the better-typed signal. Removing a column would break existing TSV consumers; deprecation-with-note rather than removal is the conservative path.
