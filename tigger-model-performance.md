@@ -1347,3 +1347,53 @@ All per-model overrides round-trip. Worth flagging: `presence_penalty=1.5` match
 **Tests delta:** 824 → 824 in 4.39 s. No code change.
 
 **Cycle milestone:** wire-kwargs coverage now complete across all six model entries. Remaining open dimensions for future ticks: reasoning-quality probe (untouched), `cache_hit_estimate` heuristic tightening (iter-14 parked), warm latency for q4_k_l on a tick that starts with it loaded.
+
+### Iter 16 — DONE
+
+**Dimension covered:** warm latency for `qwen_qwen3.6-27b@q4_k_l-instruct` (clears iter-15's parked follow-up) + live verification that the iter-2 `[provider]` warning fires correctly on the q4_k_l wire-model id. LM Studio entered the tick warm on the q4_k_l quant from iter-15's wire dump.
+
+**Wall-clock used:** ~4m of 7m.
+
+**Bench numbers (three back-to-back warm runs, identical 4916-token prefix):**
+
+| run | wall_s | last_in | total_out | finish | EC | notes                            |
+|-----|--------|---------|-----------|--------|----|----------------------------------|
+| r1  | 54.62  | 4916    | 162       | stop   | 0  | warm-ish; reasoning-heavy        |
+| r2  | 17.09  | 4916    | 34        | stop   | 0  | KV-cache warm; less reasoning    |
+| r3  | 21.29  | 4916    | 79        | stop   | 0  | direct probe (TIGGER_PERF=1)     |
+
+r3 was a separate `TIGGER_PERF=1 tigger-code --no-think ... --once` invocation. Its `[perf]` line: `wall=21.29 in=4916 out=79 finish=stop delta_chars=54 tokens_per_sec=3.71 cache_hit_estimate=0.000`. So visible output was ~54 chars / ~14 tokens; the remaining ~65 tokens are reasoning. Decode rate ~3.71 tok/s.
+
+**Iter-2 warning behaviour (live).** `r3`'s stderr produced exactly:
+
+```
+[provider] 'qwen_qwen3.6-27b@q4_k_l': server streamed
+reasoning_content (~78 tok / 312 chars this turn) despite
+chat_template_kwargs.enable_thinking=False. Reasoning is dropped from
+history, but the model still spent latency generating it. Cap
+max_tokens or switch to a non-thinking model variant.
+```
+
+Warning emits once per process per wire-model id, exactly as designed. The 27b template ignoring `enable_thinking=false` is a **family-wide** behaviour — not just the FP16 dense quant flagged in iter 2.
+
+**Comparison vs the non-quant 27b-instruct (iter 2).** Non-quant timed out >240 s on a similar tiny prompt. q4_k_l completes in 17–55 s. Both have `max_tokens: 0` (unlimited), both emit reasoning. Two plausible explanations: (a) the 4-bit quant degrades the reasoning-loop attractor enough that the model stops sooner; (b) the iter-2 non-quant run was transient (host load) and the non-quant would also finish in tens of seconds on a quiet host. This iter can't distinguish — both hypotheses are consistent. Worth a future tick to re-probe non-quant warm-warm in isolation.
+
+**Updated MoE-vs-dense vs quant table (warm-warm, tok/s estimated from longest-run wall ÷ out_t):**
+
+| model                              | warm wall_s | tok/s decode | class                       |
+|------------------------------------|-------------|--------------|-----------------------------|
+| `qwen/qwen3.6-35b-a3b`            | 1.58        | ~16.5        | MoE, 3B active, FP16        |
+| `google/gemma-4-26b-a4b`          | 0.89        | ~14.6        | MoE, 4B active, FP16        |
+| `google/gemma-4-31b`              | 18.00       | ~2.9         | dense, 31B, FP16            |
+| `qwen_qwen3.6-27b@q4_k_l`         | 17–55       | ~3.71        | dense, 27B, 4-bit (Q4_K_L)  |
+
+4-bit quant does **not** materially improve decode rate vs FP16 dense at the same param scale (~3.7 vs ~2.9 tok/s — within noise). The dominant axis on this host remains MoE-vs-dense, not quant level.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 824 → 824 in 4.40 s. No code change.
+
+**Parked for later:**
+
+- Re-probe non-quant `qwen/qwen3.6-27b-instruct` warm-warm on a quiet host to decide between hypothesis (a) and (b) above. Today the host was warm on the q4_k_l quant; swapping back to non-quant would cost a 30–60 s cold-load tax and may not fit a single tick.
+- Reasoning-quality probe still untouched — best candidate for the next non-cache-tightening tick.
