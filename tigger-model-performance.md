@@ -1552,3 +1552,23 @@ Output (correct, alphabetical, no commentary as instructed):
 
 - The `apparent_prefill_tok_per_s` docstring at `loop.py:474` should call out the decode-share confound. Small comment edit — fits in an iter-21+ change-iter slot.
 - Per-model `(decode_rate, cached_prefill_rate)` table sweep from iter 19's parked still open.
+
+### Iter 21 — DONE
+
+**Dimension covered:** token-waste hunt follow-up — extend the `apparent_prefill_tok_per_s` comment in `loop.py` to call out the decode-share confound that iter-20 surfaced. Comment-only change; runtime behaviour unchanged.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** the inline comment block at `loop.py:487-493` now states explicitly that the column is a *decode-share gauge* and is only a clean cache-hit signature when read alongside `tokens_per_sec` and `output_tokens`. Specifically: a high apparent_prefill with a near-typical decode rate is the clean signal; a high value with a tiny `output_tokens` only says decode didn't dominate the turn. Iter-19 and iter-20 both exhibit this — the same column reads 638 (cache hit) vs 172 (cache hit but bigger output) on the same model.
+
+**Root cause (interpretation):** the column has *two* failure modes for the "did we hit cache?" question. Mode A: low value when decode legitimately dominates wall (large outputs even with full cache). Mode B: high value on uncached prefills that happen to have tiny outputs. Both modes are inherent to the `local_tokens / wall` ratio — fixable only by also exposing an estimated decode_time, which requires per-model calibration (iter-19's parked sweep).
+
+**Atomic change rule check:** one file, ~12 LoC of comment added, no new test required (comment-only — no runtime behaviour change). No new top-level Rich import.
+
+**Files touched:** `src/tigger/loop.py`, `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.37 s. Comment-only change; existing coverage suffices.
+
+**Parked for later:**
+
+- The per-model `(decode_rate, cached_prefill_rate)` table sweep from iter 19 remains the highest-value next move. With the docstring caveat now in place, a calibration tick could safely propose a `cache_likely_hit` UI signal.

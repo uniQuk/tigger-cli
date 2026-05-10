@@ -485,11 +485,21 @@ def run(
                 ratio = fresh / max(local_tokens, 1)
                 cache_hit_estimate = max(0.0, min(1.0, 1.0 - ratio))
             # local_tokens / wall is the *apparent* per-second rate the server
-            # processed our prompt tokens at. If this is much larger than the
-            # model's known decode rate, the host served the prefix from KV
-            # cache (prefill time → ~0, wall → decode-bound). Works across
+            # processed our prompt tokens at. When this is much larger than
+            # the model's known decode rate, the host served the prefix from
+            # KV cache (prefill time → ~0, wall → decode-bound). Works across
             # process boundaries — unlike cache_hit_estimate, which needs a
             # prior turn in the same session.
+            #
+            # Caveat (iter-20 observation): this is a "decode-share" gauge
+            # in disguise. wall = prefill_time + decode_time. When output is
+            # small relative to input (e.g. tiny-reply on a big prompt), the
+            # ratio swings high regardless of cache state. When output is
+            # large, the ratio drops even on a cache hit because decode_time
+            # dominates wall. Read it alongside `tokens_per_sec` and
+            # `output_tokens`: a high apparent_prefill *with* a near-typical
+            # decode rate is the clean cache-hit signature; a high value with
+            # a tiny `output_tokens` only tells you "decode didn't dominate".
             apparent_prefill_tok_per_s = local_tokens / max(wall, 0.001)
             row = (
                 f"{int(time.time())}\t{perf_turn}\t{wall:.2f}\t"
