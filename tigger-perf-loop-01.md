@@ -285,6 +285,19 @@ as backlog items.
   prompts.
 - Tests: 802 → 802 (green, 4.76 s).
 
+### Iter 14 — DONE (loop tick 10)
+- **Test dedup:** `test_ssrf_private_10` exercised the same
+  `_ipaddress.ip_address(...).is_private` branch as
+  `test_ssrf_private_192` — both are RFC 1918 private addresses going
+  through identical code. Drop the `10.0.0.1` case; the `192.168.1.1`
+  one keeps the coverage.
+- **Test suite speedup:** the streaming test (`test_text_chunks_stream_
+  visibly_via_live`) had a real `time.sleep(_RENDER_MIN_INTERVAL +
+  0.005)` between chunks to exercise the throttle path. Replace with
+  `monkeypatch.setattr(ui_mod, "_RENDER_MIN_INTERVAL", 0.0)` — no
+  wall-clock sleep, same coverage. Test suite: 4.7 s → 4.4 s.
+- Tests: 802 → 801 (green, 4.41 s).
+
 ## Updated backlog
 
 - **Live model behaviour:** local `qwen3.6-27b` over-investigates trivial

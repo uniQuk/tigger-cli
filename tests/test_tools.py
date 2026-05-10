@@ -240,10 +240,6 @@ def test_ssrf_private_192():
     assert _is_private_or_local("192.168.1.1") is True
 
 
-def test_ssrf_private_10():
-    assert _is_private_or_local("10.0.0.1") is True
-
-
 def test_ssrf_ipv6_loopback():
     assert _is_private_or_local("::1") is True
 

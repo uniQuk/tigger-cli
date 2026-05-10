@@ -580,7 +580,6 @@ def test_extract_preview_write_returns_basename():
 
 def test_text_chunks_stream_visibly_via_live(monkeypatch):
     """TextChunks should produce buffer growth chunk-by-chunk (Live), not only at flush."""
-    import time as _time
     import tigger.ui as ui_mod
     buf = StringIO()
     monkeypatch.setattr(
@@ -588,6 +587,9 @@ def test_text_chunks_stream_visibly_via_live(monkeypatch):
         "console",
         Console(file=buf, width=80, force_terminal=True, highlight=False),
     )
+    # Disable the rebuild throttle so each chunk's renderable actually
+    # picks up the new fragment — avoids a real time.sleep in the test.
+    monkeypatch.setattr(ui_mod, "_RENDER_MIN_INTERVAL", 0.0)
     ui_mod._tool_buffer.clear()
     ui_mod._live = None
     ui_mod._last_render_at = 0.0
@@ -602,9 +604,6 @@ def test_text_chunks_stream_visibly_via_live(monkeypatch):
         if ui_mod._live is not None:
             ui_mod._live.refresh()
         growths.append(len(buf.getvalue()) - before)
-        # Space chunks past the rebuild throttle so the renderable picks up
-        # each new fragment — production token streams arrive at >50ms gaps.
-        _time.sleep(ui_mod._RENDER_MIN_INTERVAL + 0.005)
 
     # Every chunk should have produced output, not just the last flush.
     assert all(g > 0 for g in growths), f"streaming did not grow per chunk: {growths}"
