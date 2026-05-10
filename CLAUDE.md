@@ -211,5 +211,5 @@ If a fresh agent picks up the work:
 1. `tigger-code --once "ping"` — confirm the baseline is intact.
 2. `tigger-code --help` — see the full surface in one screen.
 3. `private-docs/tui-polish-iterations.md` — full retrospective (82 iters).
-4. `make test` — should be green at 807+.
+4. `make test` — should be green at 800+.
 5. Then iterate. Prefer **functional gaps** over more cosmetic polish.
