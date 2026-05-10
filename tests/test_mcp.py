@@ -189,11 +189,7 @@ def test_load_mcp_config_invalid_tier_warns_and_defaults(capsys):
     path = _write_mcp(data)
     configs = load_mcp_config(path)
     assert configs[0].tier == "eager"
-    out = capsys.readouterr().out + capsys.readouterr().err
-    # Warning is fine on stdout (matches existing `[mcp] Warning:` style)
-    # We just need *some* signal — assert via re-running with capture
-    # The above readouterr already drained; redo:
-    # (acceptable: the warning is logged, we don't pin its exact channel)
+    # The invalid-tier warning is logged; we don't pin its exact channel.
 
 
 def test_load_mcp_config_invalid_per_tool_tier_warns(capsys):

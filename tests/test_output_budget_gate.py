@@ -318,7 +318,6 @@ def test_run_forked_uses_skill_budget():
         output_budget=2048,
     )
     parent = _ctx(output_budget=None, output_budget_default=8192)
-    captured_budget: dict = {}
 
     # Fake provider checks the budget by attempting an oversized write.
     tc = ToolCallRecord("c1", "write", {"path": "/a", "content": "x" * 5000})

@@ -333,7 +333,7 @@ def test_hallucinated_tool_retry_exhaustion():
             yield AssistantMessage(content="gave up", tool_calls=[])
     cfg = Config(base_url="http://x", model="m", permission_mode="bypass", max_retries=2)
     ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
-    events = list(run("go", ctx, reg, provider_fn=provider))
+    list(run("go", ctx, reg, provider_fn=provider))
     # Should have correction messages (up to max_retries)
     corrections = [m for m in ctx.messages if m.role == "user" and "unknown tool" in m.content.lower()]
     assert len(corrections) == 2  # max_retries=2
@@ -360,7 +360,7 @@ def test_permission_denial_in_ask_mode():
     def cb(req):
         requests.append(req)
         return False  # deny
-    events = list(run("go", ctx, reg, provider_fn=provider, permission_callback=cb))
+    list(run("go", ctx, reg, provider_fn=provider, permission_callback=cb))
     # Permission should have been requested via the callback
     assert len(requests) == 1
     # Tool should have been denied
@@ -429,7 +429,7 @@ def test_transform_hook_legitimate_rtk_passes():
     cfg = Config(base_url="http://x", model="m", permission_mode="allow",
                  bash_safe_prefixes=["git ", "rtk "])
     ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
-    events = list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs))
+    list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs))
     assert called_with == ["rtk git status"]
 
 
@@ -458,8 +458,8 @@ def test_transform_hook_nonbash_tool_recheck():
     def cb(req):
         requests.append(req)
         return False
-    events = list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs,
-                      permission_callback=cb))
+    list(run("go", ctx, reg, provider_fn=provider, hook_defs=hook_defs,
+             permission_callback=cb))
     # Permission should have been requested via the callback
     assert len(requests) >= 1
 
