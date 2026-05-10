@@ -907,7 +907,10 @@ def _build_text_renderable(text: str):
         if not body.strip():
             continue
         if kind == "think":
-            preview = body if len(body) <= 600 else body[:597] + "..."
+            # Show the *tail* of long reasoning so the user sees the model's
+            # current thoughts evolving rather than a frozen prefix during a
+            # multi-minute think. Short thinks render in full.
+            preview = body if len(body) <= 600 else "..." + body[-597:]
             blocks.append(Text.from_markup(f"[dim italic]{preview}[/dim italic]"))
         else:
             blocks.append(Markdown(body))
