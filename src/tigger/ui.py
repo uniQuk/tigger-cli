@@ -68,6 +68,22 @@ def set_turn_start(start: float | None, token_counter: list[int] | None = None) 
     _turn_token_counter = token_counter
 
 
+def _format_spinner_line(
+    msg: str, start: float | None, token_counter: list[int] | None,
+) -> str:
+    """Compose the single status line shared by both spinner implementations.
+
+    Centralises the "msg · elapsed · ↓ N tokens" layout so the two tick
+    loops below render identical output and can't drift apart.
+    """
+    parts = [msg]
+    if start is not None:
+        parts.append(format_elapsed(time.time() - start))
+    if token_counter and token_counter[0] > 0:
+        parts.append(f"↓ {token_counter[0] // 4} tokens")
+    return f"[#999999]{' · '.join(parts)}[/]"
+
+
 def _start_activity(message: str, *, rotate: bool = False) -> None:
     """Start or update a live status spinner.
 
@@ -99,14 +115,9 @@ def _start_activity(message: str, *, rotate: bool = False) -> None:
                 msg = pick_message()
                 next_change = now + random.uniform(2.5, 5.0)
             # Snapshot module globals — set_turn_start may clear them mid-tick.
-            ts = _turn_start
-            tc = _turn_token_counter
-            parts = [msg]
-            if ts is not None:
-                parts.append(format_elapsed(now - ts))
-            if tc and tc[0] > 0:
-                parts.append(f"↓ {tc[0] // 4} tokens")
-            _activity_status.update(f"[#999999]{' · '.join(parts)}[/]")
+            _activity_status.update(
+                _format_spinner_line(msg, _turn_start, _turn_token_counter)
+            )
             _activity_stop.wait(0.5)
 
     _activity_thread = threading.Thread(target=_tick, daemon=True)
@@ -630,12 +641,7 @@ def Spinner(start: float, token_counter: list[int] | None = None):
                 if now >= next_change:
                     msg = pick_message()
                     next_change = now + random.uniform(5.0, 15.0)
-                elapsed = now - start
-                parts = [msg, format_elapsed(elapsed)]
-                if token_counter and token_counter[0] > 0:
-                    tok = token_counter[0] // 4
-                    parts.append(f"↓ {tok} tokens")
-                status.update(f"[#999999]{' · '.join(parts)}[/]")
+                status.update(_format_spinner_line(msg, start, token_counter))
                 stop_event.wait(0.1)
 
         t = threading.Thread(target=_tick, daemon=True)

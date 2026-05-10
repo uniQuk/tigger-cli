@@ -144,6 +144,26 @@ Baseline: 807 tests, ~4.5s
   turn, no tests reference the removed phrase.
 - Tests: 805 → 805 (green, 4.64 s).
 
+### Iter 7 — DONE (loop tick 4)
+- **Spinner format dedup.** Both spinner implementations (the `Spinner`
+  context manager and the `_start_activity` fire-and-forget pair) hand-
+  built the same `[#999999]msg · elapsed · ↓ N tokens[/]` line in their
+  tick loops. Extracted `_format_spinner_line()` and routed both through
+  it. Centralises the layout so the two ticks can't drift apart, and
+  drops ~10 lines net. The intentional differences between the two
+  spinners (tick rate, rotation cadence, cleanup contract) stay where
+  they were.
+- **Prompt dedup, second pass.** Dropped two duplicate Anti-Patterns
+  lines: "Do not use `write` on an existing file" (already in `### write`
+  and Tool Sequencing) and "Do not glob `**/*` from project root"
+  (already in `### glob`). Saves ~30 prompt tokens per turn. The
+  bash-replacement Anti-Patterns (cat, grep, find, generic bash) stay —
+  they aren't echoed in the tool descriptions.
+- Live-tested via `tigger-code --no-think --once …` against LM Studio:
+  model returned the requested exact string, spinner UX visually
+  unchanged.
+- Tests: 805 → 805 (green, 4.62 s).
+
 ## Backlog for the next loop tick
 
 The remaining items are interesting but require either an LLM endpoint to

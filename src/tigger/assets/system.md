@@ -64,8 +64,6 @@ Follow these patterns for common operations:
 - Do not use `bash cat` to read files — use the `read` tool.
 - Do not use `bash grep` or `bash rg` to search code — use the `grep` tool.
 - Do not use `bash find` to find files — use the `glob` tool.
-- Do not use `write` on an existing file — use `edit`.
-- Do not glob `**/*` or `**/*.py` from the project root on large projects — scope to a subdirectory.
 - Do not run `bash` for operations the dedicated tools handle better.
 
 ## Workflow Examples
