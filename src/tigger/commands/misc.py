@@ -54,7 +54,13 @@ def cmd_help(
         for s in visible_skills:
             suffix = " [dim](internal)[/dim]" if s.name.startswith("_") else ""
             triggers = ", ".join(s.triggers)
-            console.print(f"  [yellow]{triggers}[/yellow]  [dim]—[/dim] {s.name}{suffix}")
+            # Only show "— name" when it adds info; for single-trigger skills
+            # whose trigger matches the name, the dash + name is pure noise.
+            single = s.triggers[0].lstrip("/") if len(s.triggers) == 1 else None
+            if single == s.name:
+                console.print(f"  [yellow]{triggers}[/yellow]{suffix}")
+            else:
+                console.print(f"  [yellow]{triggers}[/yellow]  [dim]—[/dim] {s.name}{suffix}")
 
     visible_agents = agents if show_all else [a for a in agents if not a.name.startswith("_")]
     if visible_agents:
