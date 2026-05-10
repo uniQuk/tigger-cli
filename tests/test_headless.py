@@ -185,3 +185,122 @@ def test_once_empty_response(mock_startup, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "empty response" in captured.err
+
+
+# --- Interactive REPL harness via input() mocking -------------------
+# Iter 81: protect interactive-only flows from regression. We can't drive
+# prompt_toolkit cleanly from a unit test, but the import-fallback path
+# uses plain input() — perfect for deterministic testing.
+
+
+def _mock_inputs(*lines):
+    """Build an input() side_effect that returns each line then raises EOFError."""
+    queue = list(lines)
+    def _next(prompt=""):
+        if not queue:
+            raise EOFError
+        return queue.pop(0)
+    return _next
+
+
+@patch("tigger.main.startup")
+def test_repl_runs_one_turn_then_exits(mock_startup, monkeypatch, capsys):
+    """REPL takes one user message, streams a reply, then exits on EOF."""
+    from tigger.main import StartupResult, repl
+    import pathlib
+    import sys
+    import builtins
+
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.")
+    result = StartupResult(
+        ctx=ctx,
+        commands={},
+        skills=[],
+        agents=[],
+        registry=ToolRegistry(),
+        hook_defs=[],
+        provider_fn=_make_provider("hi from fake llm"),
+        config_path=pathlib.Path("/tmp/fake.toml"),
+    )
+
+    # Force the prompt_toolkit ImportError fallback so input() is the source.
+    real_import = builtins.__import__
+    def _fail_pt(name, *args, **kwargs):
+        if name.startswith("prompt_toolkit"):
+            raise ImportError("forced for test")
+        return real_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", _fail_pt)
+
+    # Mock stdin so isatty returns False (skip interactive trust prompt path).
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(builtins, "input", _mock_inputs("hello"))
+
+    repl(result)
+
+    out = capsys.readouterr().out
+    assert "hi from fake llm" in out
+
+
+@patch("tigger.main.startup")
+def test_repl_slash_exit_breaks_loop(mock_startup, monkeypatch, capsys):
+    """Typing /exit cleanly leaves the REPL loop."""
+    from tigger.main import StartupResult, repl
+    import pathlib
+    import builtins
+
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="")
+    result = StartupResult(
+        ctx=ctx, commands={}, skills=[], agents=[],
+        registry=ToolRegistry(), hook_defs=[],
+        provider_fn=_make_provider("never reached"),
+        config_path=pathlib.Path("/tmp/fake.toml"),
+    )
+
+    real_import = builtins.__import__
+    def _fail_pt(name, *args, **kwargs):
+        if name.startswith("prompt_toolkit"):
+            raise ImportError("forced")
+        return real_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", _fail_pt)
+    monkeypatch.setattr(builtins, "input", _mock_inputs("/exit"))
+
+    repl(result)
+    # No turn should have run — the provider's output should not appear.
+    out = capsys.readouterr().out
+    assert "never reached" not in out
+
+
+@patch("tigger.main.startup")
+def test_repl_unknown_slash_command_suggests_match(mock_startup, monkeypatch, capsys):
+    """Iter 36 did-you-mean: typo /halp suggests /help."""
+    from tigger.main import StartupResult, repl
+    from tigger.commands.misc import cmd_help
+    import pathlib
+    import builtins
+
+    cfg = Config(base_url="http://x", model="m", permission_mode="bypass")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="")
+    result = StartupResult(
+        ctx=ctx,
+        # Need at least one real command name so difflib has a haystack.
+        commands={"help": lambda *_args, **_kw: None},
+        skills=[], agents=[],
+        registry=ToolRegistry(), hook_defs=[],
+        provider_fn=_make_provider(),
+        config_path=pathlib.Path("/tmp/fake.toml"),
+    )
+
+    real_import = builtins.__import__
+    def _fail_pt(name, *args, **kwargs):
+        if name.startswith("prompt_toolkit"):
+            raise ImportError("forced")
+        return real_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", _fail_pt)
+    monkeypatch.setattr(builtins, "input", _mock_inputs("/halp", "/exit"))
+
+    repl(result)
+    out = capsys.readouterr().out
+    assert "/halp" in out
+    assert "/help" in out  # the suggestion

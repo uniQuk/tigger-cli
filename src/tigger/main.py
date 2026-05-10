@@ -644,12 +644,13 @@ def main() -> None:
                     "(LM Studio, Ollama) and cloud endpoints.",
         epilog=(
             "Examples:\n"
-            "  tigger-code                       # interactive REPL\n"
-            "  tigger-code -c                    # resume the most recent session\n"
-            "  tigger-code -q                    # interactive without the welcome banner\n"
-            "  tigger-code --once 'hello'        # single turn; stdout=answer, exit=0/1/2/130\n"
-            "  tigger-code --once 'hi' | jq -R   # pipe-friendly\n"
+            "  tigger-code                              # interactive REPL\n"
+            "  tigger-code -c                           # resume the most recent session\n"
+            "  tigger-code -q                           # interactive without the welcome banner\n"
+            "  tigger-code --once 'hello'               # single turn; stdout=answer\n"
+            "  tigger-code --once 'summarise @main.py' > out.md   # pipe-friendly\n"
             "\n"
+            "Exit codes (--once):  0 ok · 1 empty response · 2 network/provider · 130 SIGINT\n"
             "Inside the REPL: /help for commands, Tab to complete, @path/to/file to "
             "inline a file."
         ),
@@ -680,6 +681,12 @@ def main() -> None:
         "-q", "--quiet", action="store_true",
         help="Skip the logo, cat, MCP, and recent-summary notices on startup. "
              "REPL still runs.",
+    )
+    parser.add_argument(
+        "--no-think", action="store_true",
+        help="Disable thinking mode for this invocation "
+             "(chat_template_kwargs.enable_thinking=False). "
+             "Useful with --once for fast non-thinking responses.",
     )
     parsed = parser.parse_args()
 
@@ -715,6 +722,13 @@ def main() -> None:
         result.ctx.config = dataclasses.replace(result.ctx.config, mode=mode)
     if parsed.permission is not None:
         result.ctx.config = dataclasses.replace(result.ctx.config, permission_mode=parsed.permission)
+    if parsed.no_think:
+        # Mirror /think off (iter 79) — flip enable_thinking before any turn runs.
+        kwargs = dict(result.ctx.config.chat_template_kwargs or {})
+        kwargs["enable_thinking"] = False
+        result.ctx.config = dataclasses.replace(
+            result.ctx.config, chat_template_kwargs=kwargs,
+        )
 
     # Validate mode against resolved mode names
     mode_names = {m.name for m in result.ctx.modes}

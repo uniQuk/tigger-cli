@@ -1169,3 +1169,65 @@ def test_session_summary_shortens_mcp_tool_names(monkeypatch):
     # Full mcp__ prefix should be gone from the breakdown row.
     breakdown_line = next(l for l in out.splitlines() if "Top tools:" in l)
     assert "mcp__filesystem__read_file" not in breakdown_line
+
+
+def test_cmd_think_status_shows_current(monkeypatch):
+    import tigger.ui as ui_mod
+    from tigger.commands.misc import cmd_think
+    from tigger.types import Config, RunContext, TrustLevel
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    cfg = Config(base_url="x", model="m", api_key="k",
+                 chat_template_kwargs={"enable_thinking": True})
+    ctx = RunContext(config=cfg, messages=[], system_prompt="",
+                     trust_level=TrustLevel.ALWAYS)
+    cmd_think("", ctx)
+    assert "on" in buf.getvalue().lower()
+
+
+def test_cmd_think_off_mutates_config(monkeypatch):
+    import tigger.ui as ui_mod
+    from tigger.commands.misc import cmd_think
+    from tigger.types import Config, RunContext, TrustLevel
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    cfg = Config(base_url="x", model="m", api_key="k",
+                 chat_template_kwargs={"enable_thinking": True})
+    ctx = RunContext(config=cfg, messages=[], system_prompt="",
+                     trust_level=TrustLevel.ALWAYS)
+    cmd_think("off", ctx)
+    assert ctx.config.chat_template_kwargs["enable_thinking"] is False
+
+
+def test_cmd_think_toggle(monkeypatch):
+    import tigger.ui as ui_mod
+    from tigger.commands.misc import cmd_think
+    from tigger.types import Config, RunContext, TrustLevel
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    cfg = Config(base_url="x", model="m", api_key="k",
+                 chat_template_kwargs={"enable_thinking": False})
+    ctx = RunContext(config=cfg, messages=[], system_prompt="",
+                     trust_level=TrustLevel.ALWAYS)
+    cmd_think("toggle", ctx)
+    assert ctx.config.chat_template_kwargs["enable_thinking"] is True
+    cmd_think("toggle", ctx)
+    assert ctx.config.chat_template_kwargs["enable_thinking"] is False
+
+
+def test_cmd_think_no_op_when_already_at_state(monkeypatch):
+    import tigger.ui as ui_mod
+    from tigger.commands.misc import cmd_think
+    from tigger.types import Config, RunContext, TrustLevel
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    cfg = Config(base_url="x", model="m", api_key="k",
+                 chat_template_kwargs={"enable_thinking": False})
+    ctx = RunContext(config=cfg, messages=[], system_prompt="",
+                     trust_level=TrustLevel.ALWAYS)
+    cmd_think("off", ctx)
+    assert "already" in buf.getvalue().lower()

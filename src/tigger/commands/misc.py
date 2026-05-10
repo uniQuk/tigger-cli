@@ -255,6 +255,50 @@ def cmd_mode(args: str, ctx: RunContext, modes: list | None = None) -> None:
     console.print(f"[dim]✓ Mode set to[/dim] [cyan]{new_mode}[/cyan]")
 
 
+def cmd_think(args: str, ctx: RunContext) -> None:
+    """Toggle chat_template_kwargs.enable_thinking on the active config.
+
+    Useful when the configured model has thinking enabled by default
+    (Qwen 3.6 with `enable_thinking: true`): a 30-second simple question
+    becomes 4 minutes of buffered reasoning before any output. Flipping
+    it off mid-session swaps that for fast non-thinking responses.
+    """
+    from tigger.ui import console
+
+    sub = args.strip().lower()
+    kwargs = dict(ctx.config.chat_template_kwargs or {})
+    current = bool(kwargs.get("enable_thinking", False))
+
+    if not sub or sub == "status":
+        state = "[green]on[/green]" if current else "[red]off[/red]"
+        console.print(f"[bold]Thinking:[/bold] {state}")
+        return
+
+    if sub in ("on", "true", "1", "enable"):
+        new_val = True
+    elif sub in ("off", "false", "0", "disable"):
+        new_val = False
+    elif sub == "toggle":
+        new_val = not current
+    else:
+        console.print(
+            f"[red]Unknown[/red] /think [red]subcommand[/red] {sub!r}. "
+            "[dim]Try[/dim] [cyan]on[/cyan] | [cyan]off[/cyan] | "
+            "[cyan]toggle[/cyan] | [cyan]status[/cyan]."
+        )
+        return
+
+    if new_val == current:
+        word = "on" if new_val else "off"
+        console.print(f"[dim]Thinking already {word}.[/dim]")
+        return
+
+    kwargs["enable_thinking"] = new_val
+    ctx.config = dataclasses.replace(ctx.config, chat_template_kwargs=kwargs)
+    word = "[green]on[/green]" if new_val else "[red]off[/red]"
+    console.print(f"[dim]✓ Thinking[/dim] {word}")
+
+
 def cmd_permission(args: str, ctx: RunContext) -> None:
     from tigger.ui import console
 

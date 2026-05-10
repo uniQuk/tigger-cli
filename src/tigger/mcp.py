@@ -57,7 +57,7 @@ def _coerce_tier(value: str | None, *, where: str) -> str:
         return value
     from tigger.ui import console as _console
     _console.print(
-        f"      [yellow]\[mcp] Warning:[/yellow] unknown tier {value!r} for "
+        f"      [yellow]\\[mcp] Warning:[/yellow] unknown tier {value!r} for "
         f"{where}, [dim]defaulting to 'eager'[/dim]"
     )
     return "eager"
@@ -85,7 +85,7 @@ def load_mcp_config(path: pathlib.Path) -> list[McpServerConfig]:
             else:
                 from tigger.ui import console as _console
                 _console.print(
-                    f"      [yellow]\[mcp] Warning:[/yellow] unknown tier {raw_t!r} for "
+                    f"      [yellow]\\[mcp] Warning:[/yellow] unknown tier {raw_t!r} for "
                     f"{name!r}.tools.{tool_name!r}, [dim]ignoring[/dim]"
                 )
         # Stdio default only applies when transport not specified AND we're connecting.
@@ -468,7 +468,7 @@ def connect_all(
     if require_consent:
         names = [c.name for c in configs]
         console.print(
-            f"      [dim]\[mcp][/dim] Found MCP servers: "
+            f"      [dim]\\[mcp][/dim] Found MCP servers: "
             f"[magenta]{', '.join(names)}[/magenta]"
         )
         try:
@@ -476,7 +476,7 @@ def connect_all(
         except (KeyboardInterrupt, EOFError):
             answer = "n"
         if answer != "y":
-            console.print("      [dim]\[mcp] Skipped — MCP servers not launched.[/dim]")
+            console.print("      [dim]\\[mcp] Skipped — MCP servers not launched.[/dim]")
             return
 
     import atexit
@@ -489,7 +489,7 @@ def connect_all(
         # but skip subprocess spawn / network connect / handshake entirely.
         if cfg.tier == "disabled":
             console.print(
-                f"      [dim]\[mcp] Skipped disabled server:[/dim] "
+                f"      [dim]\\[mcp] Skipped disabled server:[/dim] "
                 f"[magenta]{cfg.name}[/magenta]"
             )
             _connections.append(McpConnection(
@@ -517,7 +517,7 @@ def connect_all(
 
             if server_protocol and server_protocol != _PROTOCOL_VERSION:
                 console.print(
-                    f"      [yellow]\[mcp] Warning:[/yellow] [magenta]{cfg.name}[/magenta] "
+                    f"      [yellow]\\[mcp] Warning:[/yellow] [magenta]{cfg.name}[/magenta] "
                     f"uses protocol [cyan]{server_protocol}[/cyan] "
                     f"[dim](client: {_PROTOCOL_VERSION})[/dim]"
                 )
@@ -536,7 +536,7 @@ def connect_all(
                     for override_name in cfg.tool_tiers:
                         if override_name not in listed_names:
                             console.print(
-                                f"      [yellow]\[mcp] Warning:[/yellow] "
+                                f"      [yellow]\\[mcp] Warning:[/yellow] "
                                 f"[magenta]{cfg.name}[/magenta] per-tool override "
                                 f"references unknown tool {override_name!r}; "
                                 "[dim]ignoring.[/dim]"
@@ -556,7 +556,7 @@ def connect_all(
                         ))
                 except McpTransportError as exc:
                     console.print(
-                        f"      [yellow]\[mcp] Warning:[/yellow] "
+                        f"      [yellow]\\[mcp] Warning:[/yellow] "
                         f"[magenta]{cfg.name}[/magenta] tools/list failed: "
                         f"[red]{exc}[/red]"
                     )
@@ -572,12 +572,12 @@ def connect_all(
 
         except McpTransportError as exc:
             console.print(
-                f"      [yellow]\[mcp] Warning:[/yellow] failed to connect to "
+                f"      [yellow]\\[mcp] Warning:[/yellow] failed to connect to "
                 f"[magenta]{cfg.name}[/magenta]: [red]{exc}[/red]"
             )
         except Exception as exc:
             console.print(
-                f"      [yellow]\[mcp] Warning:[/yellow] failed to connect to "
+                f"      [yellow]\\[mcp] Warning:[/yellow] failed to connect to "
                 f"[magenta]{cfg.name}[/magenta]: [red]{exc}[/red]"
             )
 
@@ -588,7 +588,7 @@ def connect_all(
         n_tools = sum(1 for t in registry.all() if t.name.startswith("mcp__"))
         names = ", ".join(c.name for c in live)
         console.print(
-            f"      [dim]\[mcp] connected:[/dim] [magenta]{names}[/magenta] "
+            f"      [dim]\\[mcp] connected:[/dim] [magenta]{names}[/magenta] "
             f"[dim]({n_tools} tool{'s' if n_tools != 1 else ''})[/dim]"
         )
 
