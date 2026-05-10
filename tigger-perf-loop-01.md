@@ -201,6 +201,65 @@ Baseline: 807 tests, ~4.5s
   Trivial; runs whenever compaction layer 1 fires.
 - Tests: 802 → 802 (green, 4.70 s).
 
+### Iter 11 — DONE (live A/B against LM Studio, partial)
+**Findings from live runs against `qwen3.6-27b` at 192.168.2.122:1234:**
+- Baseline behaviour for trivial questions is bad. Asking
+  "What language is this project in?" took **5 minutes** and produced a
+  multi-paragraph answer with structured bullets — the model investigates
+  via `glob` + `read` + `analyze` even when the answer is "Python".
+- Adding "Answer in 1 word, no tool calls." → instant "Python" in ~10 s.
+  The model *can* be concise, but defaults to verbose investigation.
+- Asking `2+2` with `--no-think` is fast (17 s, "4"). Tool-use chain
+  ("count .py files in src/tigger") works correctly — 50 s, returns "38".
+
+**Root cause:** The `### Codebase Orientation` section literally said "On
+your first interaction in a new project, orient yourself" — the local
+model takes this as a directive to investigate every first prompt. Combined
+with the old "Prefer showing over telling — use tools to demonstrate"
+Response Style line, it actively pushes verbose tool use even for
+trivial questions.
+
+**Changes made:**
+- Reframed `### Codebase Orientation` to scope orientation to "substantial
+  work in an unfamiliar project" only, with an explicit "For direct
+  factual questions or quick lookups, answer immediately without preamble
+  or investigation" carve-out.
+- Replaced "Prefer showing over telling — use tools to demonstrate
+  rather than describing hypothetically" with "Match effort to the
+  question. A direct factual question gets a one-line answer with no
+  tool calls. […] Do not investigate when the answer is obvious; do not
+  pad answers with structure the user did not ask for."
+
+**Live A/B re-test:** asking the same "what language" question with the
+new prompt still produced a 7-minute verbose investigation. The local
+Qwen model appears to follow training patterns more than system-prompt
+nuance for this behaviour — single-prompt A/B doesn't show
+improvement. Verified `2+2` still answers in ~10 s (no regression on
+the well-behaved path).
+
+**Read:** the prompt edits are directionally correct (clearer rules,
+explicit carve-out for direct questions) and may help other / future
+models, but won't fix this specific pathology on local Qwen alone. To
+actually move the needle for this model would need either (a) a much
+shorter / restructured system prompt or (b) a model upgrade. Filed both
+as backlog items.
+
+- Tests: 802 → 802 (green, 4.62 s).
+
+## Updated backlog
+
+- **Live model behaviour:** local `qwen3.6-27b` over-investigates trivial
+  questions even after stronger prompt directives. Worth experimenting
+  with a *much* shorter system prompt (drop the workflow examples, the
+  long "Writing large files" section, etc.) to see if reducing prompt
+  noise helps the model anchor on the conciseness rule. Risky — those
+  sections were added to fix concrete failure modes — so any trim needs
+  multi-prompt A/B coverage, not single-shot.
+- The streaming throttle (iter 1) and prompt dedups (iters 2, 6, 7, 9, 11)
+  combine to a measurable but small token savings per turn (~70-100
+  prompt tokens). The bigger latency win for trivial questions is purely
+  a model-behaviour problem, not a prompt-token-count problem.
+
 ## Backlog for the next loop tick
 
 The remaining items are interesting but require either an LLM endpoint to
