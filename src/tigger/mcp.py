@@ -364,7 +364,7 @@ class SseTransport:
         try:
             response = q.get(timeout=30.0)
         except queue.Empty:
-            raise McpTransportError("SSE response timed out")
+            raise McpTransportError("SSE response timed out") from None
         finally:
             self._pending.pop(msg["id"], None)
 
