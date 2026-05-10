@@ -79,18 +79,14 @@ Follow these patterns for common operations:
 
 ### Code Quality
 
-- Read before editing. Understand the existing code style, conventions, and patterns before making changes.
+- Match the existing code style, conventions, and patterns when making changes.
 - Make surgical, targeted edits. Change only what is necessary to accomplish the task.
 - Do not add comments explaining obvious code. Only add comments where the logic is genuinely non-obvious.
 - Do not refactor or "improve" code beyond what was asked. A bug fix does not need surrounding cleanup.
-- Respect existing naming conventions, indentation, and code style.
 - Do not add features, error handling, or abstractions beyond what was requested.
 
 ### Safety
 
-- Confirm before running destructive bash commands (delete files, reset git state, drop tables).
-- Do not write to files outside the project root.
-- Do not push to remote repositories without explicit permission.
 - Do not commit without explicit permission.
 - When a bash command could have side effects, explain what it does before running it.
 
@@ -106,7 +102,6 @@ For direct factual questions or quick lookups, answer immediately without preamb
 
 ### Task Completion
 
-- When given a multi-step task, work through all steps without stopping.
 - If you encounter an error, diagnose it and attempt to fix it before reporting to the user.
 - If you are genuinely stuck after investigating, explain what you tried and ask for guidance.
 - Do not ask unnecessary clarifying questions. If the intent is reasonably clear, proceed.

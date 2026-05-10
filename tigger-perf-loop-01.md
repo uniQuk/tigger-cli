@@ -349,6 +349,22 @@ less wall time. System prompt: 233 → **121 lines** since loop start
 
 - Tests: 801 → 801 (green, 4.33 s).
 
+### Iter 17 — DONE (loop tick 13)
+- **Trim Core-Mandate duplicates from Behavioural Rules.** The Safety
+  section had three rules ("confirm destructive commands", "no writes
+  outside project root", "no remote pushes without permission") that
+  re-state Core Mandates #5, #6, #7 verbatim. Task Completion's first
+  bullet ("work through all steps without stopping") restates Core
+  Mandate #1. Code Quality's first bullet ("Read before editing")
+  restates Core Mandate #4 — kept the unique part about matching
+  existing code style.
+- Net: -5 prompt-text lines. System prompt 121 → 116 (50% reduction
+  over the whole loop, from 233 originally).
+- Live re-test of 35b on the same tool-use prompt: 29 s. Earlier run
+  was 12.7 s; that's single-run variance, not a regression. Both
+  within the same order as expected.
+- Tests: 801 → 801 (green, 4.31 s).
+
 ## Updated backlog
 
 - **Live model behaviour:** local `qwen3.6-27b` over-investigates trivial
