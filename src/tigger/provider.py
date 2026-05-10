@@ -20,6 +20,11 @@ from tigger.types import (
 
 _perf_kwargs_logged = False
 
+# Wire-model ids for which we've already emitted the "server ignored
+# enable_thinking=False" warning. Dedup is per-process: re-warning every
+# turn would drown out real output, but once per model is useful signal.
+_thinking_ignored_warned: set[str] = set()
+
 _client_cache: dict[tuple[str, str, int], OpenAI] = {}
 
 
@@ -366,6 +371,22 @@ def stream(
         enable_thinking = (config.chat_template_kwargs or {}).get("enable_thinking", True)
         if enable_thinking is not False:
             final_content = f"<think>\n{collected_thinking}\n</think>\n\n{collected_text}"
+        elif config.model not in _thinking_ignored_warned:
+            # User asked for no thinking, but the server streamed it anyway
+            # (Qwen3.6-27b on LM Studio reproducer). Tigger drops the
+            # reasoning from history, but the model already paid the latency
+            # cost generating it — flag the footgun so the user can cap
+            # max_tokens or switch to a non-thinking model variant.
+            _thinking_ignored_warned.add(config.model)
+            sys.stderr.write(
+                f"[provider] {config.model!r}: server streamed "
+                f"reasoning_content despite "
+                f"chat_template_kwargs.enable_thinking=False. Reasoning "
+                f"is dropped from history, but the model still spent "
+                f"latency generating it. Cap max_tokens or switch to a "
+                f"non-thinking model variant.\n"
+            )
+            sys.stderr.flush()
 
     yield AssistantMessage(
         content=final_content,

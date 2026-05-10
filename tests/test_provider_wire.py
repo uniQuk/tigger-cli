@@ -233,6 +233,86 @@ def test_reasoning_wrapped_when_thinking_enabled():
     assert msg.content.endswith("answer")
 
 
+def test_warns_once_when_thinking_disabled_but_server_streams_reasoning(capsys):
+    """Iter-3: qwen3.6-27b on LM Studio streams reasoning_content even with
+    enable_thinking=False. The history-side drop already exists; this guard
+    surfaces the latency footgun to the user via one-shot stderr warning."""
+    from tigger import provider as provider_mod
+
+    provider_mod._thinking_ignored_warned.clear()
+
+    cfg = Config(
+        base_url="http://x", model="qwen/qwen3.6-27b", read_timeout=0,
+        chat_template_kwargs={"enable_thinking": False, "preserve_thinking": False},
+    )
+    chunks_first = [
+        _stream_chunk(reasoning="thinking..."),
+        _stream_chunk(content="answer1"),
+        _stream_chunk(finish="stop"),
+    ]
+    msg1 = _run_stream_with_chunks(chunks_first, config=cfg)
+    assert msg1 is not None and msg1.content == "answer1"
+
+    captured = capsys.readouterr()
+    assert "qwen/qwen3.6-27b" in captured.err
+    assert "enable_thinking=False" in captured.err
+    assert "reasoning_content" in captured.err
+
+    # Second call with the same wire-model must NOT re-warn.
+    chunks_second = [
+        _stream_chunk(reasoning="more thinking"),
+        _stream_chunk(content="answer2"),
+        _stream_chunk(finish="stop"),
+    ]
+    msg2 = _run_stream_with_chunks(chunks_second, config=cfg)
+    assert msg2 is not None and msg2.content == "answer2"
+    captured = capsys.readouterr()
+    assert captured.err == ""
+
+
+def test_no_warn_when_thinking_disabled_and_no_reasoning(capsys):
+    """A well-behaved server that honors enable_thinking=False (no
+    reasoning_content streamed) does not trigger the warning."""
+    from tigger import provider as provider_mod
+
+    provider_mod._thinking_ignored_warned.clear()
+
+    cfg = Config(
+        base_url="http://x", model="quiet-model", read_timeout=0,
+        chat_template_kwargs={"enable_thinking": False},
+    )
+    chunks = [
+        _stream_chunk(content="answer"),
+        _stream_chunk(finish="stop"),
+    ]
+    msg = _run_stream_with_chunks(chunks, config=cfg)
+    assert msg is not None and msg.content == "answer"
+    captured = capsys.readouterr()
+    assert "enable_thinking" not in captured.err
+
+
+def test_no_warn_when_thinking_enabled_and_reasoning_streams(capsys):
+    """When enable_thinking is True (or unset), reasoning is expected and
+    wrapped into history — no warning."""
+    from tigger import provider as provider_mod
+
+    provider_mod._thinking_ignored_warned.clear()
+
+    cfg = Config(
+        base_url="http://x", model="thinking-model", read_timeout=0,
+        chat_template_kwargs={"enable_thinking": True},
+    )
+    chunks = [
+        _stream_chunk(reasoning="hmm"),
+        _stream_chunk(content="answer"),
+        _stream_chunk(finish="stop"),
+    ]
+    msg = _run_stream_with_chunks(chunks, config=cfg)
+    assert msg is not None and msg.content.startswith("<think>")
+    captured = capsys.readouterr()
+    assert "enable_thinking" not in captured.err
+
+
 def test_stub_two_turn_history_only_old_write_stubbed_via_stream():
     """Integration: across the wire, a two-turn sequence with a 28KB write
     in turn 1 has the assistant tool_call args replaced with a stub on the

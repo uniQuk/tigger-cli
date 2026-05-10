@@ -90,3 +90,94 @@ what the user intended.
 **Files touched:** only `tigger-model-performance.md` (created).
 
 **Tests delta:** 819 → 819 (unchanged) in 4.40 s. No code change.
+
+### Iter 2 — DONE
+
+**Dimension covered:** thinking-mode behaviour for `qwen/qwen3.6-27b`
+(both config slugs) and a code-side guard against the footgun this
+investigation surfaced.
+
+**Wire-kwargs spot-check (TIGGER_PERF=1).** Both slugs round-trip
+cleanly. `qwen3.6-27b-thinking` ships `temperature=0.6`, `top_p=0.95`,
+`max_tokens=32768`, `extra_body.chat_template_kwargs={enable_thinking:
+true, preserve_thinking: true}`. `qwen3.6-27b-instruct` ships
+`temperature=0.7`, `top_p=0.8`, `presence_penalty=0`, no `max_tokens`
+key (config's `max_tokens: 0` is correctly stripped at provider.py:225 —
+"0 means unlimited"), and `enable_thinking:false, preserve_thinking:false`.
+
+**Latency (warm, prompt = "Reply with exactly: pong-iter3-...").**
+
+| variant  | wall_s | last_in | total_out | finish | EC |
+|----------|--------|---------|-----------|--------|----|
+| thinking | 162.67 | 4917    | 29        | stop   | 0  |
+| instruct | >240   | —       | —         | —      | 142 (alarm) |
+
+The thinking variant burning ~3000 reasoning tokens before a 29-token
+visible reply is expected. The **instruct variant not returning in
+240 s** is not — and is the iter's surprise.
+
+**Root cause — verified by direct curl bypassing tigger.** The
+`qwen/qwen3.6-27b` chat template on this LM Studio build silently
+ignores `chat_template_kwargs.enable_thinking=false`. Three probes, all
+return non-empty `reasoning_content`:
+
+1. `chat_template_kwargs:{enable_thinking:false}` at top level
+2. `extra_body.chat_template_kwargs:{enable_thinking:false}` (tigger path)
+3. `/no_think` token appended to the user message
+
+With `max_tokens: 0` (unlimited) on the "instruct" config entry, the
+model has no cap on reasoning, so for a tiny prompt it grinds out
+reasoning until something else stops it — past the 240 s alarm here.
+By contrast, `qwen/qwen3.6-35b-a3b` (iter 1 of the archived cycle, warm
+1.58 s for 26 visible tokens) genuinely honours `enable_thinking:false`.
+The 27b-dense does not. The two `27b-thinking` / `27b-instruct`
+config entries point at the **same wire model** with the **same
+runtime behaviour** — the "instruct" entry is a misnomer on this build.
+
+**Tigger-side state of play.** `provider.py:358-368` already drops
+`reasoning_content` from history when `enable_thinking is False`, so
+re-sent context is clean. What was missing: any signal to the user that
+the *current* turn paid latency on reasoning anyway.
+
+**Fix (small, surgical, `provider.py`).** Module-level
+`_thinking_ignored_warned: set[str]`. When `enable_thinking is False`
+but `collected_thinking` is non-empty, emit a one-shot stderr warning
+keyed on `config.model`. Drop-from-history behaviour unchanged. Warning
+text suggests the two real workarounds: cap `max_tokens`, or pick a
+different model variant.
+
+**Verified live (capsys-driven unit tests).**
+
+```
+[provider] 'qwen/qwen3.6-27b': server streamed reasoning_content despite
+chat_template_kwargs.enable_thinking=False. Reasoning is dropped from
+history, but the model still spent latency generating it. Cap max_tokens
+or switch to a non-thinking model variant.
+```
+
+Second call to the same wire model in the same process: no re-warn
+(asserted in `test_warns_once_when_thinking_disabled_but_server_streams_reasoning`).
+
+**Files touched:** `src/tigger/provider.py`, `tests/test_provider_wire.py`,
+`tigger-model-performance.md`.
+
+**Tests delta:** 819 → 822 in 4.30 s. Three new tests:
+- `test_warns_once_when_thinking_disabled_but_server_streams_reasoning`
+- `test_no_warn_when_thinking_disabled_and_no_reasoning`
+- `test_no_warn_when_thinking_enabled_and_reasoning_streams`
+
+**Followups parked for iter 3+:**
+
+- The `qwen/qwen3.6-27b-instruct` config entry is effectively a misnomer
+  on this server — same wire id, same reasoning behaviour as the
+  -thinking entry, just with an `enable_thinking:false` the template
+  ignores. Either drop the entry or pin a low `max_tokens` so a single
+  turn can't reason away an entire stream.
+- 4.9k input tokens (`_tools_count=13`) is the same flat tax on every
+  turn. Iter 3+ candidate: measure how much of that is prefix-cacheable
+  on the LM Studio host — a cold KV cache is a per-turn cost on every
+  model in the config.
+- `assets/system.md` was not modified this iter. The Qwen3.6 family's
+  per-model thinking quirks suggest a `system_prompt_extra` override
+  (already supported by config, see `f891a0a`) per-model entry is more
+  useful than splitting `system.md` itself. Park.
