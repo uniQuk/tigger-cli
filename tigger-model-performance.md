@@ -979,3 +979,102 @@ existing tests rather than adding new ones.
   Park as a UX question: should the warning fire once *per noticeable
   spike* (e.g. every 1000 wasted thinking-tokens) rather than once
   per process? Likely overkill.
+
+### Iter 10 — DONE
+
+**Dimension covered:** prompt-engineering A/B via `system_prompt_extra`
+— directly tests whether iter 9's wasted-reasoning footgun is
+suppressible via a prompt-level directive, before considering any
+config or wire-level mitigation.
+
+**Method.** Two 3-run blocks on `qwen/qwen3.6-35b-a3b --no-think`,
+same prompt shape (`"Reply with exactly: pong-{base|extra}-N"`).
+Between blocks: add `system_prompt_extra` to `.tigger/config.json`
+with a strongly-worded suppression directive (`"CRITICAL: For this
+run, do not generate any hidden reasoning, internal thoughts, or
+<think> blocks. Answer directly with only the final reply."`).
+Reverted after the variant block; commit diff is empty for config.
+
+**Results.**
+
+| block       | wall_s (3 runs)   | total_out (3 runs) | last_in   | finish | EC |
+|-------------|-------------------|--------------------|-----------|--------|---:|
+| baseline    | 1.21, 1.51, 1.80  |  **7, 22, 34**     | **4913**  | stop   | 0  |
+| with extra  | 1.99, 1.86, 1.84  | **36, 34, 31**     | **4944**  | stop   | 0  |
+| **Δ mean**  | +0.39 s (+26%)    | **+12.7 tok (+60%)** | **+31 tok** | —    | —  |
+
+Means: baseline out 21.0 / wall 1.51 s; variant out 33.7 / wall 1.90 s.
+
+**Findings.**
+
+1. **The system_prompt_extra is being appended correctly.** `last_in`
+   moves 4913 → 4944 between blocks — a 31-token delta that matches
+   the directive's char count divided by ~4. Confirms `main.py:199-205`
+   threads `system_prompt_extra` into the active system prompt with
+   no loss.
+2. **The directive is ignored.** Output tokens went *up* with the
+   directive, not down — mean 21 → 34 across 3 runs each. Within the
+   per-run variance band, but directionally contrary to intent.
+3. **Visible answers remained correct** across all 6 runs
+   (`pong-base-N` and `pong-extra-N` returned exactly). The model
+   complies with the user's *visible* output instruction; what it
+   doesn't comply with is the *hidden reasoning suppression*.
+4. **Per-turn cost of running the directive: +31 input tok + ~13
+   wasted output tok + ~0.4 s wall, every turn, with no behavioural
+   benefit.** Net cost on a 50-turn session: ~1550 prefill tokens
+   plus reasoning tokens, for zero gain.
+
+**Confirms iter 9's diagnosis.** The reasoning-stream is generated
+by the model's chat template / server config, not by anything in the
+agent's user-visible prompt. Prompt-level directives — even
+imperative, all-caps, "CRITICAL" framing — do not steer it. The only
+controls that actually move this are:
+
+- `chat_template_kwargs.enable_thinking: False` (already set; server
+  ignores it on the current LM Studio host)
+- `max_tokens` cap (bounds the per-turn waste; iter 9's parked
+  followup)
+- model swap to a non-thinking variant
+- LM Studio host-side config change (operator action)
+
+**No actionable code change this iter.** A negative result is still a
+result — closes the "have we tried just asking the model nicely?"
+question definitively. Saves a future iter from re-running the same
+experiment when someone else inevitably suggests it.
+
+**Root cause:** none — measurement and confirmation tick.
+
+**Files touched:** `tigger-model-performance.md` only.
+(`.tigger/config.json` flipped + reverted in-flight; commit diff is
+empty for it.)
+
+**Tests delta:** 824 → 824 (unchanged) in 4.28 s. No code change.
+
+**Observation worth flagging — the input-token delta tells us
+`system_prompt_extra` is rendered to ~7.75 chars/tok** (31 chars
+divided into a ~31-tok server-side count). That's well below the
+~4 chars/tok rule of thumb used elsewhere in iter 4/5/7 static
+estimates — meaning the LM Studio tokenizer for Qwen3.6 packs this
+prompt content tightly, and **static estimates that use 4 chars/tok
+may be slight under-counts of *some* prompt sections while over-
+counting others**. Worth re-examining in a future iter that wants
+to refine the static-partition methodology.
+
+**Followups parked for iter 11+:**
+
+- The "tokens-per-char ratio" finding above is worth one careful
+  measurement: take iter 4/5/7's static-byte counts and divide by
+  *measured* per-section input_token deltas (toggle bytes in/out of
+  the prompt, measure the wire). Would calibrate the 4-chars/tok
+  heuristic against actual Qwen3.6 BPE behaviour. Park as a
+  methodology refinement.
+- A symmetric A/B with `system_prompt_extra` testing the
+  **complement**: a directive that *encourages* visible chain-of-
+  thought ("explain your reasoning step by step"). If the model
+  ignores both reasoning-on and reasoning-off prompts, the prompt
+  surface is fully dead for reasoning control. If it honours the
+  positive version, the model has an asymmetric prompt-steerability
+  profile worth documenting.
+- max_tokens cap is still iter 9's #1 parked followup — would
+  bound the per-turn reasoning waste mechanically rather than via
+  prompting.
