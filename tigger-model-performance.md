@@ -1275,3 +1275,42 @@ The 35b-a3b MoE is ~5.7× faster per-token than the 31b dense for the same task.
 
 - `google/gemma-4-26b-a4b` warm latency — the 26b MoE counterpart; expect closer to the 35b-a3b MoE numbers if MoE-vs-dense is the dominant axis.
 - `qwen_qwen3.6-27b@q4_k_l-instruct` still untouched in this cycle.
+
+### Iter 14 — DONE
+
+**Dimension covered:** simple-chat latency baseline for `google/gemma-4-26b-a4b` (MoE, 4b active) — clears iter-13's parked follow-up and tests the MoE-vs-dense hypothesis. Tick started with LM Studio warm on the 31b dense gemma, so r1 paid the cold-load tax on the model swap.
+
+**Wall-clock used:** ~3m of 7m.
+
+**Bench numbers (four back-to-back runs, identical 4577-token prefix):**
+
+| run | wall_s | last_in | total_out | finish | EC | regime                                |
+|-----|--------|---------|-----------|--------|----|---------------------------------------|
+| r1  | 46.92  | 4577    | 13        | stop   | 0  | cold-load (model swap from 31b)       |
+| r2  | 3.70   | 4577    | 13        | stop   | 0  | model warm, KV-cache cold             |
+| r3  | 0.89   | 4577    | 13        | stop   | 0  | model + prefix KV-cache warm          |
+| r4  | 0.90   | 4577    | 13        | stop   | 0  | model + prefix KV-cache warm (stable) |
+
+The r2 → r3/r4 drop from 3.70 s to ~0.9 s is the LM Studio host hitting its prefix-cache for the 4577-token system+tools prefill. Tigger's `[perf] cache_hit_estimate` heuristic (noted as conservative in `provider.py`) misses this — empirically, the host *is* caching across requests when the prefix is identical.
+
+**Verified / changed:** docs only. Hypothesis from iter 13 confirmed.
+
+**Updated MoE vs dense comparison (warm-warm steady state):**
+
+| model                              | warm wall_s | out_t | tok/s decode (est.) | class               |
+|------------------------------------|-------------|-------|---------------------|---------------------|
+| `qwen/qwen3.6-35b-a3b`            | 1.58        | 26    | ~16.5               | MoE, 3B active      |
+| `google/gemma-4-26b-a4b`          | 0.89        | 13    | ~14.6               | MoE, 4B active      |
+| `google/gemma-4-31b`              | 18.00       | 52    | ~2.9                | dense, 31B          |
+| `qwen/qwen3.6-27b-thinking` (warm) | 162.7      | 29 vis (+~3000 think) | ~18.4 (incl. think) | dense, 27B + reasoning |
+
+MoE-on-this-hardware is ~5× faster per decoded token than dense-on-this-hardware at comparable parameter counts. Both MoE entries cluster within ~13 % of each other (14.6 vs 16.5 tok/s) — well within run-to-run noise on a shared LM Studio host.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 824 → 824 in 4.39 s. No code change.
+
+**Parked for later:**
+
+- `qwen_qwen3.6-27b@q4_k_l-instruct` still untouched. It's the only remaining model entry without a wire-kwargs or warm-latency baseline.
+- The r2 → r3 host-side prefix-cache evidence (3.70 → 0.89 s on identical 4577-token prefix) suggests the `cache_hit_estimate` heuristic could be tightened: when the same prefix has been sent within the last N seconds, the empirical hit is nearly total. Worth a one-tick measurement of `last_in` × decode-rate vs `wall_s` to back out a real cache-hit ratio.
