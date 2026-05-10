@@ -181,3 +181,77 @@ Second call to the same wire model in the same process: no re-warn
   per-model thinking quirks suggest a `system_prompt_extra` override
   (already supported by config, see `f891a0a`) per-model entry is more
   useful than splitting `system.md` itself. Park.
+
+### Iter 3 — DONE
+
+**Dimension covered:** wire-kwargs verification + first real `[perf]`
+timing line of the cycle, both for `qwen/qwen3.6-35b-a3b` — the slug
+iter 2 named "the only model that actually honours `enable_thinking:
+false`". Coverage gap closed.
+
+**Wire-kwargs (TIGGER_PERF=1, --once "Reply with exactly: pong-iter3").**
+
+```
+{"model":"qwen/qwen3.6-35b-a3b","temperature":0.7,"stream":true,
+ "max_tokens":8192,"top_p":0.8,"presence_penalty":1.5,
+ "extra_body":{"top_k":20,"min_p":0.0,"repetition_penalty":1.0,
+  "chat_template_kwargs":{"enable_thinking":false}},
+ "stream_options":{"include_usage":true},
+ "_messages_count":2,"_tools_count":13}
+```
+
+Round-trip is clean. Notable deltas vs the 27b-instruct kwargs from
+iter 2:
+
+| key                              | 35b-a3b | 27b-instruct |
+|----------------------------------|---------|--------------|
+| `temperature`                    | 0.7     | 0.7          |
+| `top_p`                          | 0.8     | 0.8          |
+| `presence_penalty`               | **1.5** | 0            |
+| `max_tokens`                     | **8192**| _absent_ (0→stripped) |
+| `chat_template_kwargs.preserve_thinking` | _absent_ | false |
+
+Per-model `max_tokens: 8192` ships intact; per-model `presence_penalty:
+1.5` ships intact. Absence of `preserve_thinking` confirms the
+serialiser only forwards keys the config sets — no synthetic defaults
+leaking into the wire payload (good).
+
+**Timing.**
+
+```
+[perf] 1778444375  turn=1  wall=23.60s  compact=0.01s
+        in=4913  out=7  msgs=2  prompt_chars=42  finish=stop
+        tool_calls=0  continuations=0  delta_chars=42
+        tokens_per_sec=0.30  cache_hit_estimate=0.000
+[perf] prefill-dominant turn 1: wall=23.6s out=7tok delta_chars=42
+```
+
+- **EC=0**, stdout = `pong-iter3` (single trailing newline; iter-58
+  contract intact).
+- **No `[provider]` thinking-ignored warning** — confirms iter 2's
+  claim that this model genuinely honours `enable_thinking:false`.
+- **23.60 s wall for 7 output tokens** = 0.30 tok/s overall, but the
+  emitted prefill-dominant warning makes it explicit: the cost is the
+  4913 input tokens, not the 7 output tokens. Compare to iter 2's
+  warm 1.58 s figure — same model, this run is cold prefill. 4913
+  input tokens at, say, ~200 tok/s prefill = ~25 s, which lines up.
+
+**Quantifying the tools-schema tax.** Iter 2 parked "4.9k input tokens
+flat tax" as an open question. This iter confirms the exact number on
+a 35b-a3b round-trip: **4913 input tokens for a 42-char user prompt
+across 13 tool schemas**. Per-tool average ≈ 378 input tokens. That
+matches the order-of-magnitude expectation for OpenAI-style JSON-schema
+serialisation but is worth a closer look in a future iter (split the
+tools schemas to measure each one's contribution, or strip-down candidates).
+
+**Root cause:** none — clean spot-check + measurement.
+
+**Files touched:** `tigger-model-performance.md` only.
+
+**Tests delta:** 822 → 822 (unchanged) in 4.33 s. No code change.
+
+**Followup parked for iter 4+:**
+
+- Per-tool prefill cost. Bisect the 13-tool schema by toggling
+  `disable_tools` (see commit `28c092d`) across two runs and compare
+  `input_tokens` deltas — pin which tool's schema is the heaviest.
