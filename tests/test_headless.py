@@ -138,6 +138,64 @@ def test_trust_flag_sets_auto_trust(mock_startup, capsys, monkeypatch):
 
 
 @patch("tigger.main.startup")
+def test_no_think_overrides_model_per_entry_thinking(mock_startup, capsys, monkeypatch):
+    """Iter-2 regression: --no-think must override the per-model
+    chat_template_kwargs that --model copies in via switch_model. Before
+    the fix, --no-think ran first and was silently overwritten by the
+    later --model switch."""
+    import pathlib
+    from tigger.main import StartupResult
+    from tigger.types import ModelConfig, ProviderConfig
+
+    captured: dict = {}
+
+    def capture_provider(system, messages, tools, config):
+        captured["chat_template_kwargs"] = dict(config.chat_template_kwargs or {})
+        yield AssistantMessage(content="ok", tool_calls=[])
+
+    # Provider with one thinking-on model. --no-think must flip it off.
+    thinking_model = ModelConfig(
+        chat_template_kwargs={"enable_thinking": True, "preserve_thinking": True}
+    )
+    provider = ProviderConfig(
+        name="local",
+        base_url="http://x",
+        api_key="local",
+        models={"thinker": thinking_model},
+    )
+    cfg = Config(
+        base_url="http://x",
+        model="thinker",
+        model_slug="thinker",
+        api_key="local",
+        providers={"local": provider},
+        active_provider="local",
+        permission_mode="bypass",
+        chat_template_kwargs={"enable_thinking": True, "preserve_thinking": True},
+    )
+    ctx = RunContext(config=cfg, messages=[], system_prompt="")
+    mock_startup.return_value = StartupResult(
+        ctx=ctx,
+        commands={},
+        skills=[],
+        agents=[],
+        registry=ToolRegistry(),
+        hook_defs=[],
+        provider_fn=capture_provider,
+        config_path=pathlib.Path("/tmp/fake.toml"),
+    )
+
+    import sys
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    with patch("sys.argv", ["tigger", "--no-think", "--model", "thinker", "--once", "hi"]):
+        import pytest
+        with pytest.raises(SystemExit):
+            from tigger.main import main
+            main()
+    assert captured["chat_template_kwargs"]["enable_thinking"] is False
+
+
+@patch("tigger.main.startup")
 def test_startup_failure_prints_error_and_exits(mock_startup, capsys):
     """F019 regression: a startup() exception must produce a clean error
     message and exit(1), not a traceback."""

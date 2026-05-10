@@ -729,13 +729,6 @@ def main() -> None:
         result.ctx.config = dataclasses.replace(result.ctx.config, mode=mode)
     if parsed.permission is not None:
         result.ctx.config = dataclasses.replace(result.ctx.config, permission_mode=parsed.permission)
-    if parsed.no_think:
-        # Mirror /think off (iter 79) — flip enable_thinking before any turn runs.
-        kwargs = dict(result.ctx.config.chat_template_kwargs or {})
-        kwargs["enable_thinking"] = False
-        result.ctx.config = dataclasses.replace(
-            result.ctx.config, chat_template_kwargs=kwargs,
-        )
     if parsed.model is not None:
         # Restrict CLI override to configured models so this flag can't be
         # used to call arbitrary wire ids the endpoint happens to expose.
@@ -771,6 +764,16 @@ def main() -> None:
             )
             sys.exit(1)
         result.ctx.config = switch_model(cfg, *chosen)
+    if parsed.no_think:
+        # Mirror /think off (iter 79) — flip enable_thinking before any turn runs.
+        # Must run AFTER --model: switch_model copies the target's per-model
+        # chat_template_kwargs onto the config, so --no-think before --model
+        # was silently overwritten on the qwen3.6-27b-thinking slug.
+        kwargs = dict(result.ctx.config.chat_template_kwargs or {})
+        kwargs["enable_thinking"] = False
+        result.ctx.config = dataclasses.replace(
+            result.ctx.config, chat_template_kwargs=kwargs,
+        )
 
     # Validate mode against resolved mode names
     mode_names = {m.name for m in result.ctx.modes}

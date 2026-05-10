@@ -92,10 +92,57 @@ client kwargs correctly. `chat_template_kwargs` rides via `extra_body`
 **Tests:** 801 → 801, 4.37 s. No code change beyond removing the
 placeholder file.
 
+### Iter 2 — DONE
+
+Two real bugs surfaced from the cold `qwen/qwen3.6-27b` A/B (warmed via
+direct `curl`).
+
+**Bug 1 — `--no-think` order bug (now fixed).** `main.py:732-738`
+applied `--no-think` *before* `--model`, but `switch_model` (called by
+`--model`) replaces `chat_template_kwargs` with the per-model entry's
+copy. So `tigger-code --no-think --model qwen/qwen3.6-27b-thinking …`
+silently shipped `enable_thinking=True` over the wire — the flag was a
+no-op for any per-model entry that pinned thinking on.
+
+Verified before-fix kwargs dump:
+```
+chat_template_kwargs= {'enable_thinking': True, 'preserve_thinking': True}
+```
+After-fix:
+```
+chat_template_kwargs= {'enable_thinking': False, 'preserve_thinking': True}
+```
+
+Fix: swap the two blocks in `main.py` so `--model` runs first and
+`--no-think` overlays its `enable_thinking=False` afterwards. Added
+regression test `test_no_think_overrides_model_per_entry_thinking` to
+lock the order in.
+
+**Bug 2 — Qwen3.6-27b is ~14× slower with `enable_thinking=False`
+on this LM Studio.** Same wire id, same prompt, same input/output
+token counts, only `chat_template_kwargs.enable_thinking` differs:
+
+| variant                          | wall_s | gen tok/s | output_t |
+|----------------------------------|--------|-----------|----------|
+| 27b-instruct (`enable_thinking=False`)   | 49.81 | 3.5 | 176 |
+| 27b-thinking (`enable_thinking=True`)    |  3.59 | 49  | 176 |
+| 27b-thinking + `--no-think` (post-fix)   | 51.76 | 3.0 | 156 |
+
+The slow path is keyed on `enable_thinking=false`, not on the slug.
+The 35b-a3b MoE model under the same `enable_thinking=false` setting
+runs fine (~1.7 s for "say pong"); only the 27b dense model exhibits
+this. Likely an LM Studio chat-template / sampler interaction we can't
+fix from the client.
+
+**User-facing recommendation:** on the LM Studio host running
+qwen3.6-27b, prefer the `qwen/qwen3.6-27b-thinking` entry over
+`qwen/qwen3.6-27b-instruct`. Treat the `--no-think` flag as a
+*feature toggle*, not a perf optimisation, on this model.
+
+**Tests:** 801 → 802 (new regression test). 4.35 s.
+
 ### Backlog for next ticks
 
-- **Iter 2:** rerun the cold models with longer warmup + retry; capture
-  thinking vs no-thinking deltas on `qwen/qwen3.6-27b`.
 - **Iter 3:** propose `system_prompt_extra` config field. Right now
   customising the system prompt is all-or-nothing (override only). A
   small `system_prompt_extra` (in `config.json`) appended to the bundled
