@@ -1662,3 +1662,63 @@ Output: "pong-iter23-r2" / "pong-iter23-r3" — correct on both.
 
 - `google/gemma-4-26b-a4b` row still empty in the calibration table — cold-load tax (~30-60 s) plus 2 warm runs fits in one tick when the model isn't already loaded by an adjacent tick.
 - 2-point decode-rate fit (`wall = a + b·output_tokens`) is the cleanest way to separate per-turn overhead from steady-state tok/s. Worth doing once across all six model entries before any UI surfacing.
+
+### Iter 24 — DONE
+
+**Dimension covered:** acting on iter 23's parked 2-point decode-rate fit. Pair a short-output measurement (iter 23, out=10) with a long-output one (this tick, out=148) on the same warm `qwen/qwen3.6-35b-a3b` to solve `wall = overhead + per_tok_decode·output_tokens` and separate the two terms.
+
+**Wall-clock used:** ~2m of 7m.
+
+**Long-output bench (warm 35b-a3b, identical 4924-token prefix to iter 23):**
+
+```
+prompt: Reply with exactly the numbers 1 through 30 separated by
+        commas, no other text.
+[perf] wall=4.37  in=4924  out=148  finish=stop  t/s=33.89
+       app_prefill=1127
+```
+
+Visible output is exactly "1, 2, …, 30" — correct.
+
+**2-point fit (`wall = a + b·out`):**
+
+| sample        | out | wall_s |
+|---------------|-----|--------|
+| iter 23 r2/r3 | 10  | 1.42 (avg) |
+| this tick     | 148 | 4.37   |
+
+```
+b = (4.37 − 1.42) / (148 − 10) = 0.0214 s/tok
+a = 1.42 − 10·b = 1.206 s
+decode_rate = 1/b = 46.7 tok/s
+```
+
+The 1.21 s overhead is the per-turn floor (RPC + scheduling + tokenizer + KV-cache lookup). Steady-state decode is **46.7 tok/s**, well above the 16.5 tok/s "warm" number that the iter-1 archive recorded — that earlier figure had decode and overhead conflated in `tokens_per_sec`.
+
+**Apply the same fit to q4_k_l using iter 17/19/22 warm samples** (out=75 @ 7.78 s, 86 @ 8.74 s, 88 @ 8.93 s):
+
+```
+b = (8.93 − 7.78) / (88 − 75) = 0.0885 s/tok
+a = 7.78 − 75·b ≈ 1.14 s
+decode_rate = 1/b = 11.3 tok/s
+```
+
+**Updated calibration table (warm-cache, on this LM Studio host):**
+
+| model                              | overhead | decode tok/s | app_prefill (cache hit) |
+|------------------------------------|----------|---------------|--------------------------|
+| `qwen/qwen3.6-35b-a3b` (MoE)       | 1.21 s   | **46.7**      | 3416-3510                |
+| `qwen_qwen3.6-27b@q4_k_l` (dense)  | 1.14 s   | **11.3**      | 550-640                  |
+
+Per-turn overhead is essentially the same (~1.15-1.2 s) across the two — that's the LM-Studio-side floor, not a model property. The ~4× decode-rate gap (46.7 vs 11.3) is purely architecture (MoE 3B-active vs dense 27B-at-4-bit).
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.44 s. No code change.
+
+**Parked for later:**
+
+- Two model rows remain empty in the calibration table: `google/gemma-4-31b` (dense, FP16) and `google/gemma-4-26b-a4b` (MoE). Each needs one cold-load + two warm samples for the fit. One tick per model.
+- Now that decode_rate and overhead are separately known for the two MoE/dense corners, the iter-19 parked "cache_likely_hit" UI signal is a one-liner: `wall - overhead < output_tokens / decode_rate / cache_floor` (where `cache_floor` is e.g. 0.5×). Wait until the table has all four rows before wiring the UI.
