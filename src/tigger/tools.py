@@ -273,7 +273,7 @@ def _grep(args: dict) -> str:
     if safe_base is None:
         return f"Error: access denied — path is outside the workspace: {path}"
     cwd = pathlib.Path.cwd().resolve()
-    skip_excludes = not _is_excluded_dir(pathlib.Path(path))
+    skip_excludes = not _is_excluded_dir(base)
     results = []
     # Use pathlib.glob() so patterns like src/**/*.py work correctly.
     for p in safe_base.glob(glob_pat):

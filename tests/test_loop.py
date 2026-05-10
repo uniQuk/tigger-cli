@@ -171,27 +171,6 @@ def test_depth_cap_prevents_infinite_fork():
     assert "depth" in text.lower()
 
 
-def test_plan_mode_injects_via_environment_kwarg():
-    """Plan-mode body rides as the environment kwarg; system stays stable."""
-    from tigger.skills import ModeRef
-    systems: list[str] = []
-    envs: list[str | None] = []
-
-    def recording_provider(system, messages, tools, cfg, environment=None):
-        systems.append(system)
-        envs.append(environment)
-        yield TextChunk(content="1. Plan")
-        yield AssistantMessage(content="1. Plan", tool_calls=[])
-
-    plan_mode = ModeRef(name="plan", body="You are in plan mode. Present a plan before acting.")
-    cfg = Config(base_url="http://x", model="m", permission_mode="bypass", mode="plan")
-    ctx = RunContext(config=cfg, messages=[], system_prompt="You are helpful.", modes=[plan_mode])
-    list(run("do something", ctx, _registry(), provider_fn=recording_provider))
-
-    assert systems == ["You are helpful."]
-    assert envs[0] is not None and "plan mode" in envs[0]
-
-
 def test_act_mode_does_not_inject_text():
     from tigger.skills import ModeRef
     calls: list[str] = []

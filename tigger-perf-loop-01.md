@@ -164,6 +164,20 @@ Baseline: 807 tests, ~4.5s
   unchanged.
 - Tests: 805 → 805 (green, 4.62 s).
 
+### Iter 8 — DONE (loop tick 5)
+- **`tools._grep`:** drop one redundant `pathlib.Path(path)` construction
+  on the workspace-exclude line; reuse the `base` Path computed three
+  lines up. Trivial, but `_grep` runs on every search call.
+- **Test dedup:** `test_ask_permission_returns_false_on_n` exercises the
+  same `answer == "y"` path as `test_ask_permission_returns_false_on_empty`
+  — both inputs go down the "not 'y'" branch. Dropped the `n` case; empty
+  remains and covers the boundary.
+- **Test dedup:** `test_plan_mode_injects_via_environment_kwarg` and
+  `test_custom_mode_injects_body` ran the same code path (mode body
+  injected via the `environment` kwarg) with different mode names.
+  Dropped the plan-specific test; the custom-mode one is more general.
+- Tests: 805 → 803 (green, 4.62 s).
+
 ## Backlog for the next loop tick
 
 The remaining items are interesting but require either an LLM endpoint to

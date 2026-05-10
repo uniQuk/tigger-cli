@@ -18,14 +18,6 @@ def test_ask_permission_returns_true_on_y(monkeypatch):
     assert ask_permission(PermissionRequest("c", "bash", {"command": "ls"})) is True
 
 
-def test_ask_permission_returns_false_on_n(monkeypatch):
-    import tigger.ui as ui_mod
-    buf = StringIO()
-    monkeypatch.setattr(ui_mod, "console", Console(file=buf, highlight=False, markup=False))
-    monkeypatch.setattr("builtins.input", lambda _: "n")
-    assert ask_permission(PermissionRequest("c", "bash", {"command": "rm -rf /"})) is False
-
-
 def test_ask_permission_returns_false_on_empty(monkeypatch):
     import tigger.ui as ui_mod
     buf = StringIO()
