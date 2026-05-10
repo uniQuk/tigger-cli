@@ -141,10 +141,39 @@ my-project/
 ## Usage
 
 ```bash
-tigger-code
+tigger-code                              # interactive REPL
+tigger-code -c                           # resume the most recent session
+tigger-code -q                           # interactive without the welcome banner
+tigger-code --once 'hello'               # single turn; stdout=answer
+tigger-code --once 'summarise @main.py' > out.md   # pipe-friendly
 ```
 
 The REPL shows a status line with the current model and token usage. On exit, a session summary panel displays duration, turns, tool stats, and RTK savings (if enabled).
+
+### CLI flags
+
+| Flag | Effect |
+|---|---|
+| `-h`, `--help` | Show help with examples |
+| `--version` | Print version and exit |
+| `-c`, `--continue` | Resume the most recent session |
+| `--once PROMPT` | Run a single turn non-interactively; stdout = answer only |
+| `-q`, `--quiet` | Skip the logo / cat / MCP / recent-summary banner; REPL still runs |
+| `--trust` | Mark the workspace as trusted without prompting |
+| `--no-think` | Disable thinking mode for this invocation (`chat_template_kwargs.enable_thinking=False`) |
+| `--mode NAME` | Override the active mode (e.g. `act`, `plan`) |
+| `--permission ask\|allow\|bypass` | Override the permission gate |
+
+#### `--once` exit codes
+
+For scripting, `--once` follows Unix conventions:
+
+| Code | Meaning |
+|---|---|
+| `0` | Successful response, written to stdout |
+| `1` | Empty response (model returned nothing useful) |
+| `2` | Network error / provider rejected request / timeout |
+| `130` | Interrupted by SIGINT (`Ctrl-C`) |
 
 ### Commands
 
@@ -152,19 +181,24 @@ Type `exit` or `quit` to leave the REPL. Ctrl+C during a response interrupts it 
 
 | Command | Description |
 |---|---|
-| `/help` | Show all available commands and loaded skills |
+| `/help [name]` | Show all commands, or detailed help for one command |
 | `/model [name]` | Switch model — interactive picker, or `/model gpt-4o` directly |
 | `/model prov/name` | Switch to a specific provider's model, e.g. `/model cloud/gpt-4o` |
 | `/provider add` | Add a new provider or model interactively |
 | `/mode [ask\|plan]` | View or change the interaction mode |
 | `/permission [ask\|allow\|bypass]` | View or change tool permission level |
+| `/think [on\|off\|toggle\|status]` | Toggle thinking mode mid-session (Qwen 3.6 etc. with thinking-by-default) |
 | `/memory` | View persistent memory notes |
 | `/remember <note>` | Save a note to persistent memory |
-| `/tokens` | Show current token usage vs context limit |
+| `/tokens` | Show current token usage vs context limit, with progress bar + headroom |
 | `/compact` | Manually compact the context window |
-| `/skills` | List loaded skills |
+| `/skills` | List loaded skills, or `/skills preview <name>` for the rendered prompt |
 | `/agent <name>` | Invoke a sub-agent by name |
 | `/rtk` | Show RTK status, toggle on/off, view token savings |
+| `/status` | Print the resolved runtime configuration |
+| `/mcp` | Show connected MCP servers and tools |
+| `/summary` | Save a structured summary of the current session to `.tigger/summaries/` |
+| `/init` | Scaffold `.tigger/` with template files (use `--global` for `~/.tigger/`) |
 | `/reload-plugins` | Re-discover skills, hooks, agents, modes, commands, and MCP config from disk without restarting (existing MCP servers stay running) |
 | `/clear` | Clear message history |
 | `exit` / `quit` | Exit the REPL |
