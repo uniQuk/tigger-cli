@@ -1078,3 +1078,127 @@ to refine the static-partition methodology.
 - max_tokens cap is still iter 9's #1 parked followup — would
   bound the per-turn reasoning waste mechanically rather than via
   prompting.
+
+### Iter 11 — DONE
+
+**Dimension covered:** simple-chat latency A/B — `qwen/qwen3.6-27b-thinking`
+vs `qwen/qwen3.6-27b-instruct`. Both slugs are config aliases for the
+same wire model (`qwen/qwen3.6-27b`), differing only in
+`chat_template_kwargs` and `max_tokens`. Tests whether the per-slug
+overrides flow to the wire correctly AND directly re-validates iter
+2's "27b template silently ignores enable_thinking" claim.
+
+**Bench runs.** Same prompt shape, same wire model on the LM Studio
+host. Identical kwargs round-trip mechanism — only the per-slug
+override fields differ.
+
+| run            | wall_s   | last_in | total_out | finish | EC    | output                       |
+|----------------|---------:|--------:|----------:|--------|------:|------------------------------|
+| 27b-thinking   | **alarm**| 0       | 0         | —      | **142** | (never produced output)      |
+| 27b-instruct   | **71.65**| 4913    | 33        | stop   |   0   | `pong-instruct-A`            |
+
+The 27b-thinking run **exceeded the 240 s alarm** without producing a
+single completed turn. The 27b-instruct run completed in **71.65 s**
+with 33 output tokens — at least an order of magnitude longer than
+35b-a3b's ~1.5 s warm for the same prompt shape.
+
+**Wire-kwargs (TIGGER_PERF=1 with 8 s timeout to grab the one-shot
+kwargs dump that fires *before* the request body):**
+
+```
+27b-thinking:  {"model":"qwen/qwen3.6-27b","temperature":0.6,
+                "max_tokens":32768,"top_p":0.95,
+                "extra_body":{...,"chat_template_kwargs":
+                  {"enable_thinking":true,"preserve_thinking":true}},
+                "_tools_count":13}
+
+27b-instruct:  {"model":"qwen/qwen3.6-27b","temperature":0.7,
+                                              top_p":0.8,
+                "extra_body":{...,"chat_template_kwargs":
+                  {"enable_thinking":false,"preserve_thinking":false}},
+                "_tools_count":13}
+```
+
+Per-slug overrides flow correctly:
+
+| field                 | 27b-thinking |  27b-instruct |
+|-----------------------|--------------|--------------|
+| `temperature`         |        0.6   |        0.7   |
+| `top_p`               |       0.95   |        0.8   |
+| `max_tokens`          | **32768**    | _absent_ (config 0 → stripped) |
+| `enable_thinking`     |  **true**    |    **false** |
+| `preserve_thinking`   |  **true**    |    **false** |
+
+Same wire model id `qwen/qwen3.6-27b` on both — confirms the model
+identity is shared and the differentiation lives entirely in
+`chat_template_kwargs`. `_messages_count: 2` and `_tools_count: 13`
+match across runs — the prefix is bytewise identical.
+
+**Findings.**
+
+1. **The chat template DOES respect `enable_thinking: true`.** Setting
+   the flag to true on the 27b-thinking config so blew up reasoning
+   generation that 240 s wasn't enough for a single
+   `"Reply: pong"`-class turn. With `max_tokens: 32768` and 27b's
+   ~20–30 tok/s on this LM Studio host, hitting the cap would take
+   ~1000–1600 s — the alarm is forcing termination well before
+   either a stop token or the max_tokens ceiling is reached.
+
+2. **Iter 2's "silently ignored" framing is one-sided.** Iter 2
+   examined only `false → reasoning still streams`. The template's
+   actual asymmetric behaviour on 27b is:
+   - `enable_thinking: false` → some reasoning leaks (iter 2's finding)
+   - `enable_thinking: true` → cranks reasoning up dramatically
+   The flag *is* honoured in the upward direction. It just isn't a
+   hard off-switch.
+
+3. **27b-instruct's 71.65 s for one short reply is ~50× slower than
+   35b-a3b's warm.** Same wire model, same hardware. Likely 27b is a
+   dense model where 35b-a3b is the MoE variant (a3b = 3B activated).
+   Iter 9's parked "cap max_tokens" followup is meaningful even on
+   the *instruct* slug: 33 output tokens at 71 s = ~0.46 tok/s
+   end-to-end. Most of that wall is prefill cost on a cold cache,
+   but any reasoning leakage at that effective rate is expensive.
+
+4. **The `max_tokens: 32768` on the thinking slug is its only ceiling.**
+   Without that cap, a single turn could theoretically saturate the
+   model's full context-out budget. This makes iter 9's parked
+   followup actionable with a clear number: even a moderate cap
+   (say 4096) would force completion in <200 s on the slow 27b.
+
+**No code change this iter.** Wire kwargs round-trip cleanly; the
+slowness is server/model fundamentals, not a tigger bug. The
+asymmetric `enable_thinking` finding is a documentation correction,
+not a code-side issue.
+
+**Root cause:** none — measurement and correction tick.
+
+**Files touched:** `tigger-model-performance.md` only.
+
+**Tests delta:** 824 → 824 (unchanged) in 4.31 s. No code change.
+
+**Corrections to prior iter framings.**
+
+- **Iter 2:** "qwen3.6-27b chat template silently ignores
+  `enable_thinking:false`" — accurate as stated (`false` doesn't
+  fully suppress), but incomplete: the same template *does* respect
+  `enable_thinking:true` (with extreme amplification). Treat as
+  asymmetric rather than ignored.
+
+**Followups parked for iter 12+:**
+
+- A bisection sweep on `max_tokens` for the 27b-thinking slug to
+  find the smallest cap that still produces a coherent answer for
+  a simple prompt — pins the "minimum reasoning budget" empirically
+  for this model. Probably needs background-task batching since each
+  run is 60–240 s.
+- The 27b vs 35b-a3b 50× speed gap on identical wire payloads is
+  worth a one-shot prefill-vs-decode split measurement. tigger's
+  current `[perf]` line lumps prefill+decode into a single `wall_s`;
+  if iter 9-style cache_hit_estimate is 0.000 for both, prefill
+  dominates and the 50× swing is mostly MoE vs dense. Park as a
+  potential `[perf]` enrichment if the question gets revisited.
+- Same A/B with `qwen_qwen3.6-27b@q4_k_l-instruct` (the q4_k_l
+  quant) on a third tick — would attribute the 27b slowness to
+  quant level vs model size if the q4_k_l version is materially
+  faster than the q8 (or whatever) the unsuffixed slug points at.
