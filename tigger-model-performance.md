@@ -581,3 +581,121 @@ empty for it.)
   prompt's tool-sequencing rules (iter 5's 633-tok section) act as
   output-length anchors even when models can't call tools. Worth a
   3-run consistency probe to confirm vs being a single-run artefact.
+
+### Iter 7 — DONE
+
+**Dimension covered:** token-waste hunt + wire-kwargs verification —
+close iter 4 + iter 6's parked "what's the 4th MCP tool?" loose end,
+and produce a per-tool ranked schema cost table backed by a live
+roster.
+
+**Method.** Offline reproduction of the runtime registry via
+`tigger.tools.register_all(reg, memory_path=…)` +
+`tigger.mcp.connect_all(reg, [microsoft-learn], require_consent=False)`.
+Then `json.dumps(…, separators=(",",":"))` per tool to mirror the
+wire serialiser shape from `provider.py:251`. Cross-check live count
+with `TIGGER_PERF=1 tigger-code --once 'Reply: pong-iter7'`.
+
+**Result. There is no 4th MCP tool.**
+
+`microsoft-learn` ships exactly **3** tools (`microsoft_docs_search`,
+`microsoft_code_sample_search`, `microsoft_docs_fetch`). The
+`_tools_count: 13` on the wire reconciles as **10 builtins + 3 MCP**,
+not the 9 + 4 implied by iter 4 (and inherited unchanged by iter 6).
+The 10th builtin is `remember` (`src/tigger/tools.py:632`), registered
+**conditionally**: `register_all(registry, *, memory_path=None)` only
+calls `registry.register` for `remember` when a `memory_path` is
+passed. Iter 4's offline measurement called `register_all(reg)`
+without `memory_path` and got 9 — that's where the miscount entered.
+At runtime, `src/tigger/main.py:139-144` always passes a memory path
+(project's `memory.md`, even if the file doesn't exist), so `remember`
+is always registered.
+
+**Per-tool ranked schema cost (13 tools, full eager registry):**
+
+|  # | source  | tool                                        |  chars |  ~tok |  % of block |
+|---:|---------|---------------------------------------------|------:|-----:|-----------:|
+|  1 | MCP     | `microsoft-learn.code_sample_search`        | 1591  | 397  |   **21.0%** |
+|  2 | MCP     | `microsoft-learn.docs_fetch`                | 1336  | 334  |   **17.7%** |
+|  3 | MCP     | `microsoft-learn.docs_search`               | 1031  | 257  |   **13.6%** |
+|  4 | builtin | `analyze`                                   |  789  | 197  |       10.4% |
+|  5 | builtin | `read`                                      |  530  | 132  |        7.0% |
+|  6 | builtin | `mcp_promote`                               |  388  |  97  |        5.1% |
+|  7 | builtin | `edit`                                      |  316  |  79  |        4.2% |
+|  8 | builtin | `remember`                                  |  317  |  79  |        4.2% |
+|  9 | builtin | `grep`                                      |  301  |  75  |        4.0% |
+| 10 | builtin | `glob`                                      |  266  |  66  |        3.5% |
+| 11 | builtin | `write`                                     |  267  |  66  |        3.5% |
+| 12 | builtin | `web_fetch`                                 |  221  |  55  |        2.9% |
+| 13 | builtin | `bash`                                      |  205  |  51  |        2.7% |
+|    |         | **TOTAL**                                   | **7558** | **1889** |     **100%** |
+
+**Reconciliation with iter 6's live A/B.**
+
+- Static measurement this iter: **1889 tok** (13 tools)
+- Live A/B measurement iter 6:   **2019 tok** (Δ from disable_tools toggle)
+- Gap: **130 tok** (~6.4%)
+
+The gap is OpenAI wire-framing overhead the static count doesn't
+include: the outer `"tools": [...]` array key, comma separators,
+plus `_with_output_budget_schema_limits` (`src/tigger/loop.py:166-201`)
+which appends a description-string augmentation to `write`/`edit` at
+request time when `output_budget` is set. Static estimation under-
+counts by ~6%; for back-of-envelope work, multiply by 1.07.
+
+**Key counter-intuitive finding.** Every single MCP tool is heavier
+than every single builtin, including the previously-flagged `analyze`
+heavyweight. The smallest MCP tool (`docs_search`, 257 tok) is still
+30% heavier than the heaviest builtin (`analyze`, 197 tok). MCP-side
+schemas carry richer parameter descriptions (multi-paragraph guidance
+in `description` fields) than tigger's terse builtin registry.
+
+**Implication for reduction targets.** A future "trim the prefill"
+push has two viable surfaces:
+
+1. **MCP-tool description trims** (top 3 tools = 988 tok = 52% of
+   the tool block, 20% of total prefill). Out of our control — we
+   load whatever microsoft-learn serves. A local proxy that rewrites
+   `description` fields on `tools/list` would be the only ergonomic
+   reduction.
+2. **`analyze` builtin** (197 tok = 10% of tool block, 4% of total
+   prefill). In our control. Iter 4 flagged this already.
+
+System.md (2024 tok, iter 5) remains the only fully-owned reduction
+target that competes in size. Confirms iter 5's "stay generic"
+recommendation: even halving system.md saves ~1000 tok, and
+reducing all 10 builtin schemas to nothing would save only ~897 tok.
+
+**Corrections to prior iter framings.**
+
+- Iter 4 claimed "9 builtins"; **correct is 10** (`remember` was
+  missed because the iter-4 measurement script omitted `memory_path`).
+- Iter 4 claimed "4 MCP tools, microsoft-learn × 3 + ?"; **correct is
+  3 MCP tools** — the "?" doesn't exist.
+- Iter 6 derived "~299 tok / MCP tool avg" from 1196 / 4; **correct
+  is ~330 tok / MCP tool avg** (989 / 3 static, or ~373 / 3 if you
+  attribute the 130-tok wire overhead entirely to the MCP slot, which
+  is generous).
+
+**Root cause:** none — measurement and reconciliation tick.
+
+**Files touched:** `tigger-model-performance.md` only.
+
+**Tests delta:** 822 → 822 (unchanged) in 4.35 s. No code change.
+
+**Followups parked for iter 8+:**
+
+- Per-tool live A/B remains valuable for the top 3 MCP tools. Today's
+  `disable_tools: bool` config can't disable individual tools — would
+  need a `disable_tools: list[str]` extension (~10 lines in
+  `config.py` + `loop.py:380`) or a per-MCP-server tier flip. Park
+  as "should we add it?" — answer depends on whether someone needs
+  to operate without `microsoft-learn` (likely useful UX win for
+  Linux-on-Linux workflows that never touch Microsoft docs).
+- Iter 6's output-tokens 4× variance probe (3-run consistency) still
+  open; would test whether removing tool schemas changes the model's
+  output-length anchoring.
+- `_with_output_budget_schema_limits` description-augmentation is
+  conditional on `output_budget > 0`. A separate token-waste hunt
+  could measure how often this adds tokens in real workflows vs
+  acting as dead weight.
