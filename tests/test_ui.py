@@ -41,10 +41,6 @@ def test_format_duration_short():
     assert format_duration(2.3) == "2.3s"
 
 
-def test_format_duration_under_minute():
-    assert format_duration(45.1) == "45.1s"
-
-
 def test_format_duration_minutes():
     assert format_duration(696.2) == "11m 36s"
 

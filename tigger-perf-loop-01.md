@@ -122,6 +122,14 @@ Baseline: 807 tests, ~4.5s
   `except Exception` covers both. Removes 5 lines, no behavior change.
 - Tests: 806 → 806 (green, 4.65 s).
 
+### Iter 5 — DONE (loop tick 2)
+- Drop `test_format_duration_under_minute`: it asserted on `45.1 → "45.1s"`,
+  which exercises the same `s < 60` branch and same `f"{seconds:.1f}s"`
+  format string as `test_format_duration_short` (`2.3 → "2.3s"`). Pure
+  duplicate; no coverage loss. The remaining 5 tests still cover zero,
+  short, minutes, exact-minute boundary, and hour boundary.
+- Tests: 806 → 805 (green, 4.65 s).
+
 ## Backlog for the next loop tick
 
 The remaining items are interesting but require either an LLM endpoint to
