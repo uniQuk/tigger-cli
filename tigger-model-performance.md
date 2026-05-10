@@ -1314,3 +1314,36 @@ MoE-on-this-hardware is ~5× faster per decoded token than dense-on-this-hardwar
 
 - `qwen_qwen3.6-27b@q4_k_l-instruct` still untouched. It's the only remaining model entry without a wire-kwargs or warm-latency baseline.
 - The r2 → r3 host-side prefix-cache evidence (3.70 → 0.89 s on identical 4577-token prefix) suggests the `cache_hit_estimate` heuristic could be tightened: when the same prefix has been sent within the last N seconds, the empirical hit is nearly total. Worth a one-tick measurement of `last_in` × decode-rate vs `wall_s` to back out a real cache-hit ratio.
+
+### Iter 15 — DONE
+
+**Dimension covered:** wire-kwargs spot-check for `qwen_qwen3.6-27b@q4_k_l-instruct` — the last config entry without a wire baseline on this cycle. With this tick, every model in `.tigger/config.json` has now been verified at the wire level (entries 1-6 → ticks 1/3, 2, 1/2, 15, 12, 14).
+
+**Wall-clock used:** ~2m of 7m.
+
+**Bench numbers (cold model swap):**
+
+| run | wall_s | last_in | total_out | finish | EC  |
+|-----|--------|---------|-----------|--------|-----|
+| r1  | >90    | —       | —         | —      | 142 |
+
+The q4_k_l quant was not resident on the LM Studio host (gemma-26b-a4b was warm from iter 14). The model swap exceeded the 90 s per-call alarm — expected. The `[perf] outgoing kwargs:` dump fires *before* the call returns, so the wire-side target was captured cleanly even though the call itself timed out.
+
+**Verified / changed:** `TIGGER_PERF=1 tigger-code --no-think --model "qwen_qwen3.6-27b@q4_k_l-instruct" --once "ping"` produced:
+
+```
+model=qwen_qwen3.6-27b@q4_k_l        ← per-model override (note the @-quant suffix)
+temperature=0.7  top_p=0.8  presence_penalty=1.5
+extra_body={top_k:20, min_p:0.0, repetition_penalty:1,
+            chat_template_kwargs:{enable_thinking:false,
+                                  preserve_thinking:false}}
+_messages_count=2  _tools_count=13
+```
+
+All per-model overrides round-trip. Worth flagging: `presence_penalty=1.5` matches the `qwen/qwen3.6-35b-a3b` sampler style (a positive penalty), **not** the non-quantized `qwen/qwen3.6-27b-instruct` (`presence_penalty=0`). Whether intentional or a copy-paste is the user's call — config is owned, not mine to touch this tick.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 824 → 824 in 4.39 s. No code change.
+
+**Cycle milestone:** wire-kwargs coverage now complete across all six model entries. Remaining open dimensions for future ticks: reasoning-quality probe (untouched), `cache_hit_estimate` heuristic tightening (iter-14 parked), warm latency for q4_k_l on a tick that starts with it loaded.
