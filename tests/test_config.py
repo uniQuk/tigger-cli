@@ -303,6 +303,23 @@ def test_switch_model_no_override_uses_global():
     assert new.max_tokens == 2048
 
 
+def test_system_prompt_extra_loads():
+    """`system_prompt_extra` round-trips through load_config."""
+    p = _write({
+        "base_url": "http://x", "model": "m",
+        "system_prompt_extra": "Extra rule: speak only in haiku.",
+    })
+    cfg = load_config(p)
+    assert cfg.system_prompt_extra == "Extra rule: speak only in haiku."
+
+
+def test_system_prompt_extra_absent_is_none():
+    """Missing `system_prompt_extra` keeps None (signals 'no addition')."""
+    p = _write({"base_url": "http://x", "model": "m"})
+    cfg = load_config(p)
+    assert cfg.system_prompt_extra is None
+
+
 def test_write_config_preserves_dict_models(tmp_path):
     models = {
         "qwen3": ModelConfig(temperature=0.3, context_limit=32000),

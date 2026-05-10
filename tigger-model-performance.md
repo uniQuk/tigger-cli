@@ -141,13 +141,44 @@ qwen3.6-27b, prefer the `qwen/qwen3.6-27b-thinking` entry over
 
 **Tests:** 801 → 802 (new regression test). 4.35 s.
 
+### Iter 3 — DONE
+
+**Feature: `system_prompt_extra` config field.** Closes the user ask
+"custom prompts that can be attached via config or in the TUI to
+override the main system prompt" without forcing a 100+ line copy-paste
+of `assets/system.md`. Set in `.tigger/config.json`:
+
+```json
+{ "system_prompt_extra": "Project rule: respond in haiku." }
+```
+
+The string is appended to the bundled (or custom) `system.md` AFTER
+memory and before the user turn. Empty / missing / null = no addition.
+
+**Files touched (small, surgical):**
+
+- `types.Config`: new `system_prompt_extra: str | None = None` field.
+- `config.load_config`: reads `system_prompt_extra` from JSON.
+- `main.startup`: extends the system-prompt build with `if extra:
+  parts.append(extra)`. Same `\n\n` join the memory section uses.
+
+**Live A/B on `qwen/qwen3.6-35b-a3b`** (warm, `--no-think`, prompt
+"Reply with exactly: pong-N"):
+
+| variant                                | in_t | out_t |
+|----------------------------------------|------|-------|
+| no extra (baseline)                    | 4912 | 170   |
+| `system_prompt_extra` ≈17 words        | 4933 | 115   |
+
+`+21` input tokens matches the extra string size. Output dropped 32%
+because the extra contained "Keep responses terse" — i.e. the field
+rides the wire AND influences generation as intended.
+
+**Tests:** 802 → 804 (`test_system_prompt_extra_loads`,
+`test_system_prompt_extra_absent_is_none`). 4.35 s.
+
 ### Backlog for next ticks
 
-- **Iter 3:** propose `system_prompt_extra` config field. Right now
-  customising the system prompt is all-or-nothing (override only). A
-  small `system_prompt_extra` (in `config.json`) appended to the bundled
-  prompt would let users add project-specific instructions without
-  copy-pasting 106 lines.
 - **Iter 4:** check whether the `q4_k_l` quant's verbose-preamble issue
   is sampler-driven (the only model in `config.json` with `presence_
   penalty=1.5` *and* `repetition_penalty=1`). The 35b-a3b also has

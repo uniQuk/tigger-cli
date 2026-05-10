@@ -193,7 +193,16 @@ def startup(
     _memory_read_path = resolve_file("memory.md", project_dir, global_dir)
     memory_lines = read_memory(_memory_read_path) if _memory_read_path else []
     memory_section = format_for_prompt(memory_lines)
-    system = (_base_system + ("\n\n" + memory_section if memory_section else "")).strip()
+    # `system_prompt_extra` (config.json) is appended AFTER the base system
+    # prompt and memory. Lets users add project- or workspace-specific
+    # instructions without copy-pasting the full bundled prompt.
+    extra = (config.system_prompt_extra or "").strip()
+    parts = [_base_system]
+    if memory_section:
+        parts.append(memory_section)
+    if extra:
+        parts.append(extra)
+    system = "\n\n".join(parts).strip()
 
     # 10. Context
     ctx = RunContext(config=config, messages=[], system_prompt=system, trust_level=trust_level, modes=modes)

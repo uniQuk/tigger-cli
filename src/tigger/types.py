@@ -84,6 +84,10 @@ class Config:
     frequency_penalty: float | None = None
     repetition_penalty: float | None = None
     chat_template_kwargs: dict = field(default_factory=dict)
+    # Optional text appended to the resolved system.md (after memory).
+    # Lets a project add a few lines of context without copy-pasting the
+    # full bundled prompt. Empty/None means no addition.
+    system_prompt_extra: str | None = None
 
 
 @dataclass

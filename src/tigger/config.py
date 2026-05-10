@@ -204,6 +204,7 @@ def load_config(path: pathlib.Path) -> Config:
             data.get("repetition_penalty", data.get("repeat_penalty")),
         ),
         chat_template_kwargs=pick("chat_template_kwargs", {}) or {},
+        system_prompt_extra=data.get("system_prompt_extra") or None,
     )
 
 
