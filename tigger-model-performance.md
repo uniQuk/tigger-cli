@@ -1625,3 +1625,40 @@ Decode rate clusters tightly at **9.8 ± 0.1 tok/s** on this host for this model
 **Parked for later:**
 
 - First two rows of the iter-19 calibration table can be filled in now: q4_k_l (9.8 tok/s decode, ~600 cached_prefill_rate). 35b-a3b and gemma-26b-a4b were measured warm earlier (~16.5 and ~14.6 tok/s decode respectively, in iters 1 and 14) but their `apparent_prefill_tok_per_s` numbers pre-date the iter-18 column — a single tick that re-runs each MoE for one warm sample would close the table cheaply.
+
+### Iter 23 — DONE
+
+**Dimension covered:** calibration sweep — fill in the `apparent_prefill_tok_per_s` row for `qwen/qwen3.6-35b-a3b` (the default MoE for spot-checks). Closes one of two cells parked in iter 22. Cold-loaded from q4_k_l with a warm-up discard, then two warm runs with `TIGGER_PERF=1` to capture the new column directly.
+
+**Wall-clock used:** ~3m of 7m.
+
+**Bench numbers (35b-a3b, warm-warm; warm-up discard at 31.61 s):**
+
+| run | wall_s | in_t | out_t | finish | t/s  | cache_hit | app_prefill |
+|-----|--------|------|-------|--------|------|-----------|-------------|
+| r2  | 1.44   | 4916 | 10    | stop   | 6.95 | 0.000     | 3416        |
+| r3  | 1.40   | 4916 | 10    | stop   | 7.14 | 0.000     | 3510        |
+
+Output: "pong-iter23-r2" / "pong-iter23-r3" — correct on both.
+
+**Calibration table (warm-cache, on this LM Studio host):**
+
+| model                              | tok/s (10-out) | app_prefill (cache hit) | ratio  |
+|------------------------------------|---------------|--------------------------|--------|
+| `qwen/qwen3.6-35b-a3b` (MoE)       | ~7.0          | ~3450                    | ~490×  |
+| `qwen_qwen3.6-27b@q4_k_l` (dense)  | ~9.8          | ~600                     | ~60×   |
+
+**The ratio gap (490× vs 60×) is the iter-21 decode-share confound made visible.** 35b-a3b's tiny 10-token output leaves the turn dominated by per-call overhead (~0.9 s) + a small decode tail, so the apparent_prefill column rockets to 3450. q4_k_l in iter 22 had longer outputs (86-99 tokens) on a similar prefix → wall drifts decode-ward, pulling apparent_prefill down to the 550-640 range despite hitting the same physical cache. The "cache hit" signal cannot be a single threshold across models AND output sizes.
+
+**Verified / changed:** docs only. Reinforces the iter-21 caveat with two concrete data points 8× apart.
+
+**Note on `tokens_per_sec=6.95` vs the iter-1-archive baseline of ~16.5.** Both numbers are correct for their respective output sizes. Decoupling the per-turn overhead from steady-state decode would need a 2-point fit (e.g. measure on out=10 and out=50, solve for `wall = a + b·out`). Park for a future iter only if the calibration table needs more nines.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.41 s. No code change.
+
+**Parked for later:**
+
+- `google/gemma-4-26b-a4b` row still empty in the calibration table — cold-load tax (~30-60 s) plus 2 warm runs fits in one tick when the model isn't already loaded by an adjacent tick.
+- 2-point decode-rate fit (`wall = a + b·output_tokens`) is the cleanest way to separate per-turn overhead from steady-state tok/s. Worth doing once across all six model entries before any UI surfacing.
