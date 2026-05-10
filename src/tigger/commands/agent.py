@@ -15,19 +15,26 @@ def cmd_agent(
     provider_fn,
     hook_defs: list | None = None,
 ) -> None:
+    from tigger.ui import console
+
     parts = args.strip().split(maxsplit=1)
     if len(parts) < 2:
-        print("Usage: /agent <name> <query>")
+        console.print("[dim]Usage:[/dim] /agent <name> <query>")
         return
     agent_name, query = parts
     agent = next((a for a in agents if a.name == agent_name), None)
     if agent is None:
         names = [a.name for a in agents]
-        print(f"Unknown agent '{agent_name}'. Available: {names}")
+        console.print(
+            f"[red]Unknown agent[/red] {agent_name!r}. "
+            f"[dim]Available:[/dim] {', '.join(names) if names else '(none)'}"
+        )
         return
 
     if ctx.depth >= ctx.config.max_depth:
-        print(f"Error: max agent depth ({ctx.config.max_depth}) reached.")
+        console.print(
+            f"[red]Max agent depth ({ctx.config.max_depth}) reached.[/red]"
+        )
         return
 
     agent_config = dataclasses.replace(ctx.config, model=agent.model or ctx.config.model)
@@ -57,7 +64,11 @@ def cmd_agent(
         if isinstance(event, TextChunk):
             result_parts.append(event.content)
     result = "".join(result_parts)
-    print(result)
+    # Render the agent's reply through Markdown so it matches the assistant's
+    # streamed output style instead of looking like a raw print().
+    from rich.markdown import Markdown
+    if result.strip():
+        console.print(Markdown(result))
     ctx.messages.append(Message(
         role="user",
         content=f"[Agent result from {agent_name}]:\n{result}",

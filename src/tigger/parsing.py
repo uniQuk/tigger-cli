@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 import re
-import sys
 
 __all__ = ["parse_blocks", "parse_single"]
 
 
 def _warn_yaml_error(exc: Exception, source: str) -> None:
-    print(f"[parsing] YAML frontmatter error in {source}: {exc}", file=sys.stderr)
+    # Match the iter-40/41 [mcp] yellow-Warning idiom so user-facing parse
+    # errors share styling with the rest of startup notices.
+    from tigger.ui import console
+    console.print(
+        f"      [yellow]\\[parsing] Warning:[/yellow] YAML frontmatter error in "
+        f"[cyan]{source}[/cyan]: [red]{exc}[/red]"
+    )
 
 
 def parse_blocks(text: str, *, source: str = "<input>") -> list[dict]:

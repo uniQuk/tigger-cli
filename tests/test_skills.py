@@ -132,7 +132,8 @@ def test_warn_on_command_collisions_emits_for_collision(capsys):
     assert len(warnings) == 1
     assert "/memory" in warnings[0]
     captured = capsys.readouterr()
-    assert "/memory" in captured.err
+    # Iter 70: routed through ui.console (stdout) for theming.
+    assert "/memory" in (captured.out + captured.err)
 
 
 def test_warn_on_command_collisions_silent_when_no_collision(capsys):
@@ -140,4 +141,7 @@ def test_warn_on_command_collisions_silent_when_no_collision(capsys):
     warnings = warn_on_command_collisions(skills, ["memory", "model"])
     assert warnings == []
     captured = capsys.readouterr()
+    # Iter 70: warnings now route through ui.console (stdout). Clean inputs
+    # should emit nothing on either stream.
+    assert captured.out == ""
     assert captured.err == ""

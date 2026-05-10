@@ -431,8 +431,16 @@ def run(
 
         if assistant_msg is None:
             if retries >= max_retries:
+                sys.stderr.write(
+                    "… empty response after retries — giving up on this turn\n"
+                )
+                sys.stderr.flush()
                 break
             retries += 1
+            sys.stderr.write(
+                f"… empty response, retrying ({retries}/{max_retries})\n"
+            )
+            sys.stderr.flush()
             ctx.messages.append(Message(
                 role="user",
                 content="Your last response was empty. Please try again.",
@@ -606,7 +614,10 @@ def run(
                 _hook_ctx = {"tool_name": tc.name, "tool_args": tc.args}
                 _hook_result = evaluate_hooks("PreToolUse", _hook_ctx, hook_defs)
                 for msg in _hook_result.messages:
-                    print(f"[hook] {msg}")
+                    from tigger.ui import console as _console
+                    _console.print(
+                        f"      [yellow]\\[hook][/yellow] {msg}"
+                    )
                 if _hook_result.blocked:
                     block_content = "(tool call blocked by hook)"
                     if _hook_result.feedback:

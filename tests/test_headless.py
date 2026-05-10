@@ -178,7 +178,10 @@ def test_once_empty_response(mock_startup, capsys):
         with pytest.raises(SystemExit) as exc_info:
             from tigger.main import main
             main()
-        assert exc_info.value.code == 0
+        # New contract (iter 47): empty response is a failure for scripting,
+        # so exit non-zero with a stderr explanation rather than exit 0 silently.
+        assert exc_info.value.code == 1
 
     captured = capsys.readouterr()
-    assert captured.out == "\n"
+    assert captured.out == ""
+    assert "empty response" in captured.err

@@ -19,11 +19,12 @@ def cmd_compact(
                                              summaries_dir=summaries_dir)
     parts: list[str] = []
     if result.snipped:
-        parts.append(f"Snipped {result.snipped} tool results")
+        parts.append(f"snipped {result.snipped} tool results")
     if result.summarized:
         parts.append(f"summarized {result.summarized} messages")
-    if parts:
-        detail = ", ".join(parts)
-        print(f"{detail}: {result.tokens_before} \u2192 {result.tokens_after} tokens")
-    else:
-        print(f"Compacted: {result.tokens_before} \u2192 {result.tokens_after} tokens")
+    detail = ", ".join(parts) if parts else "no changes needed"
+    ui.console.print(
+        f"[dim]\u2713 Compacted[/dim] [dim]({detail})[/dim] "
+        f"[cyan]{result.tokens_before:,}[/cyan] [dim]\u2192[/dim] "
+        f"[cyan]{result.tokens_after:,}[/cyan] [dim]tokens[/dim]"
+    )

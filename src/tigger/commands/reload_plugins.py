@@ -55,16 +55,18 @@ def cmd_reload_plugins(args: str, ctx: RunContext, *, result) -> None:
     `repl()` runs at the input prompt, never mid-turn), so no extra
     in-flight guard is needed.
     """
+    from tigger.ui import console
+
     try:
         report = reload_all(result)
     except RuntimeError as exc:
-        print(f"Reload failed: {exc}")
+        console.print(f"[red]Reload failed:[/red] {exc}")
         return
 
-    print(render_report(report))
+    icon = "[green]✓[/green]" if not report.any_failed else "[yellow]⚠[/yellow]"
+    console.print(f"{icon} [dim]{render_report(report)}[/dim]")
 
     if report.any_failed:
-        print()
         for delta in report.deltas:
             if not delta.ok:
-                print(f"  ! {delta.name}: {delta.error}")
+                console.print(f"  [red]✗ {delta.name}:[/red] {delta.error}")

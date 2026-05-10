@@ -123,9 +123,11 @@ def test_handler_appends_failure_lines(monkeypatch):
     with redirect_stdout(buf):
         cmd_reload_plugins("", ctx=None, result=fake)
     out = buf.getvalue()
-    # Inline indicator + per-failure detail line
+    # Inline indicator (the "! ValueError" still appears inside render_report's
+    # delta line) + per-failure detail line (now prefixed with ✗ glyph).
     assert "! ValueError: bad hook" in out
-    assert "  ! hooks: ValueError: bad hook" in out
+    assert "✗ hooks:" in out
+    assert "ValueError: bad hook" in out
 
 
 def test_handler_handles_runtime_error_from_orchestrator(monkeypatch):

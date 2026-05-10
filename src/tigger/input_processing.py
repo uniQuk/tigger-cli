@@ -23,12 +23,18 @@ def _is_within_workspace(path: pathlib.Path) -> bool:
         return False
 
 
-def expand_file_refs(line: str) -> str:
+def expand_file_refs(
+    line: str,
+    injected: list[tuple[str, int]] | None = None,
+) -> str:
     """Replace @path/to/file references with inlined file contents.
 
     Only files within the current workspace are expanded.  Absolute paths,
     home-relative paths (~), and paths that escape the workspace via ``..``
     are rejected to prevent reading sensitive files.
+
+    When *injected* is provided, each successful expansion is appended as
+    ``(path_str, content_bytes)`` so callers can surface what got included.
     """
     def _replace(match: re.Match) -> str:
         path_str = match.group(1)
@@ -51,6 +57,8 @@ def expand_file_refs(line: str) -> str:
             content = path.read_text(errors="replace")[:_MAX_FILE_SIZE]
         else:
             content = path.read_text(errors="replace")
+        if injected is not None:
+            injected.append((path_str, len(content)))
         return f"\n--- Contents of {path_str} ---\n{content}\n--- End of {path_str} ---\n"
 
     return _FILE_REF.sub(_replace, line)

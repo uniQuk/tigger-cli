@@ -7,8 +7,10 @@ from tigger.types import Message, RunContext, TextChunk
 
 
 def cmd_summary(args: str, ctx: RunContext, tigger_dir: pathlib.Path, provider_fn) -> None:
+    from tigger.ui import console
+
     if not ctx.messages:
-        print("No conversation to summarize.")
+        console.print("[dim]No conversation to summarize.[/dim]")
         return
 
     prompt = (
@@ -37,4 +39,7 @@ def cmd_summary(args: str, ctx: RunContext, tigger_dir: pathlib.Path, provider_f
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
     out_path = summaries_dir / f"{timestamp}.md"
     out_path.write_text(summary)
-    print(f"Summary saved to {out_path}")
+    console.print(
+        f"[dim]✓ Summary saved to[/dim] [cyan]{out_path}[/cyan]",
+        soft_wrap=True,
+    )

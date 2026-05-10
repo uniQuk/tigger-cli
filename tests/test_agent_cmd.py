@@ -60,4 +60,5 @@ def test_agent_max_depth_no_injection(capsys):
     agents = [_agent()]
     cmd_agent("test-agent query", ctx, agents, ToolRegistry(), _make_provider())
     assert ctx.messages == []
-    assert "max agent depth" in capsys.readouterr().out
+    # New wording capitalises "Max" and uses parens around the depth.
+    assert "agent depth" in capsys.readouterr().out.lower()

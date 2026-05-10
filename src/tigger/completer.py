@@ -36,14 +36,30 @@ class TiggerCompleter(Completer):
 
         # Slash command completion
         if text.startswith("/"):
+            # Lazy import to avoid circular import at module load.
+            from tigger.commands import COMMAND_DESCRIPTIONS
+
             fragment = text[1:].lower()  # strip leading /
             seen: set[str] = set()
+            # Collect skill triggers separately so we can label them.
+            skill_triggers = {
+                trigger.lstrip("/")
+                for skill in self._skills
+                for trigger in skill.triggers
+            }
             for candidate in self._live_candidates():
                 if fragment in candidate.lower() and candidate not in seen:
                     seen.add(candidate)
+                    if candidate in COMMAND_DESCRIPTIONS:
+                        meta = COMMAND_DESCRIPTIONS[candidate]
+                    elif candidate in skill_triggers:
+                        meta = "skill"
+                    else:
+                        meta = ""
                     yield Completion(
                         "/" + candidate,
                         start_position=-len(text),
+                        display_meta=meta,
                     )
             return
 
@@ -60,9 +76,23 @@ class TiggerCompleter(Completer):
                     if name.startswith(prefix):
                         suffix = "/" if p.is_dir() else ""
                         completion = str(parent / name) + suffix
+                        # Lightweight metadata: dir vs file size. Stat is
+                        # already implied by iterdir on most filesystems.
+                        if p.is_dir():
+                            meta = "dir"
+                        else:
+                            try:
+                                size = p.stat().st_size
+                                if size >= 1024:
+                                    meta = f"{size / 1024:.1f}KB"
+                                else:
+                                    meta = f"{size}B"
+                            except OSError:
+                                meta = ""
                         yield Completion(
                             "@" + completion,
                             start_position=-(len(partial) + 1),  # +1 for @
+                            display_meta=meta,
                         )
             except OSError:
                 pass

@@ -147,17 +147,34 @@ def cmd_init(args: str, ctx: RunContext) -> None:
         if cfg_status in ("created", "overwritten"):
             extras_copied.append("config.json")
 
+        from tigger.ui import console
         if seeded or extras_copied:
             verb = "Re-seeded" if force else "Seeded"
             extras = (" + " + ", ".join(extras_copied)) if extras_copied else ""
-            print(f"{verb} {global_dir} from internal skills, agents, modes, hooks{extras}.")
+            console.print(
+                f"[dim]✓[/dim] {verb} [cyan]{global_dir}[/cyan] "
+                f"[dim]from internal skills, agents, modes, hooks{extras}.[/dim]",
+                soft_wrap=True,
+            )
         elif cfg_status != "backfilled":
-            print(f"{global_dir} already populated — nothing new to seed.")
-            print("  Use --force to overwrite existing files.")
+            console.print(
+                f"[cyan]{global_dir}[/cyan] [dim]already populated — nothing new to seed.[/dim]",
+                soft_wrap=True,
+            )
+            console.print(
+                "  [dim]Use[/dim] [cyan]--force[/cyan] [dim]to overwrite existing files.[/dim]"
+            )
         if cfg_status == "backfilled":
-            print(f"  config.json: backfilled missing keys ({', '.join(cfg_added)}).")
-        print("  Skills and agents are live copies you can edit freely.")
-        print("  New internal skills from upgrades will be added automatically.")
+            console.print(
+                f"  [dim]config.json: backfilled missing keys[/dim] "
+                f"([yellow]{', '.join(cfg_added)}[/yellow])"
+            )
+        console.print(
+            "  [dim]Skills and agents are live copies you can edit freely.[/dim]"
+        )
+        console.print(
+            "  [dim]New internal skills from upgrades will be added automatically.[/dim]"
+        )
         return
 
     tigger_dir = pathlib.Path.cwd() / CONFIG_DIR
@@ -198,16 +215,31 @@ def cmd_init(args: str, ctx: RunContext) -> None:
             else:
                 skipped.append(label)
 
+    from tigger.ui import console
     if created:
-        print(f"Scaffolded {tigger_dir}:")
-        print(f"  Created: {', '.join(created)}")
+        console.print(
+            f"[dim]✓[/dim] Scaffolded [cyan]{tigger_dir}[/cyan][dim]:[/dim]",
+            soft_wrap=True,
+        )
+        console.print(
+            f"  [dim]Created:[/dim] [green]{', '.join(created)}[/green]"
+        )
     if overwritten:
-        print(f"  Overwritten (--force): {', '.join(overwritten)}")
+        console.print(
+            f"  [dim]Overwritten (--force):[/dim] [yellow]{', '.join(overwritten)}[/yellow]"
+        )
     if skipped:
-        print(f"  Skipped (already exist): {', '.join(skipped)}")
+        console.print(
+            f"  [dim]Skipped (already exist):[/dim] {', '.join(skipped)}"
+        )
         if not force:
-            print("  Use --force to overwrite.")
+            console.print(
+                "  [dim]Use[/dim] [cyan]--force[/cyan] [dim]to overwrite.[/dim]"
+            )
     if cfg_status == "backfilled":
-        print(f"  config.json: backfilled missing keys ({', '.join(cfg_added)}).")
+        console.print(
+            f"  [dim]config.json: backfilled missing keys[/dim] "
+            f"([yellow]{', '.join(cfg_added)}[/yellow])"
+        )
     if not created and not overwritten and not skipped and cfg_status != "backfilled":
-        print("Nothing to do.")
+        console.print("[dim]Nothing to do.[/dim]")

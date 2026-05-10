@@ -919,3 +919,253 @@ def test_turn_summary_zero_ctx_renders(monkeypatch):
     ui_mod.print_turn_summary(0, 0.0, context_pct=0)
     out = buf.getvalue()
     assert "0% ctx" in out
+
+
+# --- error panel ---
+
+
+def test_print_error_panel_basic(monkeypatch):
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod.print_error_panel("Network error", "Connection timed out")
+    out = buf.getvalue()
+    assert "╭" in out and "╯" in out
+    assert "Network error" in out
+    assert "Connection timed out" in out
+
+
+def test_print_error_panel_with_hint(monkeypatch):
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod.print_error_panel("Timeout", "Server unreachable", hint="Check the URL.")
+    out = buf.getvalue()
+    assert "Server unreachable" in out
+    assert "Check the URL." in out
+
+
+def test_print_error_still_works_for_short_messages(monkeypatch):
+    """The plain print_error one-liner should keep working — used for soft errors."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod.print_error("Unknown command: /foo")
+    out = buf.getvalue()
+    assert "Error:" in out
+    assert "Unknown command: /foo" in out
+    assert "╭" not in out  # NOT a panel
+
+
+# --- multi-line tool error rendering ---
+
+
+def test_tool_error_short_renders_inline(monkeypatch):
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod._tool_buffer.clear(); ui_mod._tool_call_ids.clear()
+    ui_mod._tool_summaries.clear(); ui_mod._tool_details.clear()
+    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "bad"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c1", "bash", "command not found", error=True), [0], [])
+    out = buf.getvalue()
+    assert "command not found" in out
+    assert "more lines" not in out
+
+
+def test_tool_error_short_multi_line_shows_all(monkeypatch):
+    """A 3-line error should render every line, no truncation."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod._tool_buffer.clear(); ui_mod._tool_call_ids.clear()
+    ui_mod._tool_summaries.clear(); ui_mod._tool_details.clear()
+    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "bad"}), [0], [])
+    err = "Error: bad\n  at /tmp/x.py:1\n  exit code 2"
+    ui_mod.render_event(ToolEndEvent("c1", "bash", err, error=True), [0], [])
+    out = buf.getvalue()
+    assert "Error: bad" in out
+    assert "at /tmp/x.py:1" in out
+    assert "exit code 2" in out
+    assert "more lines" not in out
+
+
+def test_tool_error_long_traceback_keeps_punchline(monkeypatch):
+    """Long tracebacks should show first 5 lines + '...' + the last line."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod._tool_buffer.clear(); ui_mod._tool_call_ids.clear()
+    ui_mod._tool_summaries.clear(); ui_mod._tool_details.clear()
+    trace = "\n".join([
+        "Traceback (most recent call last):",
+        '  File "/tmp/x.py", line 12, in <module>',
+        "    foo()",
+        '  File "/tmp/x.py", line 5, in foo',
+        "    bar()",
+        '  File "/tmp/x.py", line 2, in bar',
+        '    raise ValueError("oops")',
+        "ValueError: oops",
+    ])
+    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "x"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c1", "bash", trace, error=True), [0], [])
+    out = buf.getvalue()
+    assert "Traceback" in out          # first line preserved
+    assert "ValueError: oops" in out   # punchline preserved
+    assert "more lines" in out         # ellipsis marker present
+
+
+def test_tool_error_truncates_very_long_lines(monkeypatch):
+    """A single line >110 chars should still render but truncated."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=200, highlight=False, markup=True, force_terminal=False))
+    ui_mod._tool_buffer.clear(); ui_mod._tool_call_ids.clear()
+    ui_mod._tool_summaries.clear(); ui_mod._tool_details.clear()
+    long = "x" * 200
+    ui_mod.render_event(ToolStartEvent("c1", "bash", {"command": "x"}), [0], [])
+    ui_mod.render_event(ToolEndEvent("c1", "bash", long, error=True), [0], [])
+    out = buf.getvalue()
+    # The displayed line should not contain the full 200 x's.
+    assert "x" * 200 not in out
+    assert "x" * 100 in out
+
+
+def test_stop_live_safe_when_no_live():
+    """_stop_live should be a no-op when there is no active Live."""
+    import tigger.ui as ui_mod
+    ui_mod._live = None
+    ui_mod._stop_live()  # should not raise
+    assert ui_mod._live is None
+
+
+def test_stop_live_clears_active_live(monkeypatch):
+    """_stop_live should stop and clear an active Live."""
+    import tigger.ui as ui_mod
+
+    class _FakeLive:
+        stopped = False
+        def stop(self):
+            self.stopped = True
+
+    fake = _FakeLive()
+    ui_mod._live = fake
+    ui_mod._stop_live()
+    assert fake.stopped
+    assert ui_mod._live is None
+
+
+def test_reset_tool_buffer_clears_all_parallel_lists():
+    """_reset_tool_buffer should clear buffer + call_ids + summaries + details."""
+    import tigger.ui as ui_mod
+    ui_mod._tool_buffer.clear()
+    ui_mod._tool_call_ids.clear()
+    ui_mod._tool_summaries.clear()
+    ui_mod._tool_details.clear()
+    ui_mod._tool_buffer.append(("read", "x.py"))
+    ui_mod._tool_call_ids.append("c1")
+    ui_mod._tool_summaries.append("21 lines")
+    ui_mod._tool_details.append("…")
+    ui_mod._reset_tool_buffer()
+    assert ui_mod._tool_buffer == []
+    assert ui_mod._tool_call_ids == []
+    assert ui_mod._tool_summaries == []
+    assert ui_mod._tool_details == []
+
+
+def test_turn_summary_high_ctx_suggests_compact(monkeypatch):
+    """Above 80% ctx, footer should hint at /compact."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod.print_turn_summary(10, 1.0, context_pct=82)
+    out = buf.getvalue()
+    assert "/compact" in out
+    assert "approaching context limit" in out
+
+
+def test_turn_summary_low_ctx_no_compact_hint(monkeypatch):
+    """Below 80%, no compact hint."""
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=80, highlight=False, markup=True, force_terminal=False))
+    ui_mod.print_turn_summary(10, 1.0, context_pct=55)
+    out = buf.getvalue()
+    assert "/compact" not in out
+
+
+def test_split_think_open_no_close_renders_as_think():
+    """Mid-stream open <think> should be treated as in-progress think block."""
+    from tigger.ui import _split_think
+    segs = _split_think("<think>still reasoning")
+    assert segs == [("think", "still reasoning")]
+
+
+def test_split_think_text_then_open_no_close():
+    """Text before an unclosed <think> stays text; the tail becomes think."""
+    from tigger.ui import _split_think
+    segs = _split_think("preface\n\n<think>partial reasoning")
+    assert segs == [("text", "preface\n\n"), ("think", "partial reasoning")]
+
+
+def test_split_think_closed_then_open_no_close():
+    """First closed think + second open think coexist."""
+    from tigger.ui import _split_think
+    segs = _split_think("<think>first done</think>\n\nintro\n\n<think>second going")
+    assert segs == [
+        ("think", "first done"),
+        ("text", "intro\n\n"),
+        ("think", "second going"),
+    ]
+
+
+def test_split_think_empty_open_tail_drops():
+    """Open <think> with no body shouldn't emit an empty think segment."""
+    from tigger.ui import _split_think
+    segs = _split_think("answer\n\n<think>")
+    assert segs == [("text", "answer\n\n")]
+
+
+def test_format_session_id_well_formed():
+    from tigger.ui import format_session_id
+    assert format_session_id("20260510-123400") == "May 10, 12:34"
+
+
+def test_format_session_id_falls_through_on_garbage():
+    from tigger.ui import format_session_id
+    assert format_session_id("not-a-stamp") == "not-a-stamp"
+    assert format_session_id("") == ""
+
+
+def test_session_summary_shortens_mcp_tool_names(monkeypatch):
+    """MCP tool names like mcp__server__tool should render as server.tool."""
+    import time
+    import tigger.ui as ui_mod
+    buf = StringIO()
+    monkeypatch.setattr(ui_mod, "console",
+        Console(file=buf, width=120, highlight=False, markup=True, force_terminal=False))
+    stats = ui_mod.SessionStats(
+        start_time=time.time() - 100,
+        turns=5,
+        tool_calls=10,
+        tool_success=10,
+        tool_errors=0,
+        tool_denied=0,
+        output_tokens=500,
+        tool_names={"mcp__filesystem__read_file": 5, "read": 3},
+    )
+    ui_mod.print_session_summary(stats, None, "m", rtk_enabled=False)
+    out = buf.getvalue()
+    assert "filesystem.read_file" in out
+    # Full mcp__ prefix should be gone from the breakdown row.
+    breakdown_line = next(l for l in out.splitlines() if "Top tools:" in l)
+    assert "mcp__filesystem__read_file" not in breakdown_line

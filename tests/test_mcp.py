@@ -252,7 +252,9 @@ def test_resolve_mcp_configs_malformed_json(tmp_path, capsys):
     configs = resolve_mcp_configs(None, tier_dir, internal_dir=tmp_path / "empty")
     assert configs == []
     captured = capsys.readouterr()
-    assert "Warning" in captured.err
+    # Iter 67: routed through ui.console (stdout) for visual consistency
+    # with the rest of the [mcp] startup messages.
+    assert "Warning" in (captured.out + captured.err)
 
 
 # ── Unit 3: StdioTransport ───────────────────────────────────────────────

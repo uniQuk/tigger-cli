@@ -3,12 +3,17 @@ from __future__ import annotations
 
 import pathlib
 import re
-import sys
 from dataclasses import dataclass, field
 
 from tigger.parsing import parse_single
 
 RTK_HOOK_NAME = "_rtk-rewrite"
+
+
+def _warn(msg: str) -> None:
+    """Emit a hook-system warning matching the iter-40/41/67/68 idiom."""
+    from tigger.ui import console
+    console.print(f"      [yellow]\\[hooks] Warning:[/yellow] {msg}")
 
 VALID_EVENTS = {"PreToolUse", "PostToolUse", "SessionStart"}
 VALID_ACTIONS = {"block", "warn", "allow", "transform"}
@@ -49,8 +54,8 @@ def load_hooks_dir(hooks_dir: pathlib.Path) -> list[HookDef]:
         name = fm.get("name", entry.stem)
         event = fm.get("event", "")
         if event not in VALID_EVENTS:
-            print(f"Warning: hook {entry.name} has invalid event {event!r}, skipping",
-                  file=sys.stderr)
+            _warn(f"hook [magenta]{entry.name}[/magenta] has invalid event "
+                  f"{event!r}, [dim]skipping[/dim]")
             continue
         action = fm.get("action", "warn")
         if action not in VALID_ACTIONS:
@@ -91,8 +96,8 @@ def evaluate_hooks(event: str, context: dict, hooks: list[HookDef]) -> HookResul
             if not re.search(hook.matcher, match_target):
                 continue
         except re.error:
-            print(f"Warning: hook {hook.name!r} has invalid regex {hook.matcher!r}, skipping",
-                  file=sys.stderr)
+            _warn(f"hook [magenta]{hook.name}[/magenta] has invalid regex "
+                  f"{hook.matcher!r}, [dim]skipping[/dim]")
             continue
         # Check args_match conditions — all must match for hook to fire
         if hook.args_match:
@@ -108,9 +113,11 @@ def evaluate_hooks(event: str, context: dict, hooks: list[HookDef]) -> HookResul
                         args_matched = False
                         break
                 except re.error:
-                    print(f"Warning: hook {hook.name!r} has invalid args_match regex "
-                          f"{arg_pattern!r} for key {arg_key!r}, skipping",
-                          file=sys.stderr)
+                    _warn(
+                        f"hook [magenta]{hook.name}[/magenta] has invalid "
+                        f"args_match regex {arg_pattern!r} for key "
+                        f"{arg_key!r}, [dim]skipping[/dim]"
+                    )
                     args_matched = False
                     break
             if not args_matched:
@@ -126,8 +133,8 @@ def evaluate_hooks(event: str, context: dict, hooks: list[HookDef]) -> HookResul
                 result.feedback.append(f"[hook: {hook.name}]\n{hook.body}")
         elif hook.action == "transform":
             if result.transformed:
-                print(f"Warning: hook {hook.name!r} skipped — a transform already fired",
-                      file=sys.stderr)
+                _warn(f"hook [magenta]{hook.name}[/magenta] [dim]skipped — a "
+                      "transform already fired[/dim]")
                 continue
             # Lines mutate tool_args sequentially; caller re-validates permissions.
             tool_args = context.get("tool_args", {})
@@ -137,15 +144,15 @@ def evaluate_hooks(event: str, context: dict, hooks: list[HookDef]) -> HookResul
                     continue
                 sep = line.find(": ")
                 if sep < 0:
-                    print(f"Warning: hook {hook.name!r} has malformed transform line {line!r}, "
-                          "skipping line", file=sys.stderr)
+                    _warn(f"hook [magenta]{hook.name}[/magenta] has malformed "
+                          f"transform line {line!r}, [dim]skipping line[/dim]")
                     continue
                 key, template = line[:sep], line[sep + 2:]
                 try:
                     tool_args[key] = template.format_map(tool_args)
                 except (KeyError, ValueError) as exc:
-                    print(f"Warning: hook {hook.name!r} transform failed for key {key!r}: {exc}",
-                          file=sys.stderr)
+                    _warn(f"hook [magenta]{hook.name}[/magenta] transform "
+                          f"failed for key {key!r}: [red]{exc}[/red]")
             result.transformed = True
         # "allow" is a no-op
     return result

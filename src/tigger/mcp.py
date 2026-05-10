@@ -55,7 +55,11 @@ def _coerce_tier(value: str | None, *, where: str) -> str:
         return "eager"
     if value in _VALID_TIERS:
         return value
-    print(f"[mcp] Warning: unknown tier {value!r} for {where}, defaulting to 'eager'")
+    from tigger.ui import console as _console
+    _console.print(
+        f"      [yellow]\[mcp] Warning:[/yellow] unknown tier {value!r} for "
+        f"{where}, [dim]defaulting to 'eager'[/dim]"
+    )
     return "eager"
 
 
@@ -79,9 +83,10 @@ def load_mcp_config(path: pathlib.Path) -> list[McpServerConfig]:
             if raw_t in _VALID_TIERS:
                 tool_tiers[tool_name] = raw_t
             else:
-                print(
-                    f"[mcp] Warning: unknown tier {raw_t!r} for "
-                    f"{name!r}.tools.{tool_name!r}, ignoring"
+                from tigger.ui import console as _console
+                _console.print(
+                    f"      [yellow]\[mcp] Warning:[/yellow] unknown tier {raw_t!r} for "
+                    f"{name!r}.tools.{tool_name!r}, [dim]ignoring[/dim]"
                 )
         # Stdio default only applies when transport not specified AND we're connecting.
         # Disabled servers may omit transport/command entirely; tolerate that.
@@ -458,15 +463,20 @@ def connect_all(
     if not configs:
         return
 
+    from tigger.ui import console
+
     if require_consent:
         names = [c.name for c in configs]
-        print(f"[mcp] Found MCP servers: {', '.join(names)}")
+        console.print(
+            f"      [dim]\[mcp][/dim] Found MCP servers: "
+            f"[magenta]{', '.join(names)}[/magenta]"
+        )
         try:
             answer = input("  Launch MCP servers? [y/N] ").strip().lower()
         except (KeyboardInterrupt, EOFError):
             answer = "n"
         if answer != "y":
-            print("[mcp] Skipped — MCP servers not launched.")
+            console.print("      [dim]\[mcp] Skipped — MCP servers not launched.[/dim]")
             return
 
     import atexit
@@ -478,7 +488,10 @@ def connect_all(
         # Disabled servers: record a marker connection so /mcp can show them,
         # but skip subprocess spawn / network connect / handshake entirely.
         if cfg.tier == "disabled":
-            print(f"[mcp] Skipped disabled server: {cfg.name}")
+            console.print(
+                f"      [dim]\[mcp] Skipped disabled server:[/dim] "
+                f"[magenta]{cfg.name}[/magenta]"
+            )
             _connections.append(McpConnection(
                 name=cfg.name,
                 transport=_DisabledTransport(),
@@ -503,9 +516,10 @@ def connect_all(
             server_protocol = init_result.get("protocolVersion")
 
             if server_protocol and server_protocol != _PROTOCOL_VERSION:
-                print(
-                    f"[mcp] Warning: {cfg.name} uses protocol {server_protocol} "
-                    f"(client: {_PROTOCOL_VERSION})"
+                console.print(
+                    f"      [yellow]\[mcp] Warning:[/yellow] [magenta]{cfg.name}[/magenta] "
+                    f"uses protocol [cyan]{server_protocol}[/cyan] "
+                    f"[dim](client: {_PROTOCOL_VERSION})[/dim]"
                 )
 
             # Send required initialized notification
@@ -521,9 +535,11 @@ def connect_all(
                     # Warn for per-tool override keys that don't match any real tool.
                     for override_name in cfg.tool_tiers:
                         if override_name not in listed_names:
-                            print(
-                                f"[mcp] Warning: {cfg.name} per-tool override "
-                                f"references unknown tool {override_name!r}; ignoring."
+                            console.print(
+                                f"      [yellow]\[mcp] Warning:[/yellow] "
+                                f"[magenta]{cfg.name}[/magenta] per-tool override "
+                                f"references unknown tool {override_name!r}; "
+                                "[dim]ignoring.[/dim]"
                             )
 
                     for tool in listed_tools:
@@ -539,7 +555,11 @@ def connect_all(
                             tier=effective_tier,
                         ))
                 except McpTransportError as exc:
-                    print(f"[mcp] Warning: {cfg.name} tools/list failed: {exc}")
+                    console.print(
+                        f"      [yellow]\[mcp] Warning:[/yellow] "
+                        f"[magenta]{cfg.name}[/magenta] tools/list failed: "
+                        f"[red]{exc}[/red]"
+                    )
 
             conn = McpConnection(
                 name=cfg.name,
@@ -551,9 +571,26 @@ def connect_all(
             _connections.append(conn)
 
         except McpTransportError as exc:
-            print(f"[mcp] Warning: failed to connect to {cfg.name}: {exc}")
+            console.print(
+                f"      [yellow]\[mcp] Warning:[/yellow] failed to connect to "
+                f"[magenta]{cfg.name}[/magenta]: [red]{exc}[/red]"
+            )
         except Exception as exc:
-            print(f"[mcp] Warning: failed to connect to {cfg.name}: {exc}")
+            console.print(
+                f"      [yellow]\[mcp] Warning:[/yellow] failed to connect to "
+                f"[magenta]{cfg.name}[/magenta]: [red]{exc}[/red]"
+            )
+
+    # Summary line so users know their MCP setup loaded without /mcp.
+    live = [c for c in _connections
+            if not (c.server_info and c.server_info.get("disabled"))]
+    if live:
+        n_tools = sum(1 for t in registry.all() if t.name.startswith("mcp__"))
+        names = ", ".join(c.name for c in live)
+        console.print(
+            f"      [dim]\[mcp] connected:[/dim] [magenta]{names}[/magenta] "
+            f"[dim]({n_tools} tool{'s' if n_tools != 1 else ''})[/dim]"
+        )
 
 
 def connect_new(registry: ToolRegistry, configs: list[McpServerConfig]) -> list[str]:

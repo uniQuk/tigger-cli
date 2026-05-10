@@ -23,8 +23,10 @@ def test_parse_blocks_recovers_from_invalid_yaml(capsys):
     # The good block still loads.
     assert any(b["fm"].get("name") == "good" for b in blocks)
     captured = capsys.readouterr()
-    assert "my-skills.md" in captured.err
-    assert "YAML frontmatter error" in captured.err
+    # Iter 68: routed through ui.console (stdout) for theming.
+    out = captured.out + captured.err
+    assert "my-skills.md" in out
+    assert "YAML frontmatter error" in out
 
 
 def test_parse_single_recovers_from_invalid_yaml(capsys):
@@ -32,7 +34,8 @@ def test_parse_single_recovers_from_invalid_yaml(capsys):
     result = parse_single(text, source="agent.md")
     assert result is None
     captured = capsys.readouterr()
-    assert "agent.md" in captured.err
+    # Iter 68: routed through ui.console (stdout) for theming.
+    assert "agent.md" in (captured.out + captured.err)
 
 
 def test_parse_single_no_frontmatter_returns_none():
@@ -42,4 +45,8 @@ def test_parse_single_no_frontmatter_returns_none():
 def test_parse_blocks_clean_input_emits_no_warnings(capsys):
     text = "---\nname: ok\n---\nbody\n"
     parse_blocks(text)
-    assert capsys.readouterr().err == ""
+    captured = capsys.readouterr()
+    # Iter 68: warnings now route through ui.console (stdout). Clean parses
+    # should emit nothing on either stream.
+    assert captured.out == ""
+    assert captured.err == ""

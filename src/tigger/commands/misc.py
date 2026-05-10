@@ -22,8 +22,19 @@ def cmd_help(
 
     if query:
         if query in COMMAND_HELP:
+            import re
             console.print(f"\n[bold cyan]/{query}[/bold cyan]")
-            console.print(COMMAND_HELP[query])
+            # Highlight inline /command and --flag references so the body's
+            # structure pops without rewriting all 16 help strings. The
+            # lookbehind avoids URL paths (https://…) and filesystem paths
+            # (skills/agents/modes) — only treat ``/word`` as a command when
+            # it's not preceded by another path segment.
+            body = COMMAND_HELP[query]
+            body = re.sub(r"(?<![/\w])(/[a-z][\w-]*)", r"[cyan]\1[/cyan]", body)
+            body = re.sub(r"(?<![\w])(--[a-z][\w-]*)", r"[cyan]\1[/cyan]", body)
+            # Dim the leading "Usage:" label on lines starting with it.
+            body = re.sub(r"(?m)^(\s*)(Usage:)", r"\1[dim]\2[/dim]", body)
+            console.print(body)
             console.print()
         else:
             console.print(f"\n[red]Unknown command:[/red] /{query}\n")
@@ -59,8 +70,17 @@ def cmd_help(
 def cmd_clear(args: str, ctx: RunContext) -> None:
     from tigger.ui import console
 
+    n = len(ctx.messages)
+    if n == 0:
+        console.print("[dim](history was already empty)[/dim]")
+        return
+    reclaimed = estimate_tokens(ctx.messages)
     ctx.messages.clear()
-    console.print("[dim]✓ Message history cleared.[/dim]")
+    console.print(
+        f"[dim]✓ Cleared[/dim] [bold]{n}[/bold] "
+        f"[dim]message{'s' if n != 1 else ''}[/dim] "
+        f"[dim]·[/dim] [bold]~{reclaimed:,}[/bold] [dim]tokens reclaimed[/dim]"
+    )
 
 
 def cmd_tokens(args: str, ctx: RunContext) -> None:
@@ -76,10 +96,33 @@ def cmd_tokens(args: str, ctx: RunContext) -> None:
         colour = "yellow"
     else:
         colour = "green"
+    # Compaction threshold matches the 85% in compaction.maybe_compact.
+    compact_at = int(limit * 0.85) if limit else 0
+    headroom = max(0, compact_at - used)
+    # 30-cell bar split into filled / unfilled halves for an at-a-glance ratio.
+    bar_width = 30
+    if limit:
+        filled = min(bar_width, max(0, int(used / limit * bar_width)))
+    else:
+        filled = 0
+    bar = (
+        f"[{colour}]{'█' * filled}[/{colour}]"
+        f"[dim]{'░' * (bar_width - filled)}[/dim]"
+    )
     console.print(
         f"[bold]Context:[/bold] {used:,} / {limit:,} tokens "
         f"([{colour}]{pct}% used[/{colour}])"
     )
+    console.print(f"  {bar}")
+    if compact_at and headroom > 0:
+        console.print(
+            f"  [dim]{headroom:,} tokens until /compact triggers "
+            f"(at {compact_at:,})[/dim]"
+        )
+    elif compact_at:
+        console.print(
+            "  [yellow]past compaction threshold — next turn may auto-compact[/yellow]"
+        )
 
 
 def cmd_model(args: str, ctx: RunContext) -> None:

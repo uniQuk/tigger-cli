@@ -9,31 +9,41 @@ from tigger.types import ProviderConfig, RunContext
 
 
 def cmd_provider(args: str, ctx: RunContext, config_path: pathlib.Path) -> None:
+    from tigger.ui import console
+
     subcmd = args.strip().lower()
     if subcmd != "add":
-        print("Usage: /provider add")
+        console.print("[dim]Usage:[/dim] /provider add")
         return
     _provider_add(ctx, config_path)
 
 
 def _provider_add(ctx: RunContext, config_path: pathlib.Path) -> None:
+    from tigger.ui import console
+
     existing = list(ctx.config.providers.keys())
     hint = f" (or existing: {', '.join(existing)})" if existing else ""
     name = input(f"  Provider name{hint}: ").strip()
 
     if not name or not re.match(r'^[a-zA-Z0-9._-]+$', name):
-        print("Invalid provider name. Use alphanumeric characters, hyphens, dots.")
+        console.print(
+            "[red]Invalid provider name.[/red] "
+            "[dim]Use alphanumeric characters, hyphens, dots.[/dim]"
+        )
         return
 
     if name in ctx.config.providers:
         # Add model to existing provider
         model = input("  Model name: ").strip()
         if not model:
-            print("Cancelled — no model name given.")
+            console.print("[dim]Cancelled — no model name given.[/dim]")
             return
         prov = ctx.config.providers[name]
         if model in prov.model_names:
-            print(f"Model {model!r} already exists in provider {name!r}.")
+            console.print(
+                f"[red]Model[/red] {model!r} "
+                f"[red]already exists in provider[/red] {name!r}."
+            )
             return
         if isinstance(prov.models, dict):
             new_models = dict(prov.models)
@@ -46,17 +56,22 @@ def _provider_add(ctx: RunContext, config_path: pathlib.Path) -> None:
         new_providers[name] = new_prov
         ctx.config = dataclasses.replace(ctx.config, providers=new_providers)
         write_config(config_path, ctx.config)
-        print(f"Added model {model!r} to provider {name!r}.")
+        console.print(
+            f"[dim]✓ Added model[/dim] [cyan]{model}[/cyan] "
+            f"[dim]to provider[/dim] [magenta]{name}[/magenta]"
+        )
     else:
         # New provider
         base_url = input("  Base URL: ").strip()
         if not base_url.startswith(("http://", "https://")):
-            print("Base URL must start with http:// or https://")
+            console.print(
+                "[red]Base URL must start with[/red] http:// [red]or[/red] https://"
+            )
             return
         api_key = input("  API key (Enter for 'local'): ").strip() or "local"
         model = input("  Model name: ").strip()
         if not model:
-            print("Cancelled — no model name given.")
+            console.print("[dim]Cancelled — no model name given.[/dim]")
             return
 
         new_prov = ProviderConfig(name=name, base_url=base_url,
@@ -65,7 +80,10 @@ def _provider_add(ctx: RunContext, config_path: pathlib.Path) -> None:
         new_providers[name] = new_prov
         ctx.config = dataclasses.replace(ctx.config, providers=new_providers)
         write_config(config_path, ctx.config)
-        print(f"Added provider {name!r} with model {model!r}.")
+        console.print(
+            f"[dim]✓ Added provider[/dim] [magenta]{name}[/magenta] "
+            f"[dim]with model[/dim] [cyan]{model}[/cyan]"
+        )
 
         try:
             switch = input("  Switch to it now? [Y/n]: ").strip().lower()
@@ -73,4 +91,6 @@ def _provider_add(ctx: RunContext, config_path: pathlib.Path) -> None:
             return
         if switch in ("y", ""):
             ctx.config = switch_model(ctx.config, name, model)
-            print(f"Switched to {name}/{model}")
+            console.print(
+                f"[dim]✓ Switched to[/dim] [cyan]{name}/{model}[/cyan]"
+            )

@@ -848,3 +848,59 @@ def test_compaction_no_op_emits_no_notice(monkeypatch, capsys):
 
     err = capsys.readouterr().err
     assert "compacted" not in err
+
+
+def test_empty_response_retry_emits_stderr_notice(monkeypatch, capsys):
+    """When the provider yields no AssistantMessage, the loop should announce the retry."""
+    from tigger.types import (
+        AssistantMessage,
+        Config,
+        Message,
+        RunContext,
+        TrustLevel,
+    )
+    from tigger.loop import run as _run
+    from tigger.tools import ToolRegistry
+
+    call = [0]
+
+    def flaky_provider(system, messages, tools, config):
+        call[0] += 1
+        if call[0] == 1:
+            # Yield nothing — simulates empty response.
+            return
+            yield
+        yield AssistantMessage(content="now I'm here", tool_calls=[])
+
+    cfg = Config(base_url="http://x", model="m", api_key="k", max_retries=2)
+    ctx = RunContext(config=cfg, messages=[Message(role="user", content="hi")],
+                     system_prompt="", trust_level=TrustLevel.ALWAYS)
+    list(_run("go", ctx, ToolRegistry(), provider_fn=flaky_provider))
+
+    err = capsys.readouterr().err
+    assert "empty response" in err
+    assert "retrying" in err
+
+
+def test_empty_response_giveup_emits_stderr_notice(monkeypatch, capsys):
+    """When retries exhaust, the loop should announce the give-up."""
+    from tigger.types import (
+        Config,
+        Message,
+        RunContext,
+        TrustLevel,
+    )
+    from tigger.loop import run as _run
+    from tigger.tools import ToolRegistry
+
+    def empty_provider(system, messages, tools, config):
+        return
+        yield  # makes it a generator
+
+    cfg = Config(base_url="http://x", model="m", api_key="k", max_retries=1)
+    ctx = RunContext(config=cfg, messages=[Message(role="user", content="hi")],
+                     system_prompt="", trust_level=TrustLevel.ALWAYS)
+    list(_run("go", ctx, ToolRegistry(), provider_fn=empty_provider))
+
+    err = capsys.readouterr().err
+    assert "giving up" in err

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pathlib
-import sys
 from dataclasses import dataclass, field
 
 from tigger.parsing import parse_blocks, parse_single
@@ -269,7 +268,11 @@ def load_skills_dir(skills_dir: pathlib.Path) -> list[SkillDef]:
                 try:
                     refs.append((ref_file.name, ref_file.read_text()))
                 except OSError as exc:
-                    print(f"Warning: could not read {ref_file}: {exc}", file=sys.stderr)
+                    from tigger.ui import console as _console
+                    _console.print(
+                        f"      [yellow]\\[skills] Warning:[/yellow] could not "
+                        f"read [cyan]{ref_file}[/cyan]: [red]{exc}[/red]"
+                    )
 
         # Assets: store path if directory exists
         assets_dir = entry / "assets"
@@ -406,5 +409,11 @@ def warn_on_command_collisions(
                     f"the built-in will take precedence"
                 )
                 warnings.append(msg)
-                print(msg, file=sys.stderr)
+                from tigger.ui import console as _console
+                _console.print(
+                    f"      [yellow]\\[skills] Warning:[/yellow] trigger "
+                    f"{trigger!r} in [cyan]{location}[/cyan] collides with "
+                    f"built-in command [cyan]{trigger}[/cyan]; "
+                    f"[dim]the built-in takes precedence[/dim]"
+                )
     return warnings

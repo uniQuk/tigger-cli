@@ -29,7 +29,7 @@ def test_cmd_compact_prints_breakdown(capsys):
     ctx = _ctx(msgs)
     cmd_compact("", ctx, _fake_provider)
     captured = capsys.readouterr().out
-    assert "Snipped" in captured
+    assert "snipped" in captured
     assert "summarized" in captured
     assert "\u2192" in captured  # arrow
     assert "tokens" in captured
@@ -53,7 +53,7 @@ def test_cmd_compact_no_provider(capsys):
     ctx = _ctx(msgs)
     cmd_compact("", ctx, None)
     captured = capsys.readouterr().out
-    assert "Snipped" in captured
+    assert "snipped" in captured
     assert "summarized" not in captured
 
 
@@ -63,7 +63,7 @@ def test_cmd_compact_short_messages(capsys):
     ctx = _ctx(msgs, context_limit=8192)
     cmd_compact("", ctx, None)
     captured = capsys.readouterr().out
-    assert "Compacted:" in captured
+    assert "Compacted" in captured
     assert "\u2192" in captured
 
 

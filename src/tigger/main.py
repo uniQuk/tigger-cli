@@ -61,6 +61,10 @@ class StartupResult:
     memory_path: pathlib.Path | None = None
     summary_dir: pathlib.Path | None = None
     mcp_configs: list[McpServerConfig] = dataclasses.field(default_factory=list)
+    # Set true at startup when load_recent_summary returned content; consumers
+    # show a dim "↺ recent context loaded" hint so users aren't surprised that
+    # the model remembers yesterday's session.
+    has_recent_summary: bool = False
 
 
 def startup(
@@ -68,6 +72,7 @@ def startup(
     *,
     interactive: bool = True,
     auto_trust: bool = False,
+    quiet: bool = False,
 ) -> StartupResult:
     """Run startup.
 
@@ -75,6 +80,9 @@ def startup(
     untrusted unless the workspace is already trusted or auto_trust is set.
     auto_trust: when True, grant TrustLevel.ALWAYS without prompting (used
     by --trust).
+    quiet: when True, suppress the welcome banner and per-subsystem startup
+    notices (MCP connect summary, recent-summary load). Used by ``--once``
+    so scripted callers get a clean stdout containing only the answer.
     """
     # 1. Find and load config
     if config_path is None:
@@ -115,15 +123,16 @@ def startup(
             # auto-deny. Safer default than deadlocking on input().
             trust_level = TrustLevel.READONLY
 
-    # 3. Logo + startup info
+    # 3. Logo + startup info (skipped in quiet mode for clean scripted output)
     _rtk_available = shutil.which("rtk") is not None
     _rtk_enabled = config.rtk or _rtk_available
-    ui.print_logo(
-        provider=config.active_provider or derive_provider_name(config.base_url),
-        model=config.model,
-        cwd=str(cwd),
-        rtk=_rtk_enabled,
-    )
+    if not quiet:
+        ui.print_logo(
+            provider=config.active_provider or derive_provider_name(config.base_url),
+            model=config.model,
+            cwd=str(cwd),
+            rtk=_rtk_enabled,
+        )
 
     # 4. Tool registry + memory
     # Memory write path: project if available, else global. Resolved once.
@@ -137,7 +146,20 @@ def startup(
     # 5. MCP — 3-tier merge (project > global > internal), name-based shadowing
     mcp_configs = resolve_mcp_configs(project_dir, global_dir)
     if mcp_configs:
-        connect_all(registry, mcp_configs)
+        if quiet:
+            # Silence MCP startup chatter for scripted --once callers. Briefly
+            # swap the shared console out for a discarding one so connect_all's
+            # console.print calls go nowhere; warnings still go to stderr.
+            from io import StringIO
+            from rich.console import Console as _Console
+            _orig = ui.console
+            ui.console = _Console(file=StringIO(), highlight=False)
+            try:
+                connect_all(registry, mcp_configs)
+            finally:
+                ui.console = _orig
+        else:
+            connect_all(registry, mcp_configs)
 
     # 6. Hooks — declarative markdown hooks from hooks/ directories (additive merge)
     hook_defs = resolve_hooks(project_dir, global_dir)
@@ -186,8 +208,15 @@ def startup(
 
     # 11b. Inject recent compaction summary as orientation context
     _prev_summary = load_recent_summary(_summaries_dir)
+    _has_recent_summary = bool(_prev_summary)
     if _prev_summary:
         ctx.system_prompt = f"[Previous session context]\n{_prev_summary}\n\n{ctx.system_prompt}"
+        if not quiet:
+            # Surface that we silently rehydrated context — otherwise users
+            # get spooked when the model "remembers" yesterday's task.
+            ui.console.print(
+                "      [dim]↺ recent session context loaded[/dim]"
+            )
 
     commands = load_builtin_commands(
         memory_path=memory_path,
@@ -216,6 +245,7 @@ def startup(
         memory_path=memory_path,
         summary_dir=summary_dir,
         mcp_configs=mcp_configs,
+        has_recent_summary=_has_recent_summary,
     )
     bind_reload_command(commands, result)
     return result
@@ -242,7 +272,15 @@ def _toolbar(ctx: RunContext) -> str:
 def _show_exit(stats: ui.SessionStats, session_id: str | None, ctx: RunContext) -> None:
     """Print the session summary panel on exit."""
     if stats.turns == 0 and stats.tool_calls == 0:
-        ui.print_info("\nBye.")
+        # Match the cat motif from the welcome banner — three short lines feel
+        # more on-brand than a terse "Bye.". Use style= rather than inline
+        # markup because the cat ASCII contains backslashes that confuse the
+        # bracket parser.
+        ui.console.print()
+        ui.console.print(r"       /\_/\ ", style="dim", highlight=False, markup=False)
+        ui.console.print(r"      ( -.- )   bye…", style="dim italic", highlight=False, markup=False)
+        ui.console.print(r"       > ^ < ", style="dim", highlight=False, markup=False)
+        ui.console.print()
         return
     ui.print_session_summary(
         stats=stats,
@@ -316,15 +354,54 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             ctx.config = dataclasses.replace(ctx.config, mode=mode_names[next_idx])
             event.app.invalidate()
 
-        _PLACEHOLDER = "Type your message or @path/to/file"
-        _RULE = "\u2500" * len("\u276f " + _PLACEHOLDER)
+        # Pick a hint at REPL start so returning users discover features over
+        # time \u2014 Tab completion, /commands, @file inclusion, /compact, etc.
+        import random as _random
+        _PLACEHOLDER_HINTS = [
+            "Type your message or @path/to/file",
+            "Tab to autocomplete /commands and @paths",
+            "/help shows every available command",
+            "Type @file.py to inline a file",
+            "/compact summarises older turns",
+            "/skills lists matched-by-trigger workflows",
+            "/status shows your runtime config",
+        ]
+        _PLACEHOLDER = _random.choice(_PLACEHOLDER_HINTS)
+        # Rule width tracks the longest hint so it doesn't shrink unexpectedly.
+        _RULE = "\u2500" * len("\u276f " + max(_PLACEHOLDER_HINTS, key=len))
 
         _pt_style = PTStyle.from_dict({
             "bottom-toolbar": "noreverse #888888",
         })
 
-        def _bottom_toolbar() -> str:
-            return " " + _toolbar(ctx)
+        def _bottom_toolbar():
+            # HTML lets us colour the context % independently of the rest.
+            from html import escape
+            used = estimate_tokens(ctx.messages)
+            limit = ctx.config.context_limit
+            pct = (used / limit * 100) if limit else 0
+            if pct >= 80:
+                pct_colour = "#ff4444"
+            elif pct >= 50:
+                pct_colour = "#ffaa00"
+            else:
+                pct_colour = "#5fd75f"
+            model = ctx.config.model_name or ctx.config.model
+            tools_html = ""
+            if ui.recent_tools:
+                tools_html = (
+                    f'  <style fg="#999999">tools:</style> '
+                    f'<style fg="#ce5cb1">{escape(", ".join(ui.recent_tools))}</style>'
+                )
+            rtk_html = '  <style fg="#5fd75f">rtk</style>' if ctx.config.rtk else ""
+            return HTML(
+                f' <style fg="#5fcfff">{escape(model)}</style>'
+                f'  <style fg="#999999">mode:</style>{escape(ctx.config.mode)}'
+                f'  <style fg="#999999">perm:</style>{escape(ctx.config.permission_mode)}'
+                f'  <style fg="{pct_colour}">{pct:.1f}% ctx</style>'
+                f'{rtk_html}'
+                f'{tools_html}'
+            )
 
         _session: PromptSession = PromptSession(
             history=_history,
@@ -352,15 +429,21 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
 
         def _get_input() -> str:
             ui.console.print(f"[dim]{_RULE}[/dim]")
-            return _session.prompt("\u276f ")
+            # Cyan \u276f matches the cyan-for-action convention used everywhere
+            # else (slash commands, switch confirmations, etc.).
+            return _session.prompt(HTML('<style fg="#5fcfff">\u276f</style> '))
 
     except ImportError:
-        ui.print_info("prompt_toolkit not installed — history and completion unavailable.")
+        ui.console.print(
+            "      [dim]prompt_toolkit not installed — "
+            "history and completion unavailable.[/dim]"
+        )
 
         def _get_input() -> str:  # type: ignore[misc]
             cols = ui.console.width or 80
             print("\033[90m" + "\u2500" * cols + "\033[0m")
-            return input("\u276f ")
+            # Cyan \u276f via raw ANSI (no prompt_toolkit available here).
+            return input("\033[38;5;87m\u276f\033[0m ")
 
     while True:
         try:
@@ -379,7 +462,17 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         # Expand @file references in raw user input before skill/command processing.
         # Must happen before skill.render() to avoid mangling skill content
         # that contains @ characters (e.g. @on_before decorator examples).
-        line = expand_file_refs(line)
+        injected_files: list[tuple[str, int]] = []
+        line = expand_file_refs(line, injected=injected_files)
+        if injected_files:
+            def _fmt_size(n: int) -> str:
+                if n >= 1024:
+                    return f"{n / 1024:.1f}KB"
+                return f"{n}B"
+            summary = ", ".join(
+                f"@{p} [dim]({_fmt_size(n)})[/dim]" for p, n in injected_files
+            )
+            ui.console.print(f"[dim]↪ included[/dim] {summary}")
 
         skill = match_skill(line, skills)
         forked_skill = None
@@ -400,6 +493,14 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
                 line = skill.render(line)
             else:
                 line = skill.render(line)
+            # Surface that a skill matched so the user isn't surprised when
+            # their prompt is reinterpreted. Forked skills get the ↳ glyph
+            # to hint at the sub-agent jump.
+            arrow = "↳" if skill.context == "fork" else "↪"
+            mode_tag = " [dim](forked)[/dim]" if skill.context == "fork" else ""
+            ui.console.print(
+                f"[dim]{arrow} skill:[/dim] [magenta]{skill.name}[/magenta]{mode_tag}"
+            )
 
         if line.startswith("/") and not forked_skill:
             name, _, args = line[1:].partition(" ")
@@ -407,7 +508,21 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             if handler:
                 handler(args, ctx)
             else:
-                ui.print_error(f"Unknown command: /{name}. Type /help for list.")
+                # Suggest a close match (Levenshtein-ish via difflib) so
+                # /halp → /help, /toks → /tokens. Cuts off at a 0.6 ratio
+                # to avoid wild guesses.
+                import difflib
+                matches = difflib.get_close_matches(
+                    name, list(commands.keys()), n=1, cutoff=0.6,
+                )
+                hint = (
+                    f" Did you mean [cyan]/{matches[0]}[/cyan]?"
+                    if matches else " [dim]Type[/dim] [cyan]/help[/cyan] [dim]for list.[/dim]"
+                )
+                ui.console.print(
+                    f"[bold red]Error:[/bold red] Unknown command: "
+                    f"[cyan]/{name}[/cyan].{hint}"
+                )
             continue
 
         # Run agent turn.
@@ -415,6 +530,11 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
         output_chars = [0]
         ui.set_turn_start(turn_start, output_chars)
         text_buf: list[str] = []
+        # Real output-token count from the provider, summed across every
+        # TurnDoneEvent in this turn (a single user prompt can drive multiple
+        # model calls when tools fire). Falls back to the chars/4 estimate
+        # below if the provider omitted the usage payload.
+        real_output_tokens = 0
 
         try:
             if forked_skill:
@@ -435,34 +555,64 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
                     stats.record_tool_end(first_event)
                 elif isinstance(first_event, TurnDoneEvent):
                     stats.turns += 1
+                    real_output_tokens += first_event.output_tokens
                 ui.render_event(first_event, output_chars, text_buf)
                 for event in event_gen:
                     if isinstance(event, ToolEndEvent):
                         stats.record_tool_end(event)
                     elif isinstance(event, TurnDoneEvent):
                         stats.turns += 1
+                        real_output_tokens += event.output_tokens
                     ui.render_event(event, output_chars, text_buf)
         except KeyboardInterrupt:
             ui._stop_activity()
-            ui.print_info("\n(interrupted)")
+            ui._stop_live()
+            ui._reset_tool_buffer()
+            elapsed = time.time() - turn_start
+            partial = real_output_tokens or (output_chars[0] // 4)
+            parts = [ui.format_duration(elapsed)]
+            if partial:
+                parts.append(f"~{partial} tokens streamed")
+            ui.console.print(
+                f"\n[yellow]↩ interrupted[/yellow] [dim]· {' · '.join(parts)}[/dim]"
+            )
             continue
         except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ConnectError) as exc:
             ui._stop_activity()
-            ui.print_error(f"Network error: {exc}")
+            ui._stop_live()
+            ui._reset_tool_buffer()
+            ui.print_error_panel(
+                "Network error",
+                str(exc),
+                hint=f"Check that {ctx.config.base_url} is reachable.",
+            )
             continue
         except openai.APIError as exc:
             ui._stop_activity()
-            ui.print_error(f"Provider rejected request: {exc}")
+            ui._stop_live()
+            ui._reset_tool_buffer()
+            ui.print_error_panel(
+                "Provider rejected request",
+                str(exc),
+                hint="Try /model to switch, or wait and retry.",
+            )
             continue
         except Exception as exc:
             if "TimeoutError" in type(exc).__name__ or "timed out" in str(exc).lower():
                 ui._stop_activity()
-                ui.print_error("Request timed out — is the model server running?")
+                ui._stop_live()
+                ui.print_error_panel(
+                    "Request timed out",
+                    "The model server didn't respond.",
+                    hint=f"Is {ctx.config.base_url} running?",
+                )
             else:
                 raise
             continue
 
-        turn_tokens = output_chars[0] // 4
+        # Prefer the provider's reported token count when present; fall back
+        # to chars/4 only when the server didn't include usage info.
+        turn_tokens = real_output_tokens or (output_chars[0] // 4)
         stats.output_tokens += turn_tokens
         elapsed = time.time() - turn_start
         ui.set_turn_start(None)
@@ -480,15 +630,57 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
 
 def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser(prog="tigger-code")
-    parser.add_argument("--mode", default=None)
-    parser.add_argument("--permission", choices=["ask", "allow", "bypass"], dest="permission", default=None)
+    # Resolve installed package version for --version. Falls back gracefully
+    # if running from a source checkout without an installed dist.
+    try:
+        from importlib.metadata import version as _pkg_version
+        _version = _pkg_version("tigger-code")
+    except Exception:
+        _version = "0.1.0"
+    parser = argparse.ArgumentParser(
+        prog="tigger-code",
+        description="Tigger — minimal AI agent CLI. "
+                    "Built on the OpenAI-compatible API; works with local "
+                    "(LM Studio, Ollama) and cloud endpoints.",
+        epilog=(
+            "Examples:\n"
+            "  tigger-code                       # interactive REPL\n"
+            "  tigger-code -c                    # resume the most recent session\n"
+            "  tigger-code -q                    # interactive without the welcome banner\n"
+            "  tigger-code --once 'hello'        # single turn; stdout=answer, exit=0/1/2/130\n"
+            "  tigger-code --once 'hi' | jq -R   # pipe-friendly\n"
+            "\n"
+            "Inside the REPL: /help for commands, Tab to complete, @path/to/file to "
+            "inline a file."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"tigger-code {_version}",
+    )
+    parser.add_argument(
+        "--mode", default=None, metavar="NAME",
+        help="Override the active mode (e.g. act, plan); reads from .tigger/modes/",
+    )
+    parser.add_argument(
+        "--permission",
+        choices=["ask", "allow", "bypass"],
+        dest="permission", default=None,
+        help="Override permission gate: ask=prompt each tool, "
+             "allow=permit safe-listed prefixes, bypass=permit everything",
+    )
     parser.add_argument("-c", "--continue", dest="resume", action="store_true",
                         help="Resume the most recent session")
     parser.add_argument("--once", metavar="PROMPT",
-                        help="Run a single agent turn non-interactively and exit")
+                        help="Run a single agent turn non-interactively and exit. "
+                             "Stdout = answer only; conventional exit codes.")
     parser.add_argument("--trust", action="store_true",
                         help="Mark the current workspace as trusted without prompting")
+    parser.add_argument(
+        "-q", "--quiet", action="store_true",
+        help="Skip the logo, cat, MCP, and recent-summary notices on startup. "
+             "REPL still runs.",
+    )
     parsed = parser.parse_args()
 
     # Detect interactive context: only prompt for trust when stdin is a TTY.
@@ -496,9 +688,25 @@ def main() -> None:
     is_interactive = sys.stdin.isatty()
 
     try:
-        result = startup(interactive=is_interactive, auto_trust=parsed.trust)
+        result = startup(
+            interactive=is_interactive,
+            auto_trust=parsed.trust,
+            quiet=parsed.once is not None or parsed.quiet,
+        )
     except (FileNotFoundError, ValueError, OSError) as exc:
-        ui.print_error(f"Startup failed: {exc}")
+        # Pick a hint based on the error type so the panel suggests an
+        # actionable next step rather than just dumping the exception.
+        if isinstance(exc, FileNotFoundError):
+            hint = (
+                "Run `tigger-code` from a directory with a .tigger/config.json "
+                "or create ~/.tigger/config.json. `tigger-code /init --global` "
+                "scaffolds the user-level layout."
+            )
+        elif isinstance(exc, ValueError):
+            hint = "Check .tigger/config.json for malformed JSON or invalid keys."
+        else:
+            hint = "Check filesystem permissions on .tigger/ and ~/.tigger/."
+        ui.print_error_panel("Startup failed", str(exc), hint=hint)
         sys.exit(1)
 
     if parsed.mode is not None:
@@ -519,11 +727,46 @@ def main() -> None:
 
     # --once: single non-interactive turn
     if parsed.once is not None:
-        for event in run(parsed.once, result.ctx, result.registry,
-                         provider_fn=result.provider_fn, hook_defs=result.hook_defs):
-            if isinstance(event, TextChunk):
-                print(event.content, end="", flush=True)
-        print()
+        # Reasoning models often prefix their reply with leading whitespace
+        # (e.g. "\n\n<answer>"). Strip those leading newlines so scripted
+        # callers don't have to .strip() every result themselves.
+        seen_content = False
+        last_ended_with_newline = False
+        try:
+            for event in run(parsed.once, result.ctx, result.registry,
+                             provider_fn=result.provider_fn,
+                             hook_defs=result.hook_defs):
+                if isinstance(event, TextChunk):
+                    content = event.content
+                    if not seen_content:
+                        content = content.lstrip()
+                        if not content:
+                            continue
+                        seen_content = True
+                    print(content, end="", flush=True)
+                    last_ended_with_newline = content.endswith("\n")
+        except KeyboardInterrupt:
+            sys.stderr.write("interrupted\n")
+            sys.exit(130)
+        except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ConnectError) as exc:
+            sys.stderr.write(f"network error: {exc}\n")
+            sys.exit(2)
+        except openai.APIError as exc:
+            sys.stderr.write(f"provider rejected request: {exc}\n")
+            sys.exit(2)
+        except Exception as exc:
+            if "TimeoutError" in type(exc).__name__ or "timed out" in str(exc).lower():
+                sys.stderr.write("request timed out\n")
+                sys.exit(2)
+            raise
+        if not seen_content:
+            sys.stderr.write("empty response\n")
+            sys.exit(1)
+        # Only emit a trailing newline if the model's last chunk didn't
+        # already end with one. Avoids spurious blank lines in piped output
+        # when the response is multi-line.
+        if not last_ended_with_newline:
+            print()
         sys.exit(0)
 
     # Session setup
@@ -536,9 +779,18 @@ def main() -> None:
             latest = sessions[0]
             result.ctx.messages = load_session(latest.path)
             session_id = latest.timestamp
-            ui.print_info(f"Resumed session {session_id} with {latest.message_count} messages")
+            stamp = ui.format_session_id(session_id)
+            ctx_used = estimate_tokens(result.ctx.messages)
+            ui.console.print(
+                f"[dim]✓ Resumed[/dim] [cyan]{stamp}[/cyan] "
+                f"[dim]·[/dim] [bold]{latest.message_count}[/bold] "
+                f"[dim]message{'s' if latest.message_count != 1 else ''} "
+                f"·[/dim] [dim]{ctx_used:,} tokens[/dim]"
+            )
         else:
-            ui.print_info("No previous sessions found. Starting new session.")
+            ui.console.print(
+                "[dim]No previous sessions found — starting fresh.[/dim]"
+            )
             session_id = new_session_id()
     else:
         session_id = new_session_id()

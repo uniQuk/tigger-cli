@@ -220,8 +220,12 @@ def resolve_mcp_configs(
         try:
             return load_mcp_config(mcp_path)
         except (json.JSONDecodeError, OSError) as exc:
-            import sys
-            print(f"[mcp] Warning: failed to load {mcp_path}: {exc}", file=sys.stderr)
+            # Match the iter-40/41 [mcp] prefix theming used in mcp.py.
+            from tigger.ui import console
+            console.print(
+                f"      [yellow]\\[mcp] Warning:[/yellow] failed to load "
+                f"[cyan]{mcp_path}[/cyan]: [red]{exc}[/red]"
+            )
             return []
 
     # mcp.json sits at the root of each tier (no subdirectory).

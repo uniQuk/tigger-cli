@@ -54,11 +54,14 @@ def _cmd_mcp_status(
     connections: list[McpConnection],
     registry: ToolRegistry,
 ) -> None:
+    from tigger.ui import console
+
     if not connections:
-        print("\n  No MCP servers connected.\n")
+        console.print("\n  [dim]No MCP servers connected.[/dim]\n")
         return
 
-    print(f"\n  MCP Servers ({len(connections)})")
+    console.print()
+    console.print(f"[bold]MCP Servers[/bold] [dim]({len(connections)})[/dim]")
     for conn in connections:
         # Disabled servers carry a sentinel transport; surface that distinctly.
         is_disabled = bool(conn.server_info and conn.server_info.get("disabled"))
@@ -85,9 +88,15 @@ def _cmd_mcp_status(
         else:
             target = ""
 
-        print(f"    {conn.name:<20} {transport_type:<8} {tool_count} tools  {target}  v{version}")
+        transport_colour = "yellow" if is_disabled else "cyan"
+        console.print(
+            f"  [magenta]{conn.name:<20}[/magenta] "
+            f"[{transport_colour}]{transport_type:<8}[/{transport_colour}] "
+            f"[dim]{tool_count} tools[/dim]  "
+            f"{target}  [dim]v{version}[/dim]"
+        )
 
-    print()
+    console.print()
 
 
 # ── Tier sub-command ─────────────────────────────────────────────────────
@@ -123,16 +132,24 @@ def _cmd_mcp_tier(
     server, tier = args[0], args[1]
 
     if tier not in _VALID_TIERS:
-        print(f"\n  Invalid tier {tier!r}. Valid: eager | lazy | disabled\n")
+        from tigger.ui import console
+        console.print(
+            f"\n  [red]Invalid tier[/red] {tier!r}. "
+            "[dim]Valid:[/dim] eager | lazy | disabled\n"
+        )
         return
 
     matching_tools = [t for t in registry.all() if t.name.startswith(f"mcp__{server}__")]
     matching_conn = next((c for c in connections if c.name == server), None)
 
     if not matching_tools and matching_conn is None:
+        from tigger.ui import console
         valid_names = sorted({c.name for c in connections})
         names_str = ", ".join(valid_names) or "(none)"
-        print(f"\n  Unknown server {server!r}. Connected servers: {names_str}\n")
+        console.print(
+            f"\n  [red]Unknown server[/red] {server!r}. "
+            f"[dim]Connected servers:[/dim] {names_str}\n"
+        )
         return
 
     # R10: disabled cannot be promoted at runtime. A server is "currently disabled"
@@ -146,9 +163,10 @@ def _cmd_mcp_tier(
     all_tools_disabled = bool(matching_tools) and all(t.tier == "disabled" for t in matching_tools)
     is_currently_disabled = conn_marked or all_tools_disabled
     if is_currently_disabled and tier != "disabled":
-        print(
-            f"\n  '{server}' is currently disabled. "
-            f"Edit mcp.json and restart to re-enable.\n"
+        from tigger.ui import console
+        console.print(
+            f"\n  [yellow]'{server}' is currently disabled.[/yellow] "
+            "[dim]Edit mcp.json and restart to re-enable.[/dim]\n"
         )
         return
 
@@ -169,12 +187,18 @@ def _cmd_mcp_tier(
     global _disable_warning_shown
     if tier == "disabled" and not is_currently_disabled and not _disable_warning_shown:
         _disable_warning_shown = True
-        print(
-            f"\n  '{server}' tier set to disabled. "
-            f"(Restart required to re-enable; --save to persist.)\n"
+        from tigger.ui import console
+        console.print(
+            f"\n  [dim]✓[/dim] [magenta]{server}[/magenta] "
+            "[dim]tier set to[/dim] [yellow]disabled[/yellow]. "
+            "[dim](Restart required to re-enable; --save to persist.)[/dim]\n"
         )
     else:
-        print(f"\n  '{server}' tier set to {tier}.\n")
+        from tigger.ui import console
+        console.print(
+            f"\n  [dim]✓[/dim] [magenta]{server}[/magenta] "
+            f"[dim]tier set to[/dim] [cyan]{tier}[/cyan].\n"
+        )
 
     if save:
         _persist_tier_to_user_config(server, tier)
@@ -190,10 +214,11 @@ def _print_current_tiers(
     mixed-tier servers (per-tool overrides in play), prefix with '~' so the
     user knows tools differ.
     """
+    from tigger.ui import console
     if not connections:
-        print("\n  No MCP servers connected.\n")
+        console.print("\n  [dim]No MCP servers connected.[/dim]\n")
         return
-    print()
+    console.print()
     for conn in connections:
         prefix = f"mcp__{conn.name}__"
         tools = [t for t in registry.all() if t.name.startswith(prefix)]
@@ -208,8 +233,19 @@ def _print_current_tiers(
                 tier = next(iter(tiers))
             else:
                 tier = "~mixed"
-        print(f"    {conn.name:<20} {tier}")
-    print()
+        # Colour by tier: eager green, lazy cyan, disabled yellow, mixed magenta.
+        if tier == "eager":
+            tcol = "green"
+        elif tier == "lazy":
+            tcol = "cyan"
+        elif tier == "disabled":
+            tcol = "yellow"
+        else:
+            tcol = "magenta"
+        console.print(
+            f"  [magenta]{conn.name:<20}[/magenta] [{tcol}]{tier}[/{tcol}]"
+        )
+    console.print()
 
 
 def _print_server_tier(
@@ -252,8 +288,10 @@ def _cmd_mcp_tokens(
     surface this caveat at every reading rather than only in the header
     so the limitation is visible at the point of decision.
     """
+    from tigger.ui import console
+
     if not connections:
-        print("\n  No MCP servers to analyze.\n")
+        console.print("\n  [dim]No MCP servers to analyze.[/dim]\n")
         return
 
     enc, fallback = _load_encoder()
@@ -288,9 +326,22 @@ def _cmd_mcp_tokens(
     # Sort servers by total descending
     sorted_servers = sorted(server_data.items(), key=lambda kv: kv[1]["total"], reverse=True)
 
-    print(f"\n  MCP Schema Token Cost {encoding_note}".rstrip())
-    print()
-    print(f"    {'Server':<20} {'Tier':<10} {'Tools':<6} {'Tokens':<10}")
+    note_suffix = f" [dim]{encoding_note}[/dim]" if encoding_note else ""
+    console.print(f"\n[bold]MCP Schema Token Cost[/bold]{note_suffix}")
+    console.print()
+    # Header row
+    console.print(
+        f"  [dim]{'Server':<20} {'Tier':<10} {'Tools':<6} {'Tokens':<10}[/dim]"
+    )
+
+    def _tier_colour(tier: str) -> str:
+        if tier == "eager":
+            return "green"
+        if tier == "lazy":
+            return "cyan"
+        if tier == "disabled":
+            return "yellow"
+        return "magenta"
 
     eager_total = 0
     lazy_total = 0
@@ -300,7 +351,10 @@ def _cmd_mcp_tokens(
     for name, data in sorted_servers:
         if data["disabled"]:
             disabled_count += 1
-            print(f"    {name:<20} {'disabled':<10} {0:<6} {'—':<10}")
+            console.print(
+                f"  [magenta]{name:<20}[/magenta] [yellow]{'disabled':<10}[/yellow] "
+                f"[dim]{0:<6} {'—':<10}[/dim]"
+            )
             continue
         # Per-server total counts what would actually ship: only eager tools.
         server_eager = sum(c for _, c, t in data["tools"] if t == "eager")
@@ -311,20 +365,38 @@ def _cmd_mcp_tokens(
             eager_per_server[name] = server_eager
         # Display the eager portion as the "per-turn" cost; lazy is potential.
         display_total = server_eager
-        token_str = f"{display_total} (cl100k est.)"
-        print(f"    {name:<20} {data['tier_label']:<10} {len(data['tools']):<6} {token_str:<10}")
+        tcol = _tier_colour(data["tier_label"])
+        console.print(
+            f"  [magenta]{name:<20}[/magenta] "
+            f"[{tcol}]{data['tier_label']:<10}[/{tcol}] "
+            f"[bold]{len(data['tools']):<6}[/bold] "
+            f"[bold]{display_total}[/bold] [dim](cl100k est.)[/dim]"
+        )
         # Per-tool breakdown for top N tools
         top_n = 5
         for short_name, cost, tier in data["tools"][:top_n]:
-            tier_marker = "" if tier == "eager" else f" [{tier}]"
-            print(f"      {short_name:<24} {cost} (cl100k est.){tier_marker}")
+            tcol2 = _tier_colour(tier)
+            tier_marker = "" if tier == "eager" else f" [{tcol2}][{tier}][/{tcol2}]"
+            console.print(
+                f"      [dim]{short_name:<24}[/dim] {cost} [dim](cl100k est.){tier_marker}[/dim]"
+            )
         remaining = len(data["tools"]) - top_n
         if remaining > 0:
-            print(f"      ... ({remaining} more)")
+            console.print(f"      [dim]... ({remaining} more)[/dim]")
 
-    print(f"\n  Total eager (per turn):      {eager_total} (cl100k est.)")
-    print(f"  Lazy potential (not sent):   {lazy_total} (cl100k est.)")
-    print(f"  Disabled servers:            {disabled_count}")
+    console.print()
+    console.print(
+        f"  [dim]Total eager (per turn):[/dim]      "
+        f"[bold green]{eager_total}[/bold green] [dim](cl100k est.)[/dim]"
+    )
+    console.print(
+        f"  [dim]Lazy potential (not sent):[/dim]   "
+        f"[cyan]{lazy_total}[/cyan] [dim](cl100k est.)[/dim]"
+    )
+    console.print(
+        f"  [dim]Disabled servers:[/dim]            "
+        f"[yellow]{disabled_count}[/yellow]"
+    )
 
     # Tip when one server dominates the eager budget
     if eager_total > 0 and eager_per_server:
@@ -332,11 +404,12 @@ def _cmd_mcp_tokens(
         share = biggest_cost / eager_total
         if share > 0.5:
             pct = round(share * 100)
-            print(
-                f"\n  Tip: '{biggest_name}' is {pct}% of eager budget. "
-                f"Try /mcp tier {biggest_name} lazy."
+            console.print(
+                f"\n  [yellow]Tip:[/yellow] [magenta]{biggest_name}[/magenta] "
+                f"is [bold]{pct}%[/bold] of eager budget. "
+                f"[dim]Try[/dim] [cyan]/mcp tier {biggest_name} lazy[/cyan]."
             )
-    print()
+    console.print()
 
 
 def _load_encoder():

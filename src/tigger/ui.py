@@ -127,24 +127,40 @@ def _stop_activity() -> None:
         _activity_status = None
 
 
+def _short_tool_name(n: str) -> str:
+    """Shorten ``mcp__server__tool`` \u2192 ``server.tool`` for display.
+
+    Builtins (``read``, ``bash``, ``grep`` \u2026) are returned unchanged. Used
+    by the spinner counter, buffer flush, and exit-summary breakdown so all
+    three surfaces present MCP tools the same way.
+    """
+    if n.startswith("mcp__"):
+        return n[5:].replace("__", ".", 1)
+    return n
+
+
 def _tool_counter_message() -> str:
     """Build a live status message summarising buffered tool calls.
 
     When exactly one tool is active, show its preview (Claude-style):
     ``\u25cf Read(loop.py)``. With multiple, fall back to a grouped count:
-    ``\u25cf 3 tools (read\u00d72, grep)``.
+    ``\u25cf 3 tools (read\u00d72, grep)``. MCP tools display as ``server.tool``
+    rather than the raw ``mcp__server__tool`` namespacing.
     """
     if not _tool_buffer:
         return ""
     if len(_tool_buffer) == 1:
         name, preview = _tool_buffer[0]
-        nice = name.capitalize()
+        short = _short_tool_name(name)
+        # Capitalize only when no '.' (i.e. builtins). MCP names like
+        # filesystem.read_file already read fine in lowercase.
+        nice = short.capitalize() if "." not in short else short
         if preview:
             return f"[#999999]\u23fa {nice}({preview})[/]"
         return f"[#999999]\u23fa {nice}[/]"
     counts: dict[str, int] = {}
     for name, _ in _tool_buffer:
-        counts[name] = counts.get(name, 0) + 1
+        counts[_short_tool_name(name)] = counts.get(_short_tool_name(name), 0) + 1
     parts = ", ".join(f"{n}\u00d7{c}" if c > 1 else n for n, c in counts.items())
     total = len(_tool_buffer)
     return f"[#999999]\u23fa {total} tools ({parts})[/]"
@@ -235,6 +251,20 @@ def format_duration(seconds: float) -> str:
     return f"{h}h {m}m"
 
 
+def format_session_id(session_id: str) -> str:
+    """Render a `YYYYMMDD-HHMMSS` session stem as a human-scannable stamp.
+
+    Returns ``Mon DD, HH:MM`` (e.g. ``May 10, 12:34``) when *session_id* parses
+    cleanly. Falls through to the raw stem otherwise — protecting test stubs
+    and any custom session ids.
+    """
+    import datetime as _dt
+    try:
+        return _dt.datetime.strptime(session_id, "%Y%m%d-%H%M%S").strftime("%b %d, %H:%M")
+    except (ValueError, TypeError):
+        return session_id
+
+
 def _rtk_project_totals() -> tuple[int, int, int] | None:
     """Query RTK for project-scoped totals. Returns (saved, input, output) or None."""
     if not shutil.which("rtk"):
@@ -316,37 +346,90 @@ def print_session_summary(
     lines.append("")
 
     if session_id:
-        lines.append(f"  Session:       {session_id}")
-    lines.append(f"  Model:         {model}")
-    lines.append(f"  Duration:      {format_duration(wall)}")
-    lines.append(f"  Turns:         {stats.turns}")
-    lines.append(f"  Output:        ~{stats.output_tokens:,} tokens")
+        session_label = format_session_id(session_id)
+        lines.append(
+            f"  [dim]Session:[/dim]       [cyan]{session_label}[/cyan] "
+            f"[dim]({session_id})[/dim]"
+        )
+    lines.append(f"  [dim]Model:[/dim]         [cyan]{model}[/cyan]")
+    lines.append(f"  [dim]Duration:[/dim]      {format_duration(wall)}")
+    lines.append(f"  [dim]Turns:[/dim]         [bold]{stats.turns}[/bold]")
+    lines.append(f"  [dim]Output:[/dim]        [bold]~{stats.output_tokens:,}[/bold] [dim]tokens[/dim]")
 
     if stats.tool_calls > 0:
         lines.append("")
         pct = stats.tool_success / stats.tool_calls * 100 if stats.tool_calls else 0
-        lines.append(f"  Tools:         {stats.tool_calls}  "
-                      f"( [green]\u2713 {stats.tool_success}[/green]"
-                      f"  [red]\u2717 {stats.tool_errors}[/red]"
-                      f"  [yellow]\u2298 {stats.tool_denied}[/yellow] )")
-        lines.append(f"  Success:       {pct:.0f}%")
+        lines.append(
+            f"  [dim]Tools:[/dim]         [bold]{stats.tool_calls}[/bold]  "
+            f"( [green]\u2713 {stats.tool_success}[/green]"
+            f"  [red]\u2717 {stats.tool_errors}[/red]"
+            f"  [yellow]\u2298 {stats.tool_denied}[/yellow] )"
+        )
+        # Colour the success rate against the same thresholds as /tokens.
+        if pct >= 80:
+            sc = "green"
+        elif pct >= 50:
+            sc = "yellow"
+        else:
+            sc = "red"
+        lines.append(f"  [dim]Success:[/dim]       [{sc}]{pct:.0f}%[/{sc}]")
 
-        # Top tools breakdown
+        # Top tools breakdown \u2014 shorten MCP names from mcp__server__tool to
+        # server.tool so the breakdown stays scannable when MCP tools dominate.
         top = sorted(stats.tool_names.items(), key=lambda x: x[1], reverse=True)[:5]
         if top:
-            breakdown = ", ".join(f"{n} \u00d7{c}" if c > 1 else n for n, c in top)
-            lines.append(f"  Top tools:     {breakdown}")
+            # Compute display widths of each entry for hanging-indent wrap.
+            entries: list[tuple[str, int]] = []  # (markup, plain_width)
+            for n, c in top:
+                short = _short_tool_name(n)
+                if c > 1:
+                    markup = f"[magenta]{short}[/magenta][dim]\u00d7{c}[/dim]"
+                    plain_w = len(short) + 1 + len(str(c))
+                else:
+                    markup = f"[magenta]{short}[/magenta]"
+                    plain_w = len(short)
+                entries.append((markup, plain_w))
+
+            # Panel inner width is ~74 cols (80 - 2*1 padding - 2*1 border - 2
+            # margin). The "Top tools:" label + leading "  " consumes 19;
+            # value column has ~55. Fold lines at that width with a hanging
+            # indent that aligns continuation under the value column.
+            label = "  [dim]Top tools:[/dim]     "
+            indent = " " * 17  # matches the visible label width
+            value_width = 55
+            line_chunks: list[str] = []
+            cur_markup = ""
+            cur_w = 0
+            for markup, w in entries:
+                sep = ", " if cur_markup else ""
+                add_w = len(sep) + w
+                if cur_w + add_w > value_width and cur_markup:
+                    line_chunks.append(cur_markup)
+                    cur_markup = markup
+                    cur_w = w
+                else:
+                    cur_markup += sep + markup
+                    cur_w += add_w
+            if cur_markup:
+                line_chunks.append(cur_markup)
+            lines.append(f"{label}{line_chunks[0]}")
+            for tail in line_chunks[1:]:
+                lines.append(f"{indent}{tail}")
 
     if rtk_enabled:
         rtk_savings = stats.rtk_session_savings()
         if rtk_savings:
             saved, pct = rtk_savings
             lines.append("")
-            lines.append(f"  [green]RTK:[/green]          {saved:,} tokens saved ({pct:.0f}%)")
+            lines.append(
+                f"  [green]RTK:[/green]          "
+                f"[bold]{saved:,}[/bold] [dim]tokens saved[/dim] "
+                f"[green]({pct:.0f}%)[/green]"
+            )
 
     if session_id:
         lines.append("")
-        lines.append("  [dim]Resume: tigger-code -c[/dim]")
+        lines.append("  [dim]Resume: [/dim][cyan]tigger-code -c[/cyan]")
 
     console.print()
     console.print(Panel(
@@ -366,11 +449,15 @@ def print_turn_summary(
     ``context_pct`` (0-100) is shown when supplied. It's color-coded against
     the same green/yellow/red thresholds as ``/tokens`` so a glance after each
     turn flags when the conversation is approaching the compaction window.
+    Above the red threshold, a one-line ``/compact`` action hint follows so
+    users see *what to do* about the warning, not just the warning itself.
     """
     parts = [f"{tokens} tokens", format_duration(elapsed)]
+    suggest_compact = False
     if context_pct is not None:
         if context_pct >= 80:
             colour = "red"
+            suggest_compact = True
         elif context_pct >= 50:
             colour = "yellow"
         else:
@@ -378,10 +465,35 @@ def print_turn_summary(
         parts.append(f"[{colour}]{context_pct}% ctx[/{colour}]")
     body = " · ".join(parts)
     console.print(f"[dim]· {body}[/dim]")
+    if suggest_compact:
+        console.print(
+            "[dim]  approaching context limit — try [/dim]"
+            "[cyan]/compact[/cyan][dim] to summarise older turns[/dim]"
+        )
 
 
 def print_error(msg: str) -> None:
     console.print(f"[bold red]Error:[/bold red] {msg}")
+
+
+def print_error_panel(title: str, msg: str, hint: str | None = None) -> None:
+    """Render a prominent red-bordered panel for serious errors.
+
+    Use this for network failures, provider rejections, and timeouts where
+    the user benefits from a visible "this is bad" cue. ``hint`` renders
+    dimmed below the message — usually a one-line "try X" suggestion.
+    """
+    body = msg
+    if hint:
+        body = f"{msg}\n\n[dim]{hint}[/dim]"
+    console.print()
+    console.print(Panel(
+        body,
+        title=f"[bold red]✗ {title}[/bold red]",
+        title_align="left",
+        border_style="red",
+        padding=(0, 1),
+    ))
 
 
 def print_info(msg: str) -> None:
@@ -419,7 +531,18 @@ def run_setup_wizard(project_dir: pathlib.Path) -> tuple[pathlib.Path, dict]:
     from tigger.config import derive_provider_name, write_config
     from tigger.types import Config, ProviderConfig
 
-    console.print("\n[bold]No config found.[/bold] Let's set up your first provider.\n")
+    console.print()
+    console.print(Panel(
+        "[bold]No config found.[/bold] Let's set up your first provider.\n\n"
+        "[dim]You'll be asked for an OpenAI-compatible endpoint, an API key,\n"
+        "and a model name. Both local (LM Studio, Ollama, llama.cpp) and\n"
+        "cloud endpoints work.[/dim]",
+        title="[bold cyan]✻ Tigger first-run setup[/bold cyan]",
+        title_align="left",
+        border_style="cyan",
+        padding=(0, 1),
+    ))
+    console.print()
 
     base_url = input("  Base URL (e.g. http://localhost:1234/v1): ").strip()
     api_key = input("  API key (Enter for 'local'): ").strip() or "local"
@@ -445,15 +568,40 @@ def run_setup_wizard(project_dir: pathlib.Path) -> tuple[pathlib.Path, dict]:
     config_path = tigger_dir / "config.json"
     write_config(config_path, config)
 
-    console.print(f"\n  [green]Config saved to {config_path}[/green]\n")
+    console.print()
+    console.print(
+        f"  [green]✓ Config saved to[/green] [cyan]{config_path}[/cyan]",
+        soft_wrap=True,
+    )
+    console.print(
+        f"  [dim]Active model:[/dim] [cyan]{provider_name}/{model}[/cyan]"
+    )
+    console.print()
     return config_path, {}
 
 
 def ask_trust_prompt(cwd: pathlib.Path) -> str:
-    """Y/N workspace trust prompt. Returns 'always' (trust + persist) or 'deny' (read-only)."""
-    console.print(f"\n[yellow bold]Trust workspace:[/yellow bold] {cwd}")
+    """Y/N workspace trust prompt. Returns 'always' (trust + persist) or 'deny' (read-only).
+
+    Renders as a yellow panel matching ``ask_permission`` so this security
+    gate has visual prominence consistent with other consent surfaces.
+    """
+    body = (
+        f"[bold]{cwd}[/bold]\n\n"
+        "[dim]Trusting lets tigger run shell commands and edit files here.[/dim]\n"
+        "[dim]Decline to stay read-only.[/dim]"
+    )
+    panel = Panel(
+        body,
+        title="[bold yellow]⚠ Trust this workspace?[/bold yellow]",
+        title_align="left",
+        border_style="yellow",
+        padding=(0, 1),
+    )
+    console.print()
+    console.print(panel)
     while True:
-        choice = input("  Continue? [Y/n] ").strip().lower()
+        choice = input("  [Y/n] ").strip().lower()
         if choice in ("y", ""):
             return "always"
         if choice == "n":
@@ -466,8 +614,8 @@ def Spinner(start: float, token_counter: list[int] | None = None):
     Show an animated spinner with a live elapsed-time counter while the model
     is thinking. Optionally shows streaming token count.
 
-    Message rotates on a random interval (5-15s) so it feels alive
-    without being distracting.
+    Message rotates on a random 10-30s interval — slow enough not to flicker
+    on long thinks, fast enough that the spinner still feels alive.
     """
     msg = pick_message()
     stop_event = threading.Event()
@@ -512,6 +660,13 @@ def _extract_preview(name: str, args: dict) -> str:
     if name in ("write", "edit") and "path" in args:
         # Show just the path — content/diffs are too large for a one-line preview.
         return pathlib.PurePosixPath(str(args["path"])).name
+    # Single-arg tools (most MCP calls): show just the value verbatim. Reads
+    # better than ``key='value'`` and matches the read/grep/bash conventions
+    # above.
+    if len(args) == 1:
+        v = next(iter(args.values()))
+        if isinstance(v, str):
+            return v if len(v) <= 60 else v[:57] + "..."
     # Fallback: truncated key=value summary.
     parts = []
     for k, v in args.items():
@@ -635,10 +790,18 @@ def _summarize_tool_output(name: str, output: str) -> str:
 
 
 def _entry_with_summary(preview: str, summary: str) -> str:
-    """Format a single buffered entry's preview, optionally with a dim summary."""
-    if summary:
-        return f"{preview} [dim]({summary})[/dim]"
-    return preview
+    """Format a single buffered entry's preview, optionally with a summary.
+
+    Plain summaries (``"3 matches"``) get fully dimmed so they read as
+    secondary metadata. Summaries that already carry inline colour markup
+    (e.g. ``[yellow]denied[/yellow]``) only dim the parens — letting the
+    inner colour stay vivid.
+    """
+    if not summary:
+        return preview
+    if "[" in summary and "]" in summary:
+        return f"{preview} [dim]([/dim]{summary}[dim])[/dim]"
+    return f"{preview} [dim]({summary})[/dim]"
 
 
 def _flush_tool_buffer() -> None:
@@ -670,14 +833,14 @@ def _flush_tool_buffer() -> None:
                 entries.append(_entry_with_summary(_tool_buffer[j][1], _tool_summaries[j]))
                 j += 1
             if len(entries) <= _MAX_BATCH_ITEMS:
-                lines.append(f"  [dim]{name}:[/dim] {', '.join(entries)}")
+                lines.append(f"  [dim]{_short_tool_name(name)}:[/dim] {', '.join(entries)}")
             else:
                 shown = ', '.join(entries[:_MAX_BATCH_ITEMS])
                 extra = len(entries) - _MAX_BATCH_ITEMS
-                lines.append(f"  [dim]{name}:[/dim] {shown} (+{extra} more)")
+                lines.append(f"  [dim]{_short_tool_name(name)}:[/dim] {shown} (+{extra} more)")
             i = j
         else:
-            lines.append(f"  [dim]{name}:[/dim] {_entry_with_summary(preview, summary)}")
+            lines.append(f"  [dim]{_short_tool_name(name)}:[/dim] {_entry_with_summary(preview, summary)}")
             if _tool_details[i]:
                 lines.extend(_render_indented_block(_tool_details[i]))
             i += 1
@@ -702,6 +865,10 @@ def _split_think(text: str) -> list[tuple[str, str]]:
     otherwise be silently dropped by the Markdown renderer (HTML stripping).
     Pulling them out lets us render thinking dimmed so the user can see it
     happened, while everything else still goes through Markdown.
+
+    Mid-stream the closing ``</think>`` may not have arrived yet; an open
+    ``<think>`` in the tail is treated as an in-progress think block so the
+    user sees reasoning appear chunk-by-chunk instead of nothing-until-close.
     """
     segments: list[tuple[str, str]] = []
     pos = 0
@@ -711,7 +878,18 @@ def _split_think(text: str) -> list[tuple[str, str]]:
         segments.append(("think", m.group(1).strip()))
         pos = m.end()
     if pos < len(text):
-        segments.append(("text", text[pos:]))
+        tail = text[pos:]
+        # If the tail has an unclosed <think>, treat everything from that
+        # point as a streaming think block.
+        open_idx = tail.rfind("<think>")
+        if open_idx >= 0 and "</think>" not in tail[open_idx:]:
+            if open_idx > 0:
+                segments.append(("text", tail[:open_idx]))
+            partial = tail[open_idx + len("<think>"):].strip()
+            if partial:
+                segments.append(("think", partial))
+        else:
+            segments.append(("text", tail))
     return segments
 
 
@@ -756,6 +934,32 @@ def _start_or_update_live(text_buf: list[str]) -> None:
         _live.start()
     else:
         _live.update(renderable)
+
+
+def _stop_live() -> None:
+    """Stop the streaming Live if one is active. Safe to call anytime.
+
+    Used by exception paths (KeyboardInterrupt, network/API errors) so the
+    Live's background refresh thread doesn't keep ticking after the turn is
+    aborted. The last rendered frame stays on screen.
+    """
+    global _live
+    if _live is not None:
+        _live.stop()
+        _live = None
+
+
+def _reset_tool_buffer() -> None:
+    """Drop any half-finished tool entries. Safe to call on exception paths.
+
+    Without this, a tool that started but never reached ToolEndEvent (because
+    the turn was aborted mid-flight) would still sit in the buffer and render
+    in the next turn's flush as a phantom entry.
+    """
+    _tool_buffer.clear()
+    _tool_call_ids.clear()
+    _tool_summaries.clear()
+    _tool_details.clear()
 
 
 def _flush_text(text_buf: list[str]) -> None:
@@ -817,16 +1021,64 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
         # Only surface errors and denials — successful tool calls stay quiet
         # and their output summary lands in the next buffer flush.
         if not event.permitted:
-            console.print("  [dim]⎿[/dim]  [yellow](denied)[/yellow]")
+            # Distinguish hook-blocks from permission-denials. The loop
+            # marks hook blocks with the "(blocked by hook)" sentinel in
+            # output; everything else is a permission gate denial.
+            is_hook_block = "blocked by hook" in (event.output or "")
+            label = "blocked by hook" if is_hook_block else "denied"
+            # Include the tool name so consecutive denials are distinguishable
+            # before the buffer flush rolls past.
+            tool_short = _short_tool_name(event.name)
+            console.print(
+                f"  [dim]⎿[/dim]  [dim]{tool_short}:[/dim] "
+                f"[yellow]({label})[/yellow]"
+            )
+            # Tag the buffer entry so the eventual flush distinguishes
+            # blocked/denied tools from successful ones.
+            try:
+                idx = _tool_call_ids.index(event.call_id)
+            except ValueError:
+                idx = -1
+            if 0 <= idx < len(_tool_summaries):
+                _tool_summaries[idx] = f"[yellow]{label}[/yellow]"
+                if 0 <= idx < len(_tool_details):
+                    _tool_details[idx] = ""  # no diff/preview for denied/blocked
         elif event.error:
-            out = event.output[:120].replace("\n", " · ").rstrip(" · ")
-            console.print(f"  [dim]⎿[/dim]  [red]{out}[/red]")
+            output = (event.output or "").rstrip("\n")
+            err_lines = output.split("\n") if output else [""]
+            # Cap each line so a wide stack trace doesn't blow out the layout.
+            max_per_line = 110
+            # For long errors, show first 5 + last line (the punchline — Python
+            # tracebacks put the exception type/message there).
+            if len(err_lines) <= 6:
+                shown = list(err_lines)
+                tail_marker = None
+            else:
+                shown = err_lines[:5] + [err_lines[-1]]
+                tail_marker = f"... ({len(err_lines) - 6} more lines)"
+            first = shown[0][:max_per_line]
+            tool_short = _short_tool_name(event.name)
+            console.print(
+                f"  [dim]⎿[/dim]  [dim]{tool_short}:[/dim] "
+                f"[red]{first}[/red]"
+            )
+            mid = shown[1:-1] if tail_marker else shown[1:]
+            for ln in mid:
+                console.print(f"      [red]{ln[:max_per_line]}[/red]")
+            if tail_marker:
+                console.print(f"      [dim red]{tail_marker}[/dim red]")
+                last = shown[-1][:max_per_line]
+                console.print(f"      [red]{last}[/red]")
             try:
                 idx = _tool_call_ids.index(event.call_id)
             except ValueError:
                 idx = -1
             if 0 <= idx < len(_tool_details):
                 _tool_details[idx] = ""  # don't render diff for failed edits
+            if 0 <= idx < len(_tool_summaries):
+                # Tag the buffer entry as failed so the flush distinguishes
+                # errored tools from successful ones with no summary.
+                _tool_summaries[idx] = "[red]error[/red]"
         else:
             try:
                 idx = _tool_call_ids.index(event.call_id)
