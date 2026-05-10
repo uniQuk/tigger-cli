@@ -12,7 +12,9 @@ def test_init_creates_files(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     cmd_init("", _ctx())
     ai_dir = tmp_path / CONFIG_DIR
-    assert (ai_dir / "system.md").exists()
+    # Project /init deliberately does NOT seed system.md (would silently
+    # override the bundled prompt — see commands/init.py:_TEMPLATES).
+    assert not (ai_dir / "system.md").exists()
     assert (ai_dir / "hooks" / "example-hook.md").exists()
     assert (ai_dir / "skills" / "SKILL.md").exists()
     assert (ai_dir / "agents" / "example-agent.md").exists()
@@ -32,10 +34,10 @@ def test_init_no_flat_agents_md(tmp_path, monkeypatch):
 def test_init_skips_existing(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     ai_dir = tmp_path / CONFIG_DIR
-    ai_dir.mkdir()
-    (ai_dir / "system.md").write_text("existing")
+    (ai_dir / "hooks").mkdir(parents=True)
+    (ai_dir / "hooks" / "example-hook.md").write_text("existing")
     cmd_init("", _ctx())
-    assert (ai_dir / "system.md").read_text() == "existing"
+    assert (ai_dir / "hooks" / "example-hook.md").read_text() == "existing"
     out = capsys.readouterr().out
     assert "Skipped" in out
 
@@ -97,10 +99,10 @@ def test_init_global_preserves_customizations(tmp_path, monkeypatch, capsys):
 def test_init_force_overwrites_project(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     ai_dir = tmp_path / CONFIG_DIR
-    ai_dir.mkdir()
-    (ai_dir / "system.md").write_text("custom")
+    (ai_dir / "hooks").mkdir(parents=True)
+    (ai_dir / "hooks" / "example-hook.md").write_text("custom")
     cmd_init("--force", _ctx())
-    assert (ai_dir / "system.md").read_text() != "custom"
+    assert (ai_dir / "hooks" / "example-hook.md").read_text() != "custom"
     out = capsys.readouterr().out
     assert "Overwritten" in out
 

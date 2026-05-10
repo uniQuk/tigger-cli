@@ -12,12 +12,15 @@ BUNDLED_ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 
 # Templates for project-level .tigger/ scaffolding only.
 # Global (~/.tigger/) is seeded from internal skills/agents instead.
-_TEMPLATES = {
-    "system.md": '''# System Prompt
-
-Customise your system prompt here. This will be prepended to every conversation.
-''',
-}
+#
+# NOTE: we deliberately do NOT seed a project-level `system.md`.
+# `resolve.resolve_file` returns the first existing tier (project >
+# global > bundled), so any project `system.md` *replaces* the bundled
+# 100+ line default. A 3-line placeholder claiming to "prepend" was
+# silently disabling the real system prompt and degrading model
+# behaviour. Users who want a custom prompt should copy
+# `src/tigger/assets/system.md` and edit it explicitly.
+_TEMPLATES: dict[str, str] = {}
 
 _DIR_TEMPLATES = {
     "skills": {
