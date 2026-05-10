@@ -196,6 +196,53 @@ def test_no_think_overrides_model_per_entry_thinking(mock_startup, capsys, monke
 
 
 @patch("tigger.main.startup")
+def test_jinja_provider_error_surfaces_tigger_hint(mock_startup, capsys, monkeypatch):
+    """Iter-9: when an openai.APIError carries the LM-Studio jinja
+    template signature (`UndefinedValue` / `jinja`), --once must print a
+    tigger-specific hint pointing at chat_template_kwargs / no-tools
+    support, not just the raw multi-paragraph provider error."""
+    import pathlib
+    import openai
+    from tigger.main import StartupResult
+
+    def boom_provider(system, messages, tools, config):
+        raise openai.APIError(
+            message=(
+                "Error rendering prompt with jinja template: "
+                '"Cannot call something that is not a function: got UndefinedValue".'
+            ),
+            request=None,
+            body=None,
+        )
+        yield  # unreachable; keeps the function a generator
+
+    cfg = Config(base_url="http://x", model="gemma", permission_mode="bypass")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="")
+    mock_startup.return_value = StartupResult(
+        ctx=ctx,
+        commands={},
+        skills=[],
+        agents=[],
+        registry=ToolRegistry(),
+        hook_defs=[],
+        provider_fn=boom_provider,
+        config_path=pathlib.Path("/tmp/fake.toml"),
+    )
+
+    import sys
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    with patch("sys.argv", ["tigger", "--once", "hi"]):
+        import pytest
+        with pytest.raises(SystemExit) as exc_info:
+            from tigger.main import main
+            main()
+        assert exc_info.value.code == 2
+    err = capsys.readouterr().err
+    assert "provider rejected request" in err
+    assert "lmstudio-community" in err  # the new tigger hint
+
+
+@patch("tigger.main.startup")
 def test_no_think_is_noop_when_model_has_no_thinking_kwargs(mock_startup, capsys, monkeypatch):
     """Iter-5: --no-think on a non-Qwen model (no `enable_thinking` in
     chat_template_kwargs) must be a silent no-op — adding the field from

@@ -371,6 +371,38 @@ Within iter-3/iter-6 noise; nothing regressed.
 
 **Tests:** 808 → 808. 4.40 s.
 
+### Iter 9 — DONE
+
+**Better error hint when a model's chat template breaks.** Iter-5 found
+that gemma-4-* on this LM Studio rejects every tigger request with a
+multi-paragraph `Cannot call something that is not a function: got
+UndefinedValue` jinja error. The user-facing experience was: dump the
+full message and exit. No clue that the actual root cause is "this
+model's template doesn't render `tools`."
+
+Now both error paths (`main.py` REPL `openai.APIError` handler at line
+599, and `--once` handler at line 826) detect the `UndefinedValue` /
+`jinja` signature and append a tigger-specific hint:
+
+```
+hint: the model's chat template can't render the request — likely no
+`tools` support or unknown chat_template_kwargs. Try a lmstudio-
+community variant of this model.
+```
+
+**Verified the `--quiet` backlog item is invalid.** Tested
+`tigger-code --once`: `--once` already implies `quiet=True`
+(`main.py:717`), and `connect_all` swaps `ui.console` to a `StringIO`
+sink in quiet mode (`main.py:155-160`) — the `[mcp] connected:` line
+goes to the sink. Removed from backlog.
+
+**Live verify (gemma-4-26b-a4b-it):** raw provider error still printed
+(useful diagnostic), then the tigger hint follows. Exit code 2.
+
+**Tests:** 808 → 809. New `test_jinja_provider_error_surfaces_
+tigger_hint` mocks an `openai.APIError` with the jinja signature and
+asserts the hint appears in stderr. 4.35 s.
+
 ### Backlog for next ticks
 
 - The MCP eager tier ships ~2 KB of microsoft-learn schemas on every
@@ -379,5 +411,3 @@ Within iter-3/iter-6 noise; nothing regressed.
   user already has `/mcp tokens` to see the cost.
 - Graceful no-tools fallback for chat-only models like gemma-IT —
   still out of scope unless a small, surgical change emerges.
-- The startup-time `--quiet` flag silences the welcome banner but
-  not the `[mcp] connected:` notice — drop or unify under `--quiet`?

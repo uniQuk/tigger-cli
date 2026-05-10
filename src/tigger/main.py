@@ -600,11 +600,18 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
             ui._stop_activity()
             ui._stop_live()
             ui._reset_tool_buffer()
-            ui.print_error_panel(
-                "Provider rejected request",
-                str(exc),
-                hint="Try /model to switch, or wait and retry.",
-            )
+            msg = str(exc)
+            if "UndefinedValue" in msg or "jinja" in msg.lower():
+                hint = (
+                    "The model's chat template can't render the request. "
+                    "Common causes: the model doesn't support `tools`, "
+                    "or it doesn't recognise the `chat_template_kwargs` "
+                    "being sent. Try a lmstudio-community variant or "
+                    "switch to /model qwen/qwen3.6-35b-a3b."
+                )
+            else:
+                hint = "Try /model to switch, or wait and retry."
+            ui.print_error_panel("Provider rejected request", msg, hint=hint)
             continue
         except Exception as exc:
             if "TimeoutError" in type(exc).__name__ or "timed out" in str(exc).lower():
@@ -824,7 +831,15 @@ def main() -> None:
             sys.stderr.write(f"network error: {exc}\n")
             sys.exit(2)
         except openai.APIError as exc:
-            sys.stderr.write(f"provider rejected request: {exc}\n")
+            msg = str(exc)
+            sys.stderr.write(f"provider rejected request: {msg}\n")
+            if "UndefinedValue" in msg or "jinja" in msg.lower():
+                sys.stderr.write(
+                    "hint: the model's chat template can't render the "
+                    "request — likely no `tools` support or unknown "
+                    "chat_template_kwargs. Try a lmstudio-community "
+                    "variant of this model.\n"
+                )
             sys.exit(2)
         except Exception as exc:
             if "TimeoutError" in type(exc).__name__ or "timed out" in str(exc).lower():
