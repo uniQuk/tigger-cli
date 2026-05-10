@@ -102,3 +102,39 @@ Baseline: 807 tests, ~4.5s
 - Trim a `_short_tool_name(name)` double call in `_tool_counter_message`.
   Tiny but the function gets hit on every tool start.
 - Tests: 807 → 806 (green, 4.7 s).
+
+### Iter 3 — DONE
+- Replace bare `print()` at the end of the `TurnDoneEvent` branch with
+  `console.line()`. Matches the "always go through `ui.console`" rule from
+  CLAUDE.md, keeps the routing consistent for tests that capture
+  `console.file`, and is a one-line correctness fix.
+- Tests: 806 → 806 (green).
+
+## Backlog for the next loop tick
+
+The remaining items are interesting but require either an LLM endpoint to
+A/B verify, or are low-yield enough to not justify changing on the static-
+analysis pass alone.
+
+- **Drive the TUI live and try different models.** Compare reasoning vs
+  non-reasoning models, with/without `--no-think`, on identical prompts.
+  Capture token-rate, prompt-cache behaviour, and hallucination rate.
+  Needs a local endpoint reachable from the loop sandbox.
+- **System prompt consolidation.** `system.md` repeats the stub-then-edit
+  policy in two places (the brief `### write` line + the long `Writing
+  large files` block). Could merge into one section, drop ~20 lines, save
+  prompt tokens on every turn. Need to A/B that the model still respects
+  the rule after the merge.
+- **`_active_mode_body` / `_lazy_tools_prompt_line` per-turn rebuilds.**
+  Both run on every turn but their inputs change rarely (mode toggle,
+  tool registration). Caching is straightforward but the per-turn cost is
+  microseconds — not worth touching unless a profile says otherwise.
+- **`estimate_tokens` on the bottom toolbar.** Called by prompt_toolkit's
+  `bottom_toolbar` callback on every keystroke when `complete_while_typing=
+  True`. The `(n, chars)` cache short-circuits the tiktoken cost, but the
+  cache *key* still walks every message per keystroke. Likely fine; flag
+  if a long session gets jankier than a short one.
+- **`tests/test_ui.py` is 104 tests / 1140 lines.** Most are tightly
+  scoped, but the `format_duration_*` set has 6 single-assertion tests for
+  one tiny function — could be `pytest.parametrize`d (no count change but
+  removes ~25 lines). Defer until I have an actual case for it.

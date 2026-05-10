@@ -1123,4 +1123,4 @@ def render_event(event, output_chars: list[int], text_buf: list[str]) -> None:
         _stop_activity()
         _flush_tool_buffer()
         _flush_text(text_buf)
-        print()
+        console.line()
