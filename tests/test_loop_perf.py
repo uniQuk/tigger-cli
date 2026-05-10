@@ -77,10 +77,47 @@ def test_perf_header_includes_new_columns(tmp_path, monkeypatch):
         provider_fn=_two_turn_provider(in_tokens=[100, 110], out_tokens=[5, 3]),
     ))
     header, rows = _read_perf(perf_file)
-    assert header[-3:] == ["delta_chars", "tokens_per_sec", "cache_hit_estimate"]
+    assert header[-4:] == [
+        "delta_chars",
+        "tokens_per_sec",
+        "cache_hit_estimate",
+        "apparent_prefill_tok_per_s",
+    ]
     assert len(rows) == 2
     # Every row has the same number of columns as the header.
     assert all(len(r) == len(header) for r in rows)
+
+
+def test_perf_apparent_prefill_signals_cache_hit(tmp_path, monkeypatch):
+    """`apparent_prefill_tok_per_s` = local_tokens / wall — when the host
+    served the prefix from KV cache, wall is decode-bound and this number
+    far exceeds the model's known decode rate. Works across single-shot
+    `--once` runs, unlike cache_hit_estimate which needs a prior turn."""
+    perf_file = tmp_path / "perf.tsv"
+    monkeypatch.setenv("TIGGER_PERF", str(perf_file))
+
+    # Force a fast turn: 5000-token prompt served in 1s ⇒ apparent_prefill
+    # = 5000 tok/s (a cache-hit signature on any local 27b-class model).
+    import tigger.loop as loop_mod
+    real_mono = loop_mod.time.monotonic
+    counter = {"n": 0}
+
+    def fake_mono() -> float:
+        counter["n"] += 1
+        # turn_start, compact_start, compact_end, then turn end at +1s.
+        return real_mono() + (1.0 if counter["n"] >= 4 else 0.0)
+
+    monkeypatch.setattr(loop_mod.time, "monotonic", fake_mono)
+    list(run(
+        "hi",
+        _ctx(),
+        _noop_registry(),
+        provider_fn=_two_turn_provider(in_tokens=[5000, 5000], out_tokens=[10, 10]),
+    ))
+    header, rows = _read_perf(perf_file)
+    apparent_idx = header.index("apparent_prefill_tok_per_s")
+    # ~5000 tok / ~1s ⇒ far above any local decode rate (max ~50 tok/s).
+    assert float(rows[0][apparent_idx]) >= 1000.0
 
 
 def test_perf_first_turn_cache_hit_zero(tmp_path, monkeypatch):

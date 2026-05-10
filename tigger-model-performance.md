@@ -1440,3 +1440,30 @@ All three responses correctly named the filter direction and the fix (`n % 2 == 
 
 - Reasoning-quality A/B between MoE (35b-a3b, ~16 tok/s) and dense (27b@q4_k_l, ~10 tok/s warm-warm) on the same probe — would isolate "MoE is faster" from "MoE is correct as often". Today's tick used what was already loaded to stay in budget.
 - The KV-cache hit signature (r1 → r2 decode rate jump) is now seen in iters 14, 16, 17 — three independent observations on three different models. Time to act on the parked `cache_hit_estimate` tightening, ideally as a small code-side patch.
+
+### Iter 18 — DONE
+
+**Dimension covered:** token-waste hunt — acting on the iter-14/16/17 KV-cache observations. The existing `cache_hit_estimate` column in `[perf]` lines is structurally blind to cross-process cache hits (it resets on every `--once` because `perf_turn==1` always returns 0). Add a complementary signal that works across single-shot invocations.
+
+**Wall-clock used:** ~4m of 7m.
+
+**Verified / changed:**
+
+`loop.py` now emits a new `apparent_prefill_tok_per_s` column at the end of every `[perf]` row. The value is `local_tokens / wall_s` — the *apparent* per-second rate at which the server processed the prompt. When that number far exceeds a model's known decode rate (e.g. >1000 tok/s on a local 27b-class model that decodes at ~10 tok/s), wall is decode-bound and the host clearly served the prefill from a KV cache. Crucially, this works for a single-turn `--once` run — `cache_hit_estimate` could not.
+
+Header row updated correspondingly: `delta_chars\ttokens_per_sec\tcache_hit_estimate\tapparent_prefill_tok_per_s`. Width-aware tests pinning `header[-3:]` are updated to pin `header[-4:]` against the new last four columns.
+
+Worked example from iter 17 (q4_k_l, r2): `local_tokens=4964`, `wall=9.64` → `apparent_prefill_tok_per_s ≈ 515`. Model's measured warm-warm decode rate ~9.75 tok/s. The 515:9.75 ratio (~53×) is the cache-hit signature. iter-17 r1 (`wall=21.05`): `apparent_prefill_tok_per_s ≈ 236`, ratio 70× — still high; the prompt was identical so the host's cache was likely already populated from earlier ticks.
+
+**Root cause (heuristic gap):** the prior `cache_hit_estimate` design assumed a multi-turn session and used `last_input_tokens` across turns. `--once` mode (and the cron's per-tick bench harness) never has a prior turn, so the heuristic always reports 0. The new column reads cache state from a single turn's wall vs token counts.
+
+**Atomic change rule check:** two files (`loop.py` + its test), one new column, +12 LoC of runtime code + one new test (~25 LoC). No flag. No top-level Rich import added.
+
+**Files touched:** `src/tigger/loop.py`, `tests/test_loop_perf.py`, `tigger-model-performance.md`.
+
+**Tests delta:** 824 → 825 in 4.39 s. New test `test_perf_apparent_prefill_signals_cache_hit` asserts the new column reads ≥1000 tok/s when a 5000-token prompt completes in ~1 s (a fabricated cache-hit scenario via `time.monotonic` patch).
+
+**Parked for later:**
+
+- Live-host calibration: run a single tick that captures `apparent_prefill_tok_per_s` for each model in `.tigger/config.json` and records the "model's known decode rate" alongside. That gives the user a per-model threshold ("if >Nx this number, you hit cache") instead of a generic ">1000".
+- Surface the cache-hit signal in the user-visible UI (not just the TSV/stderr column) once we trust the threshold per model. Likely a small `[perf] cache likely hit` log line conditional on `apparent_prefill_tok_per_s > N×tokens_per_sec`.
