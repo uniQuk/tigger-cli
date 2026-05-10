@@ -1202,3 +1202,37 @@ not a code-side issue.
   quant) on a third tick — would attribute the 27b slowness to
   quant level vs model size if the q4_k_l version is materially
   faster than the q8 (or whatever) the unsuffixed slug points at.
+
+### Iter 12 — DONE
+
+**Dimension covered:** wire-kwargs spot-check for `google/gemma-4-31b LMStudio` — the only model in the config never verified at the wire level so far. First tick under the hardened cron `27608af5` prompt.
+
+**Wall-clock used:** ~4m of 7m.
+
+**Bench numbers (warm):**
+
+| run    | wall_s | last_in | total_out | finish | EC  |
+|--------|--------|---------|-----------|--------|-----|
+| cold   | >75    | —       | —         | —      | 142 |
+
+LM Studio was warm on `qwen/qwen3.6-27b` going into the tick. Switching to `google/gemma-4-31b` triggered a cold-load swap that exceeded the 75 s per-call alarm. The `[perf] outgoing kwargs:` dump fires *before* the model call returns, so the wire-side target landed cleanly regardless. A warm latency baseline is a follow-up.
+
+**Verified / changed:** `TIGGER_PERF=1 tigger-code --model "google/gemma-4-31b LMStudio" --once "ping"` produced:
+
+```
+model=google/gemma-4-31b              ← per-model override
+temperature=0.7  top_p=0.8  presence_penalty=0.0
+extra_body={top_k:20, min_p:0.5, repetition_penalty:1.1}
+_messages_count=2  _tools_count=13
+```
+
+Key check: **`extra_body` has NO `chat_template_kwargs`** for gemma — the per-model authoritative override at `config.py:67` correctly drops the top-level Qwen-style flags (`enable_thinking`, `preserve_thinking`). If those leaked through, gemma's jinja template would crash with `UndefinedValue` (the failure mode commits `539da88` and `7607e26` were originally about). Round-trip clean. `max_tokens: 0` in the per-model entry → no `max_tokens` key on the wire, as designed.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 824 → 824 in 4.29 s. No code change.
+
+**Parked for later:**
+
+- Warm latency for `google/gemma-4-31b` (and the `-26b-a4b` MoE) — needs a tick that starts with LM Studio already warm on gemma, or two consecutive ticks (warm-up + measure).
+- `qwen_qwen3.6-27b@q4_k_l-instruct` still untouched in this cycle.
