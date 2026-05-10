@@ -353,7 +353,13 @@ def _bash(args: dict) -> str:
         except subprocess.TimeoutExpired:
             return f"Error: command did not exit after SIGKILL ({_BASH_TIMEOUT}s + {_BASH_KILL_GRACE}s)"
         return f"Error: command timed out after {_BASH_TIMEOUT}s (killed)\n{out or ''}"
-    return out or "(no output)"
+    result = out or "(no output)"
+    # Surface non-zero exit codes so the model can distinguish a failed command
+    # from one that just produced no output. Successful commands (exit 0) stay
+    # quiet to preserve the existing tool-result shape.
+    if proc.returncode != 0:
+        result = f"{result}\n[exit {proc.returncode}]"
+    return result
 
 
 def _strip_html(html: str) -> str:

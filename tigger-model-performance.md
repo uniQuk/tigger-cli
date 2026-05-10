@@ -699,3 +699,122 @@ reducing all 10 builtin schemas to nothing would save only ~897 tok.
   conditional on `output_budget > 0`. A separate token-waste hunt
   could measure how often this adds tokens in real workflows vs
   acting as dead weight.
+
+### Iter 8 — DONE
+
+**Dimension covered:** code-execution trigger via the bash tool —
+verify perf line tool_calls counter, output renderer flow, exit-code
+propagation, and `--once` contract under multi-turn tool dispatch.
+
+**Bench run.** `qwen/qwen3.6-35b-a3b --no-think` with prompt
+`"Use the bash tool to run: echo iter8-bash-fingerprint-7e4c. Then
+reply with only the command output, nothing else."`
+
+```
+turns=2  wall=4.19s  last_in=5003  total_out=123  finish=stop  EC=0
+output: "iter8-bash-fingerprint-7e4c"
+```
+
+Tool fires; stdout returns exactly the echoed string; `--once` iter-47
+contract holds (single trailing newline, no glyphs in stdout).
+
+**TIGGER_PERF=1 trace** (separate run, distinct fingerprint to avoid
+cache contamination):
+
+```
+[perf] T1  in=4936  out= 60  wall=2.50s  finish=tool_calls  tool_calls=1  cache=0.000
+[perf] T2  in=5003  out=112  wall=2.76s  finish=tool_calls  tool_calls=1  cache=0.987
+[perf] T3  in=5070  out= 61  wall=1.64s  finish=stop        tool_calls=0  cache=0.987
+```
+
+**Per-turn observations.**
+
+- **`finish` column distinguishes tool calls vs final answer.**
+  Columns 9 in the perf line returns `tool_calls` for in-flight
+  dispatch and `stop` for the final TextChunk turn — confirms the
+  parser tracks the OpenAI finish_reason verbatim.
+- **`tool_calls` counter (column 10) increments correctly** (1, 1, 0).
+- **Input-token growth: +67 per round-trip.** T1 → T2 adds 67 tok
+  (the assistant's tool-call envelope + the tool-result message).
+  T2 → T3 adds another 67. The growth is bounded — no runaway
+  expansion across turns for this workload.
+- **Cache-hit estimate jumps from 0.000 → 0.987 on T2.** The
+  prompt-cache catches the prefix after the first turn warms it;
+  subsequent turns sit on the warm prefix and pay only the marginal
+  per-turn delta. Reinforces iter 5 / iter 6's "prompt cache
+  amortises cold-prefill cost" finding under tool-dispatch workloads.
+- **Local Qwen3.6-35b-a3b sometimes double-fires bash.** The
+  TIGGER_PERF trace shows T2's `tool_calls=1` despite T1 already
+  collecting the echo output. Output anchoring is loose on local
+  models — observation, not actionable this iter.
+
+**GAP FOUND + FIXED: `_bash` was silently swallowing non-zero exit
+codes.**
+
+Inspection of `src/tigger/tools.py:330-356`:
+
+```python
+proc = subprocess.Popen(cmd, shell=True, ..., stderr=subprocess.STDOUT, ...)
+out, _ = proc.communicate(timeout=_BASH_TIMEOUT)
+...
+return out or "(no output)"
+```
+
+`proc.returncode` was never inspected. A command that exited non-zero
+with no stdout/stderr (e.g. `false`, or any silent failure) returned
+the same `"(no output)"` string as a successful no-output command.
+The model could not distinguish `false` (exit 1) from `true` (exit 0).
+For commands with output, the tool result was identical regardless of
+failure — the only signal is the human-language inference the model
+draws from the output text, which is fragile when stdout is empty or
+non-diagnostic.
+
+**Fix (small, surgical, `tools.py`).** Capture `proc.returncode`; if
+non-zero, append `\n[exit N]` to the tool result. Successful exits
+(0) stay byte-for-byte identical to today, preserving the existing
+test surface.
+
+```python
+result = out or "(no output)"
+if proc.returncode != 0:
+    result = f"{result}\n[exit {proc.returncode}]"
+return result
+```
+
+**Verified live.**
+
+- `false`               → `"(no output)\n[exit 1]"`
+- `echo nope; exit 42`  → `"nope\n[exit 42]"`
+- `echo ok`             → `"ok\n"`  (no marker; exit 0)
+- `true`                → `"(no output)"`  (no marker; exit 0)
+
+**Root cause:** `_bash` was authored before exit-code semantics were
+considered relevant for tool dispatch; the stderr-redirect-into-stdout
+captures error *text* but throws away the *status*. For grep/find/
+test-style commands that exit non-zero to signal "no match" without
+printing anything, this was a real source of silent ambiguity.
+
+**Files touched:**
+- `src/tigger/tools.py` (4-line addition in `_bash`)
+- `tests/test_tools.py` (2 new tests: `test_bash_nonzero_exit_appends_exit_marker`,
+  `test_bash_exit_zero_no_marker`)
+- `tigger-model-performance.md`
+
+**Tests delta:** 822 → 824 in 4.42 s (+2 new bash exit-code tests).
+
+**Followups parked for iter 9+:**
+
+- Output renderer (`⏺ Tool(args)` / `⎿ summary`) is only exercised in
+  REPL/TTY mode; `--once` strips it by design (`main.py:809-826`
+  only forwards `TextChunk`). A renderer A/B in REPL mode (asserting
+  on Live-captured Rich output) would close the dimension's remaining
+  un-tested surface. Park as it'd need a Rich-buffer harness.
+- The 67-tok-per-round-trip envelope growth is interesting. Most of
+  it is the tool-call JSON wrapper + tool-result wrapper; a future
+  iter could probe whether OpenAI's wire format adds avoidable bytes
+  here vs Anthropic's tool-use wire shape (which is more compact for
+  pure dispatch).
+- Local-model double-fire: parked from iter 6's "output-anchoring"
+  observation. A 3-run consistency probe with the same bash prompt
+  would show whether double-fire is reproducible or single-run noise.
+  Could justify a "ensure_one_tool_call" hook if reproducible.

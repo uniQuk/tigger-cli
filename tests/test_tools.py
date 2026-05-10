@@ -526,6 +526,25 @@ def test_bash_empty_command_returns_no_output_marker():
     assert out == "(no output)"
 
 
+def test_bash_nonzero_exit_appends_exit_marker():
+    from tigger.tools import _bash
+    # `false` exits 1 with no output; marker must surface the code.
+    out = _bash({"command": "false"})
+    assert out == "(no output)\n[exit 1]"
+    # Custom exit code with stdout: marker appended on a new line.
+    out = _bash({"command": "echo nope; exit 42"})
+    assert out.rstrip("\n").endswith("[exit 42]")
+    assert "nope" in out
+
+
+def test_bash_exit_zero_no_marker():
+    from tigger.tools import _bash
+    # Successful command with output: no exit marker.
+    out = _bash({"command": "echo ok"})
+    assert "[exit" not in out
+    assert out.strip() == "ok"
+
+
 def test_bash_sigterm_ignoring_child_is_killed(monkeypatch):
     """F006 regression: a child that ignores SIGTERM must be SIGKILL'd within
     the grace window. Without process-group escalation this would hang."""
