@@ -393,6 +393,31 @@ less wall time. System prompt: 233 → **121 lines** since loop start
 - System prompt: 108 → **106 lines** (-55% from 233).
 - Tests: 801 → 801 (green, 4.36 s).
 
+### Iter 20 — DONE (loop tick 17, doc sync)
+- README's CLI-flags table didn't list `--model NAME` (the flag added
+  in iter 13). One-line addition so the README matches argparse output.
+
+### Iter 21 — DONE (loop tick 18, doc accuracy)
+- CLAUDE.md's "fresh agent" checklist said `make test` "should be green
+  at 807+". This loop's dedup work (6 redundant tests removed) brought
+  the suite to 801 — the literal "807+" check would now fail despite
+  all tests passing. Updated to "800+". The historical "807+ as of
+  iter 82" line a few sections up stays as a snapshot of that moment.
+
+### Iter 22 — DONE (loop tick 20, real UX win on long thinks)
+- **`<think>` block tail-truncation.** `_build_text_renderable` was
+  rendering long reasoning as `body[:597] + "..."` — the user saw the
+  same first 600 chars frozen on screen for the entire multi-minute
+  think, even as new reasoning streamed in. Felt stale and gave no
+  feedback on what the model was actually thinking *now*.
+- Switched to `"..." + body[-597:]` so the dim-italic preview shows the
+  *latest* 600 chars. The user now watches the model's current thoughts
+  evolve in the live spinner area — directly addresses the loop's
+  "UI feedback for user with long running queries" priority.
+- Short thinks (≤ 600 chars) still render in full. No test changes
+  needed (existing test uses short content).
+- Tests: 801 → 801 (green, 4.31 s).
+
 ## Updated backlog
 
 - **Live model behaviour:** local `qwen3.6-27b` over-investigates trivial
