@@ -130,6 +130,20 @@ Baseline: 807 tests, ~4.5s
   short, minutes, exact-minute boundary, and hour boundary.
 - Tests: 806 → 805 (green, 4.65 s).
 
+### Iter 6 — DONE (loop tick 3)
+- Live-validated the loop-1 throttle change: `make install` into `.venv`,
+  ran `tigger-code --once …` against the LM Studio endpoint at
+  `192.168.2.122:1234`. Stall watchdog fired correctly at 60 s, response
+  rendered with the throttled streaming path, no regressions observed.
+  Also verified `--no-think` fast path: 17 s end-to-end for `2+2`.
+- Drop the duplicate "No emojis" rule in `assets/system.md`. The
+  authoritative version lives in Core Mandates #2 ("Never use emojis…");
+  the Response Style line 122 was a less-strong restatement that created
+  ambiguity (mandate or preference?). Keeping the Core Mandate as single
+  source of truth and stripping the duplicate. ~7 prompt tokens saved per
+  turn, no tests reference the removed phrase.
+- Tests: 805 → 805 (green, 4.64 s).
+
 ## Backlog for the next loop tick
 
 The remaining items are interesting but require either an LLM endpoint to
