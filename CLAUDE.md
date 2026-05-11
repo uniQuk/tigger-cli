@@ -187,6 +187,29 @@ tigger-code --once "..."
 Don't break this. If you add a new failure mode, pick the right exit code
 and route the message to stderr.
 
+## Perf instrumentation (load-bearing)
+
+`TIGGER_PERF=1` (or a path) enables per-turn perf logging. The cycle-02
+bench (`tigger-model-performance.md`) calibrated four independent
+signals, each firing for one well-defined condition. Don't merge them
+or change thresholds without re-bench.
+
+| signal | column / line | fires when | threshold source |
+|---|---|---|---|
+| `cache_hit_estimate` | column 14 | turn N > 1 AND input_tokens reused from N-1 | heuristic, multi-turn only — always 0 in `--once` |
+| `apparent_prefill_tok_per_s` | column 15 | always present (= `input_tokens / wall_s`) | diagnostic gauge, not a binary signal |
+| `[perf] prefill-dominant` line | stderr | `wall/out > 1.5` AND `delta_chars < 4096` | broken prefix caching or cold prefill |
+| `[perf] cache likely hit` line | stderr | `apparent_prefill > 100` AND NOT prefill-dominant | bench-02 measured 50-90 cold vs 200-3500 warm |
+
+Mental model: `wall ≈ TTFT_model + output_tokens/decode_rate`. TTFT and
+decode_rate vary per model and quant. See bench-02 calibration table
+in `tigger-model-performance.md` for the four model entries.
+
+The TSV header is **append-only** — adding a new column at the end is
+safe; reordering breaks existing consumers. Current trailing columns:
+`delta_chars, tokens_per_sec, cache_hit_estimate,
+apparent_prefill_tok_per_s, model`.
+
 ## What NOT to do
 
 - **Don't `print()` directly** to stdout from any module. Always go through

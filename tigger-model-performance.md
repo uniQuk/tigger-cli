@@ -2910,3 +2910,28 @@ The notice is concise, names both slugs explicitly (single-quoted via `!r` so us
 **Parked for later:**
 
 - Nothing new. The pre-52 parks (slash command, gemma outlier, signal collapse) and iter-52's own park (_thinking_ignored cross-process tracking) all carry forward to bench-03 if the user opens a new cycle.
+
+### Iter 54 — DONE
+
+**Dimension covered:** add a "Perf instrumentation" section to `CLAUDE.md` so future agents inherit the cycle-02 4-signal design (and the rules around extending it) without re-deriving them. CLAUDE.md is the canonical "load-bearing patterns" file for this project — the perf signal layer now qualifies.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** `CLAUDE.md` — new section above "What NOT to do" with:
+
+- Table of the 4 signals (cache_hit_estimate, apparent_prefill_tok_per_s, prefill-dominant, cache likely hit) — each with its fire condition and threshold source.
+- The mental model `wall ≈ TTFT_model + output_tokens/decode_rate` and a pointer to the bench-02 calibration table.
+- Append-only invariant for the TSV header, with the current trailing-column list spelled out.
+
+A future agent picking up bench-03 (or doing unrelated work in `loop.py`) now sees these constraints in the canonical project-conventions file rather than buried 50 iters deep in this log.
+
+**Atomic change rule check:** one file (`CLAUDE.md`), ~22 LoC added. Docs-only — no test impact, no runtime change. Fits comfortably.
+
+**Files touched:** `CLAUDE.md`, `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.32 s. No code change.
+
+**Parked for later:**
+
+- The CLAUDE.md section could grow a small "common pitfalls" list (e.g. "decode-share confound makes apparent_prefill a gauge, not a binary"). Left for the next time the section needs editing — premature today.
+- All earlier parks still apply.
