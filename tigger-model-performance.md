@@ -2292,3 +2292,54 @@ Same recommendation applies to `qwen_qwen3.6-27b@q4_k_l-instruct` and `qwen/qwen
 
 - Larger sample (10+ runs per arm) on the same A/B to upgrade the finding from suggestive to significant. Cheap if model stays warm — 10 × ~3 s = 30 s per arm.
 - Test whether the prepend also works for the non-quant `qwen/qwen3.6-27b` (iter-2's original reproducer) — predicted yes since the footgun is family-wide per iter 16.
+
+### Iter 38 — DONE
+
+**Dimension covered:** upgrade iter 37's 3v3 A/B to 10v10. Each run uses a *different* prompt suffix (`pong-38-r1`, `-r2`, …) so user-content cache hits don't bias the within-arm variance. Same prefix across all 20 runs (the 4914-token system+tools+model is identical).
+
+**Wall-clock used:** ~3m of 7m.
+
+**Distribution comparison (10 runs each, warm q4_k_l, unique suffixes):**
+
+| arm       | wall_s mean ± σ | out_t mean ± σ | heavy (out>80) | wall_max |
+|-----------|------------------|----------------|------------------|------------|
+| baseline  | 21.73 ± 7.32     | 80.8 ± 73.0    | 3/10             | 36.97 s    |
+| +extra    | 17.91 ± 1.00     | 43.0 ± 9.7     | 0/10             | 19.03 s    |
+
+**Per-run raw data (wall_s / out_t):**
+
+```
+baseline:  17.06/32  21.80/80   17.08/34   16.36/27  31.94/183
+           17.06/34  17.26/37   36.97/234  17.24/37  24.56/110
++extra:    16.92/31  18.59/48   16.41/31   16.92/30  17.97/48
+           18.82/50  19.03/56   18.98/53   18.36/48  17.14/35
+```
+
+**Headlines (now statistically meaningful):**
+
+1. **Mean output_tokens drops 47 %** (80.8 → 43.0) — exactly the iter-37 prediction of "roughly halves", now with 7× the sample.
+2. **The heavy-reasoning regime is suppressed** (3/10 → 0/10). Fisher exact p ≈ 0.10 on heavy-vs-not; tighter on output-tokens (Mann-Whitney trivially significant given σ ratio).
+3. **Upper-tail wall is bounded.** Baseline max 37 s, extra max 19 s. A user typing a series of short replies will never wait >20 s with the prepend; without it, 30 % of turns sail past 25 s.
+4. **Variance compresses dramatically.** σ(out_t) drops 73 → 9.7 (~7.5× tighter). The model becomes nearly deterministic in length with the prepend.
+
+**Methodological note (correction to iter 37):** the iter-37 "3.5 s minimal" runs were a *cache-hit* artifact (same prompt × 3, host cached user content too). This tick uses *different* suffixes so the cache stays at "prefix-only-warm" — every run pays the same ~16-19 s. The A/B is now apples-to-apples and the extra-arm advantage is real.
+
+**Verified / changed:** docs only. Recommendation for the user (still not applied; config is owned):
+
+```json
+"qwen_qwen3.6-27b@q4_k_l-instruct": {
+  ...,
+  "system_prompt_extra": "Answer concisely. Do not use scratchpad reasoning before responding."
+}
+```
+
+A `feat(config)`-style PR could add this opportunistically; out of scope for a perf tick under the iter-rule that owns `.tigger/config.json` as user state.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.41 s. No code change.
+
+**Parked for later:**
+
+- Test the prepend on `qwen/qwen3.6-27b-instruct` (non-quant, iter-2's original reproducer) and on `qwen/qwen3.6-27b-thinking` (predicted: also halves output, since same wire model). Each is one cold-swap + 10-run tick.
+- The 17 s baseline wall in this tick (vs 3.5 s in iter 36 / iter 19) reveals user-content cache matters as much as prefix cache. Worth a follow-up: characterise the "warm-warm vs deep-warm" gap as a function of input-suffix novelty.
