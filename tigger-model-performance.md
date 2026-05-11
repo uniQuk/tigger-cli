@@ -2456,7 +2456,7 @@ Active-param × quant model predicts TTFT within ±15 % (iter 33).
 
 ### Open user-action recommendations (not applied here — config is owned)
 
-1. **Fix `default_model`.** Current `.tigger/config.json` has `"default_model": "google_gemma-4-31b-it-bartowski"` which doesn't match any provider models entry. Tigger warns but the per-model overrides aren't applied. Pick one of the 6 listed slugs.
+1. **~~Fix `default_model`.~~** **DONE in user's local config (iter 64 verified).** Was `"google_gemma-4-31b-it-bartowski"` (mismatch, iter-2 warning fired, per-model overrides skipped). User changed it to `"qwen/qwen3.6-35b-a3b"` — matches the iter-31 best-fit-default for interactive CLI use. Verified: tigger startup no longer emits the `default_model has no matching entry` UserWarning, and `[perf] outgoing kwargs` now ships the 35b-a3b per-model sampler values (`temperature=0.7, top_p=0.8, presence_penalty=1.5, max_tokens=8192, enable_thinking=false`) instead of leaking top-level defaults.
 2. **Add `system_prompt_extra` per qwen-27b entry.** Reduces output-token variance 56× (F-test, p ≪ 0.001) across the pooled 27b family — see stable finding 1 above. Validated on `q4_k_l-instruct` (iter 38), `qwen/qwen3.6-27b-instruct` (iter 43) and `qwen/qwen3.6-27b-thinking` (iter 44).
 3. **Consider dropping `qwen/qwen3.6-27b-instruct`** as a config entry. Same wire id as `-thinking`; the "instruct" semantic doesn't hold on this server.
 
@@ -3317,3 +3317,47 @@ The two means differ by 0.008 s (~3 %) — well within run-to-run noise. The act
 **Parked for later:**
 
 - Re-confirm one or two of the other rows (q4_k_l 1.14 s, gemma-26b 0.46 s, gemma-31b 2.30 s) if a future tick lands on the right warm state. Each is cheap — 5 curls × ~1-3 s = under 30 s per row. Helps catch host-side drift between cycles.
+
+### Iter 64 — DONE
+
+**Dimension covered:** observed that the user applied iter-41 recommendation #1 (fix `default_model`). `.tigger/config.json` now reads `"default_model": "qwen/qwen3.6-35b-a3b"` — matches the iter-31 best-fit-default for interactive CLI use. Verified the chain closes end-to-end.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified end-to-end behaviour (`TIGGER_PERF=1 tigger-code --once "ping"` with no `--model` flag):**
+
+```
+[no UserWarning emitted at startup]   ← iter-2 warning silenced (correct slug)
+[perf] outgoing kwargs: {
+  "model": "qwen/qwen3.6-35b-a3b",
+  "temperature": 0.7,                  ← per-model
+  "max_tokens": 8192,                  ← per-model
+  "top_p": 0.8,                        ← per-model (not the top-level 0.95)
+  "presence_penalty": 1.5,             ← per-model (not the top-level 0.0)
+  "extra_body": {
+    "top_k": 20, "min_p": 0.0, "repetition_penalty": 1.0,
+    "chat_template_kwargs": {"enable_thinking": false}
+  },
+  ...
+}
+```
+
+Before iter 64, the wire kwargs (per iter 2's measurement) shipped:
+- `model: "google_gemma-4-31b-it-bartowski"` (raw slug, no overrides)
+- `top_p: 0.95, presence_penalty: 0.0` (top-level defaults)
+- `chat_template_kwargs: {enable_thinking: false, preserve_thinking: true}` (top-level — `preserve_thinking: true` is the Qwen-specific flag that would crash a gemma jinja template)
+
+The iter-2 → 520f381 commit → iter-64 user-action chain is now **closed**. The startup warning fires (when applicable), the user sees the recommendation in the cycle close, and the user's local config change makes the warning go away cleanly. Behaviour cascades through.
+
+**Cycle-close updated:** Recommendation #1 marked DONE with the verification details inline. Recommendations #2 (`system_prompt_extra` for qwen-27b entries) and #3 (drop `qwen/qwen3.6-27b-instruct`) remain open — user's call.
+
+**Verified / changed:** docs only. The user's config edit is in their local untracked file (`.tigger/` is gitignored), so this cycle's repo state is unaffected.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.40 s. No code change.
+
+**Parked for later:**
+
+- If/when the user applies recommendation #2 (per-model `system_prompt_extra` on the qwen-27b entries), re-bench the same prompt that triggered the iter-2 footgun to confirm the warning still fires only when the prepend isn't present (i.e. the warning code path is independent of the user-side mitigation).
+- Recommendation #3 (drop misleading 27b-instruct entry) is a structural cleanup with no perf impact — purely a config-tidiness call. Park.
