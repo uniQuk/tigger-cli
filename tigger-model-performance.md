@@ -3246,3 +3246,36 @@ The four models cluster k around 0.085 ± 0.015. The gemma-26b outlier disappear
 **Parked for later:**
 
 - Nothing new. The cycle is at a natural plateau — every dimension covered, all parked items resolved, wire kwargs verified-stable. Future ticks before bench-03 will be incremental polish.
+
+### Iter 62 — DONE
+
+**Dimension covered:** code-quality refactor of the iter-52 model-swap detection. Extract the ~20-line inline block into a named helper `_warn_on_perf_tsv_model_swap(perf_path, config)` with a docstring. Improves readability of `run()` and makes the swap-detection logic testable in isolation if needed in the future.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** `src/tigger/loop.py` — pulled the iter-52 block out of `run()` into a module-level helper just above `run()`. The helper:
+
+- Reads the TSV file (returns silently on `OSError`).
+- Skips header-only files (`len(lines) < 2`).
+- Validates the trailing column is a model id, not the literal "model" header.
+- Compares against `config.model_slug or config.model`.
+- Emits the same `[perf] model changed since last TSV row:` line on a mismatch.
+
+Call site in `run()` is now a one-liner:
+
+```python
+if perf_log is None and perf_path is not None and perf_path.exists():
+    _warn_on_perf_tsv_model_swap(perf_path, ctx.config)
+```
+
+Down from 21 inline lines to 2. The two existing iter-52 tests (`test_perf_model_swap_warning_fires_on_changed_slug` and `..._silent_on_same_slug`) pass unchanged — they exercise the public-facing behaviour (warning text on stderr), not the inlined-vs-helper structure.
+
+**Atomic change rule check:** one file (`loop.py`), net change is ~13 LoC (added 30 LoC of helper + docstring, removed 21 LoC inline + 2 LoC for the if-block). Slightly larger than 30 LoC gross, but the net runtime-behaviour delta is zero. No new top-level Rich import. No test change needed — existing coverage continues.
+
+**Files touched:** `src/tigger/loop.py`, `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.32 s. Behaviour-preserving refactor; existing tests still green.
+
+**Parked for later:**
+
+- Same iter-48 "collapse to single line" park still applies — the prefill-dominant and cache_likely_hit branches could now both be extracted alongside the swap helper if the consolidation gets attempted.

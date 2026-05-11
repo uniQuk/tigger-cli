@@ -262,6 +262,36 @@ def _can_parallelize_tools(
     return True
 
 
+def _warn_on_perf_tsv_model_swap(perf_path: pathlib.Path, config) -> None:
+    """Iter 52: cron-driven cross-tick analysis. When `perf_path` exists and
+    has at least one data row, compare its trailing `model` column to the
+    current process's `model_slug` and warn on stderr if they differ.
+
+    Helps explain wall_s spikes caused by silent model swaps between cron
+    ticks writing to the same TSV. Best-effort — any OSError is swallowed
+    rather than breaking the run.
+    """
+    try:
+        lines = perf_path.read_text().splitlines()
+    except OSError:
+        return
+    if len(lines) < 2:
+        return
+    last_cols = lines[-1].split("\t")
+    if not last_cols or not last_cols[-1] or last_cols[-1] == "model":
+        return
+    prev_model = last_cols[-1]
+    curr_model = config.model_slug or config.model
+    if not curr_model or prev_model == curr_model:
+        return
+    sys.stderr.write(
+        f"[perf] model changed since last TSV row: "
+        f"{prev_model!r} → {curr_model!r} "
+        f"(expect cold-load tax on the first turn)\n"
+    )
+    sys.stderr.flush()
+
+
 def run(
     query: str,
     ctx: RunContext,
@@ -353,27 +383,8 @@ def run(
                 "delta_chars\ttokens_per_sec\tcache_hit_estimate\t"
                 "apparent_prefill_tok_per_s\tmodel\n"
             )
-        # Iter 52: cron-driven cross-tick analysis. When TIGGER_PERF is a
-        # path and the file already has rows, peek the last row's `model`
-        # field and warn if it differs from this process's model. Helps
-        # explain wall_s spikes caused by silent model swaps between ticks.
         if perf_log is None and perf_path is not None and perf_path.exists():
-            try:
-                lines = perf_path.read_text().splitlines()
-                if len(lines) >= 2:
-                    last_cols = lines[-1].split("\t")
-                    if last_cols and last_cols[-1] and last_cols[-1] != "model":
-                        prev_model = last_cols[-1]
-                        curr_model = ctx.config.model_slug or ctx.config.model
-                        if curr_model and prev_model != curr_model:
-                            sys.stderr.write(
-                                f"[perf] model changed since last TSV row: "
-                                f"{prev_model!r} → {curr_model!r} "
-                                f"(expect cold-load tax on the first turn)\n"
-                            )
-                            sys.stderr.flush()
-            except OSError:
-                pass
+            _warn_on_perf_tsv_model_swap(perf_path, ctx.config)
     perf_turn = 0
     # Cross-turn state for the new perf columns. Both start at 0 so the first
     # turn reports delta_chars == prompt_chars and cache_hit_estimate == 0
