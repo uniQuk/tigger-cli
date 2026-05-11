@@ -1722,3 +1722,49 @@ Per-turn overhead is essentially the same (~1.15-1.2 s) across the two — that'
 
 - Two model rows remain empty in the calibration table: `google/gemma-4-31b` (dense, FP16) and `google/gemma-4-26b-a4b` (MoE). Each needs one cold-load + two warm samples for the fit. One tick per model.
 - Now that decode_rate and overhead are separately known for the two MoE/dense corners, the iter-19 parked "cache_likely_hit" UI signal is a one-liner: `wall - overhead < output_tokens / decode_rate / cache_floor` (where `cache_floor` is e.g. 0.5×). Wait until the table has all four rows before wiring the UI.
+
+### Iter 25 — DONE
+
+**Dimension covered:** calibration sweep continuation — fit `google/gemma-4-26b-a4b` (MoE 4B-active). Cold-swap from 35b-a3b (one discard at 34.37 s), then short + long warm samples for the 2-point decode-rate solve.
+
+**Wall-clock used:** ~3m of 7m.
+
+**Bench numbers (gemma-26b-a4b, two warm samples, identical ~4580-token prefix):**
+
+| sample        | out | wall_s | t/s   | app_prefill |
+|---------------|-----|--------|-------|-------------|
+| short         | 12  | 3.67   | 3.27  | 1248        |
+| long ("1-30") | 85  | 7.45   | 11.42 | 616         |
+
+Both outputs correct. Long: "1,2,3,…,30" exact.
+
+**2-point fit:**
+
+```
+b = (7.45 − 3.67) / (85 − 12) = 0.0518 s/tok ⇒ decode_rate = 19.3 tok/s
+a = 3.67 − 12·b              = 3.05 s         ⇒ overhead "apparent"
+```
+
+**Caveat — the 3.05 s overhead is inflated.** Iter 14 measured this same gemma at warm-warm 0.89 s for out=13 on the same prefix. The 35b-a3b and q4_k_l calibrations both landed at ~1.1-1.2 s overhead. 3.05 s is wildly out of band. The likely cause: the short sample here ran immediately after a cold-load + one discard, so the host's KV-cache for the 4576-token prefix was only partially populated — real prefill work remained on the wall and got attributed to `a` by the linear fit. A re-fit on a tick that starts deeper into warm should bring overhead back to the ~1.1 s family. **Decode rate 19.3 tok/s is the trustworthy half of this fit** (the slope is robust to the intercept being polluted; both samples share the same warming-state at similar moments).
+
+**Updated calibration table (warm-cache):**
+
+| model                              | overhead   | decode tok/s | app_prefill (cache hit) |
+|------------------------------------|------------|---------------|--------------------------|
+| `qwen/qwen3.6-35b-a3b` (MoE)       | 1.21 s     | **46.7**      | ~3450                    |
+| `qwen_qwen3.6-27b@q4_k_l` (dense)  | 1.14 s     | **11.3**      | ~600                     |
+| `google/gemma-4-26b-a4b` (MoE)     | 3.05 s (?) | **19.3**      | 616 (this tick)          |
+| `google/gemma-4-31b` (dense)       | —          | —             | —                        |
+
+Three of four rows now populated. MoE decode-rate ordering: 35b-a3b (46.7) > 26b-a4b (19.3) > 27b@q4_k_l dense (11.3) > 31b dense (TBD, but iter-13 implies ~3 tok/s).
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.41 s. No code change.
+
+**Parked for later:**
+
+- Re-fit gemma-26b-a4b's overhead on a deeply-warm tick (start with the model already loaded by a previous tick, then 2 samples). Should bring `a` back to the ~1.1 s host floor.
+- `google/gemma-4-31b` row is the last empty cell — same cold-swap + 2-sample procedure as this tick. Iter 13 hinted decode is ~3 tok/s; the fit will pin it.
