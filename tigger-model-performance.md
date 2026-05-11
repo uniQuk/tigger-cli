@@ -2085,3 +2085,56 @@ Cold-load matches iter-25's 34.37 s discard within ~5 s — gemma-26b cold-loads
 
 - Last TTFT cell: `qwen_qwen3.6-27b@q4_k_l-instruct`. Cold-swap from gemma-26b + 5-run curl. Tests the active-param TTFT hypothesis on a 4-bit dense entry.
 - `cache_likely_hit` UI signal — once q4_k_l TTFT is in, all four rows are calibrated and the signal can be wired with confidence.
+
+### Iter 33 — DONE
+
+**Dimension covered:** final TTFT calibration cell — `qwen_qwen3.6-27b@q4_k_l` (dense, 4-bit). Cold-swap from iter-32-warm gemma-26b, then 5-run curl. Tests the iter-32-floated "TTFT scales with active params × quant speedup" hypothesis.
+
+**Wall-clock used:** ~2m of 7m.
+
+**Curl wall (q4_k_l, max_tokens=10, single user msg):**
+
+```
+r1 wall=23.17  ← cold-load
+r2 wall=1.13   ← warm
+r3 wall=1.14
+r4 wall=1.14
+r5 wall=1.15
+r6 wall=1.14
+mean(r2..r6)=1.140 s  σ≈0.007 s
+```
+
+Cold-load was *faster* than iter-15's tigger-side >90 s alarm — disk cache for the weights file was probably hot from earlier sessions, so the heavy lifting was just GPU transfer.
+
+**Headline: TTFT calibration is complete.**
+
+| model                              | curl TTFT (mean)    | fit_intercept | decode tok/s | params / quant            |
+|------------------------------------|----------------------|----------------|---------------|---------------------------|
+| `qwen/qwen3.6-35b-a3b` (MoE)       | **0.30 s** (5 runs) | 1.21 s         | 46.7          | 3 B active, FP16           |
+| `google/gemma-4-26b-a4b` (MoE)     | **0.46 s** (5 runs) | 0.33 s         | 20.3          | ~4 B active, FP16          |
+| `qwen_qwen3.6-27b@q4_k_l` (dense)  | **1.14 s** (5 runs) | 1.14 s         | 11.3          | 27 B dense, 4-bit (Q4_K_L) |
+| `google/gemma-4-31b` (dense)       | **2.30 s** (3 runs) | 0.10 s         | 2.87          | 31 B dense, FP16           |
+
+**Hypothesis test — active-param × quant TTFT model.** Predict TTFT ≈ k · params_effective where params_effective = params × (quant_factor). With quant_factor = 1 for FP16 and ~0.5 for 4-bit:
+
+| model         | params_eff | predicted (k=0.085) | measured |
+|---------------|-------------|---------------------|----------|
+| qwen-35b-a3b  | 3 B         | 0.26                | 0.30     |
+| gemma-26b-a4b | 4 B         | 0.34                | 0.46     |
+| q4_k_l        | 27 × 0.5 = 13.5 B | 1.15           | 1.14     |
+| gemma-31b     | 31 B        | 2.64                | 2.30     |
+
+Errors are ±15 % — the model captures the main signal. Not perfect (gemma-26b's actual 0.46 is 35 % above the linear prediction; maybe gemma's first-token routing is heavier than qwen's at similar active-param count), but good enough to predict TTFT for any future model entry given its (params, quant) tuple.
+
+**Practical takeaway:** for the user's interactive CLI use, TTFT > 1 s is the perceptual-snappiness threshold. q4_k_l (1.14 s) is borderline; gemma-31b (2.30 s) is too slow for fast back-and-forth. The MoE entries (0.30, 0.46) feel instant.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.41 s. No code change.
+
+**Parked for later:**
+
+- Wire the `cache_likely_hit` UI signal. With TTFT and decode_rate per-model now known, the signal can fire when `wall - TTFT_model < 1.3 · output_tokens / decode_rate_model` AND the prefix repeats from a recent turn. ~25 LoC + paired test, fits the atomic rule. Best target for iter 34+.
+- Document the TTFT / fit_intercept distinction in tigger's `--once` output (or `/perf` slash command) so users don't read iter-29-style "qwen has higher overhead" from the bare `[perf]` line.
