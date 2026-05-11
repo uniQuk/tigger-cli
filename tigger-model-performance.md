@@ -2041,3 +2041,47 @@ For interactive CLI work, qwen-35b-a3b and gemma-26b-a4b are the only viable cho
 
 - Fill the q4_k_l and gemma-26b TTFT cells (each costs one cold-swap + 5-run curl in a single tick).
 - The "wire the cache_likely_hit UI signal" parked item from iters 24-29 can now be formulated cleanly: it should fire when `wall - TTFT < 1.3 · output_tokens / decode_rate` AND the prefix is unchanged from a recent turn. Wait until the TTFT column is full.
+
+### Iter 32 — DONE
+
+**Dimension covered:** TTFT calibration for `google/gemma-4-26b-a4b`. Cold-swap from the iter-31-warm qwen-35b-a3b, then 5 warm-warm curl runs with minimal payload (same shape as iters 29-31).
+
+**Wall-clock used:** ~2m of 7m.
+
+**Curl wall (gemma-4-26b-a4b, max_tokens=10, single user msg):**
+
+```
+r1 wall=29.06  ← cold-load
+r2 wall=0.47   ← warm
+r3 wall=0.46
+r4 wall=0.46
+r5 wall=0.45
+r6 wall=0.45
+mean(r2..r6)=0.458 s  σ≈0.008 s
+```
+
+Cold-load matches iter-25's 34.37 s discard within ~5 s — gemma-26b cold-loads consistently fast.
+
+**Calibration table — 3/4 TTFT rows filled:**
+
+| model                              | curl TTFT (mean) | fit_intercept | decode tok/s | active params (approx) |
+|------------------------------------|--------------------|----------------|---------------|------------------------|
+| `qwen/qwen3.6-35b-a3b` (MoE)       | **0.30 s** (5)     | 1.21 s         | 46.7          | 3 B                    |
+| `qwen_qwen3.6-27b@q4_k_l` (dense)  | TBD                | 1.14 s         | 11.3          | 27 B @ 4-bit            |
+| `google/gemma-4-26b-a4b` (MoE)     | **0.46 s** (5)     | 0.33 s         | 20.3          | ~4 B                   |
+| `google/gemma-4-31b` (dense)       | **2.30 s** (3)     | 0.10 s         | 2.87          | 31 B                   |
+
+**Headline:** TTFT scales with active parameters on this host. Roughly: qwen 0.30 s @ 3B → gemma-26b 0.46 s @ 4B → gemma-31b 2.30 s @ 31B. The MoE TTFT advantage is concrete — 3-5× faster first-token than the 31b dense at the same parameter count.
+
+**Prediction for q4_k_l (still empty):** dense 27B at 4-bit. By the active-param model, TTFT should land between gemma-26b-a4b (0.46 s) and gemma-31b (2.30 s) — probably ~1.5-2.0 s, with quant level offering at most a ~25 % speedup vs FP16-equivalent. Next-tick measurement will confirm or break this model.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.39 s. No code change.
+
+**Parked for later:**
+
+- Last TTFT cell: `qwen_qwen3.6-27b@q4_k_l-instruct`. Cold-swap from gemma-26b + 5-run curl. Tests the active-param TTFT hypothesis on a 4-bit dense entry.
+- `cache_likely_hit` UI signal — once q4_k_l TTFT is in, all four rows are calibrated and the signal can be wired with confidence.
