@@ -3279,3 +3279,41 @@ Down from 21 inline lines to 2. The two existing iter-52 tests (`test_perf_model
 **Parked for later:**
 
 - Same iter-48 "collapse to single line" park still applies — the prefill-dominant and cache_likely_hit branches could now both be extracted alongside the swap helper if the consolidation gets attempted.
+
+### Iter 63 — DONE
+
+**Dimension covered:** re-confirm the iter-31 TTFT baseline for `qwen/qwen3.6-35b-a3b` 60+ iters later. The model is warm on LM Studio (loaded at iter-23 cold-load, last actively used by iter-24). 5-run curl A/B with the exact same payload shape iter 31 used.
+
+**Wall-clock used:** ~1m of 7m.
+
+**5-run curl wall (max_tokens=10, single user msg "Reply: pong"):**
+
+```
+r1 wall=0.73  (warm-ish, minor partial-warm)
+r2 wall=0.29
+r3 wall=0.30
+r4 wall=0.27
+r5 wall=0.29
+mean(r2..r5) = 0.288 s  σ ≈ 0.013 s
+```
+
+**Comparison vs iter 31:**
+
+| measurement | mean wall_s | σ |
+|-------------|--------------|----|
+| iter 31 (5 runs, warm from iter 30) | 0.296 | 0.012 |
+| iter 63 (5 runs, this tick)         | **0.288** | 0.013 |
+
+The two means differ by 0.008 s (~3 %) — well within run-to-run noise. The active-param × quant TTFT model (iter 33) holds across the ~10-hour cycle span.
+
+**Practical signal:** the cycle's headline calibration number is stable. A user re-running these benches tomorrow (or after the cron expires and gets restarted) should still see ~0.30 s TTFT for the default model. No drift detected.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.47 s. No code change.
+
+**Parked for later:**
+
+- Re-confirm one or two of the other rows (q4_k_l 1.14 s, gemma-26b 0.46 s, gemma-31b 2.30 s) if a future tick lands on the right warm state. Each is cheap — 5 curls × ~1-3 s = under 30 s per row. Helps catch host-side drift between cycles.
