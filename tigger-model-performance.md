@@ -2537,3 +2537,46 @@ All three returned. All three landed `out_t` in the iter-38 minimal range (32-40
 
 - Re-fit non-quant 27b on a fully-deep-warm host (probably a tick further out from this one). Expect decode rate around 5-6 tok/s and overhead near gemma-26b's 0.33 s once the iter-26-style intercept-pollution is amortised away.
 - Apply the same probe to `qwen/qwen3.6-27b-thinking` (the third 27b config entry). Predicted: prepend also halves out_t since same wire model. One more tick of confirmation closes the family-wide validation.
+
+### Iter 44 — DONE
+
+**Dimension covered:** apply iter-38 prepend to `qwen/qwen3.6-27b-thinking` — the third 27b config entry, where `enable_thinking:true` is set *deliberately* (not the iter-2 footgun). Tests whether a user-prompt instruction can override an explicit chat-template thinking trigger.
+
+**Wall-clock used:** ~3m of 7m.
+
+**Bench numbers (3 runs, 27b-thinking, all with iter-38 prepend):**
+
+| run | wall_s | in_t | out_t | finish | t/s   | app_prefill | prompt_chars |
+|-----|--------|------|-------|--------|-------|--------------|----------------|
+| r1  | 46.32  | 4922 | 46    | stop   | 0.99  | 106          | 259           |
+| r2  | 44.48  | 4922 | 31    | stop   | 0.70  | 111          | 174           |
+| r3  | 44.75  | 4922 | 30    | stop   | 0.67  | 110          | 169           |
+
+Mean out_t = 35.7. All three returned the expected "pong-44-rN" as visible content. Cache-hit signal fired on r2 and r3.
+
+**Headline: user-prompt instruction overrides `chat_template_kwargs.enable_thinking:true`.**
+
+The 27b-thinking config has `enable_thinking:true` AND `preserve_thinking:true` explicitly set — the model is supposed to reason and preserve that reasoning in history. With the iter-38 prepend in the user message, output_tokens collapse to ~35 (matching iter-43's non-quant 35 and iter-38's q4_k_l 43). The prepend wins over the template.
+
+**The `preserve_thinking:true` effect is visible in `prompt_chars`.** Iter-43 (non-quant, preserve=false) had prompt_chars=79; this iter (preserve=true) has 169-259, reflecting the `<think>...</think>` block tigger keeps in the assistant message history. The reasoning was emitted (the model didn't fully obey "no scratchpad"); it was just brief.
+
+**Family-wide finding closes the iter-38/iter-39 thread:**
+
+| config slug                                  | enable_thinking | mean out_t (prepend) |
+|----------------------------------------------|------------------|------------------------|
+| `qwen_qwen3.6-27b@q4_k_l-instruct` (iter 38) | false (cfg)      | 43                     |
+| `qwen/qwen3.6-27b-instruct` (iter 43)        | false (cfg)      | 35                     |
+| `qwen/qwen3.6-27b-thinking` (iter 44)        | **true** (cfg)   | 36                     |
+
+All three 27b configs converge to ~35-43 mean out_t under the prepend, regardless of the chat_template kwargs. **The prepend is a stronger lever than the template flag on this model family.** Practical implication: users who want a "thinking on by default, concise when asked" UX can leave `enable_thinking:true` in config and rely on per-prompt overrides.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.41 s. No code change.
+
+**Parked for later:**
+
+- The 3 iterations of 35/35.7/43 across q4_k_l, non-quant, and -thinking sample sizes 3-10 hint at a real family-wide constant. A combined statistical analysis (33 measurements pooled) would strengthen the headline before bench-03 closes.
+- Document the "prepend > template flag" finding in the iter-2 warning text or in CLAUDE.md so future agents don't re-derive it.
