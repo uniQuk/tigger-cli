@@ -610,6 +610,12 @@ def repl(result: StartupResult, session_id: str | None = None, session_dir: path
                     "set `\"disable_tools\": true` on this model in "
                     "config.json to run it chat-only, or switch via /model."
                 )
+            elif "model has crashed" in msg.lower():
+                hint = (
+                    "LM Studio crashed the loaded model (the host process "
+                    "is usually fine). Weights will reload on the next "
+                    "request — wait ~30 s and retry, or switch via /model."
+                )
             else:
                 hint = "Try /model to switch, or wait and retry."
             ui.print_error_panel("Provider rejected request", msg, hint=hint)
@@ -841,6 +847,12 @@ def main() -> None:
                     "chat_template_kwargs. Try a lmstudio-community "
                     "variant, or set `\"disable_tools\": true` on this "
                     "model in config.json to run it chat-only.\n"
+                )
+            elif "model has crashed" in msg.lower():
+                sys.stderr.write(
+                    "hint: LM Studio crashed the loaded model. Weights "
+                    "will reload on the next request — wait ~30 s and "
+                    "retry, or switch model with --model.\n"
                 )
             sys.exit(2)
         except Exception as exc:

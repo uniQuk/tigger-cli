@@ -243,6 +243,55 @@ def test_jinja_provider_error_surfaces_tigger_hint(mock_startup, capsys, monkeyp
 
 
 @patch("tigger.main.startup")
+def test_model_crashed_provider_error_surfaces_retry_hint(mock_startup, capsys, monkeypatch):
+    """Iter post-65: LM Studio occasionally crashes the loaded model and
+    returns an openai.APIError whose message contains "The model has
+    crashed". Tigger should surface a clear retry hint rather than letting
+    the user think the request silently hung."""
+    import pathlib
+    import openai
+    from tigger.main import StartupResult
+
+    def boom_provider(system, messages, tools, config):
+        raise openai.APIError(
+            message=(
+                "The model has crashed without additional information. "
+                "(Exit code: 18446744072635812000)"
+            ),
+            request=None,
+            body=None,
+        )
+        yield  # unreachable; keeps the function a generator
+
+    cfg = Config(base_url="http://x", model="qwen", permission_mode="bypass")
+    ctx = RunContext(config=cfg, messages=[], system_prompt="")
+    mock_startup.return_value = StartupResult(
+        ctx=ctx,
+        commands={},
+        skills=[],
+        agents=[],
+        registry=ToolRegistry(),
+        hook_defs=[],
+        provider_fn=boom_provider,
+        config_path=pathlib.Path("/tmp/fake.toml"),
+    )
+
+    import sys
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    with patch("sys.argv", ["tigger", "--once", "hi"]):
+        import pytest
+        with pytest.raises(SystemExit) as exc_info:
+            from tigger.main import main
+            main()
+        assert exc_info.value.code == 2
+    err = capsys.readouterr().err
+    assert "provider rejected request" in err
+    assert "model has crashed" in err.lower()
+    # The new retry-hint line distinguishes this from the generic jinja error.
+    assert "wait ~30 s and retry" in err or "wait ~30s and retry" in err
+
+
+@patch("tigger.main.startup")
 def test_no_think_is_noop_when_model_has_no_thinking_kwargs(mock_startup, capsys, monkeypatch):
     """Iter-5: --no-think on a non-Qwen model (no `enable_thinking` in
     chat_template_kwargs) must be a silent no-op — adding the field from
