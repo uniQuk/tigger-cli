@@ -2706,3 +2706,30 @@ Net effect: the cycle close is now self-consistent with the post-iter-46 underst
 
 - The iter-2 / iter-39 warning text could optionally include "(reduces variance 56×, F-test p ≪ 0.001)" — kept out for now because the existing recommendation is already actionable and the parenthetical would push the warning past the readable-on-one-screen threshold.
 - Apply the user-side `system_prompt_extra` config recommendation (recommendation #2) on the cron's next quiet window. That's a one-line config edit that survives across all sessions.
+
+### Iter 48 — DONE
+
+**Dimension covered:** atomic UX improvement — thread `apparent_prefill_tok_per_s` into the existing `[perf] prefill-dominant` warning so the user sees the actual prefill rate that triggered it, not just "wall is large".
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** `src/tigger/loop.py:528-543`. The warning line now reads:
+
+```
+[perf] prefill-dominant turn N: wall=X.Xs out=Ytok delta_chars=Z apparent_prefill=Wtok/s
+```
+
+Previously it was just `wall=X out=Y delta_chars=Z`. With the new field, users can see "your wall was high because prefill ran at 78 tok/s (cold-prefill territory per the bench-02 calibration), not because the model decoded slowly". One field, no behaviour change in the trigger condition.
+
+Tests: extended `test_perf_warning_fires_on_prefill_dominant_turn` with an assertion on the new `apparent_prefill=` substring so future edits can't silently drop the field.
+
+**Atomic change rule check:** two files (`loop.py` + its test), 5 LoC added (4 of runtime change + 1 assertion). No flag. No top-level Rich import. Fits comfortably under the 30-LoC ceiling.
+
+**Files touched:** `src/tigger/loop.py`, `tests/test_loop_perf.py`, `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.39 s. Same count; coverage tightened on existing prefill-dominant test.
+
+**Parked for later:**
+
+- Both prefill-related signals (prefill-dominant warning + cache likely hit) now carry the same numeric field. A future tick could collapse them into one decision tree per turn ("hit / cold / dominated") with a single line — currently they fire independently and can both appear on the same turn.
+- The iter-13 cold-load case for gemma-31b had ratio wall/out=79.56/46=1.73 (>1.5) AND delta_chars=79 (<4096) → the new line would fire with apparent_prefill≈57 tok/s. That gives the user a concrete "cold prefill" diagnostic on the very turn where they're least sure what's happening.

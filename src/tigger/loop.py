@@ -527,7 +527,10 @@ def run(
                     f.write(row)
             # Prefill-dominance warning: long wall time relative to output on
             # a small-delta turn signals the provider re-prefilled despite
-            # little new prompt. Indicates broken prefix caching.
+            # little new prompt. Indicates broken prefix caching. Iter 48
+            # adds apparent_prefill to the line so the user sees the actual
+            # prefill rate that triggered the warning (cold prefill tops out
+            # ~60-90 tok/s on local hardware per the bench-02 calibration).
             if (
                 wall / max(assistant_msg.output_tokens, 1) > 1.5
                 and delta_chars < 4096
@@ -535,7 +538,8 @@ def run(
                 sys.stderr.write(
                     f"[perf] prefill-dominant turn {perf_turn}: "
                     f"wall={wall:.1f}s out={assistant_msg.output_tokens}tok "
-                    f"delta_chars={delta_chars}\n"
+                    f"delta_chars={delta_chars} "
+                    f"apparent_prefill={apparent_prefill_tok_per_s:.0f}tok/s\n"
                 )
                 sys.stderr.flush()
             # Cache-likely-hit signal: apparent_prefill > 100 tok/s is empirically

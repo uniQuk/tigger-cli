@@ -244,3 +244,6 @@ def test_perf_warning_fires_on_prefill_dominant_turn(tmp_path, monkeypatch, caps
     monkeypatch.setattr(loop_mod.time, "monotonic", real_mono)
     # At least one turn should have triggered the warning.
     assert "prefill-dominant" in captured.err
+    # Iter 48: the warning carries the apparent_prefill rate so the user
+    # can see how cold the cache was when it fired.
+    assert "apparent_prefill=" in captured.err
