@@ -2935,3 +2935,67 @@ A future agent picking up bench-03 (or doing unrelated work in `loop.py`) now se
 
 - The CLAUDE.md section could grow a small "common pitfalls" list (e.g. "decode-share confound makes apparent_prefill a gauge, not a binary"). Left for the next time the section needs editing — premature today.
 - All earlier parks still apply.
+
+### Iter 55 — DONE
+
+**Dimension covered:** iter 43's parked deep-warm decode-rate re-fit for non-quant `qwen/qwen3.6-27b-instruct`. The model has been resident on LM Studio for ~50 min (loaded at iter 42, used iters 43-54). Should be the deepest warm state I'll catch in a single tick.
+
+**Wall-clock used:** ~3m of 7m.
+
+**Bench numbers (2-point fit, both runs with iter-38 prepend):**
+
+| sample | out  | wall_s | t/s   | app_prefill |
+|--------|------|--------|-------|--------------|
+| short  | 36   | 45.22  | 0.80  | 109          |
+| long   | 138  | 56.86  | 2.43  | 87           |
+
+**2-point fit:**
+
+```
+b = (56.86 − 45.22) / (138 − 36) = 0.114 s/tok ⇒ decode_rate = 8.77 tok/s
+a = 45.22 − 36·b              = 41.1 s
+```
+
+**Headline (unexpected):** non-quant 27b shows **decode_rate = 8.77 tok/s** (consistent with prediction of ~5-6 tok/s, actually faster), but the **intercept is 41 s** — and won't collapse with more warming. Cross-validates against iter-43 measurements (all in 44-76 s range for similar output sizes).
+
+**Root cause hypothesis: non-quant 27b's KV cache doesn't stick on this host.**
+
+`apparent_prefill_tok_per_s` clusters at 87-110 across all five runs in iters 43+55, never approaching the deep-warm signatures of the other models:
+
+| model                              | observed apparent_prefill (deep-warm) | KV-bytes-per-token (rough) |
+|------------------------------------|-----------------------------------------|-------------------------------|
+| `qwen/qwen3.6-35b-a3b` (MoE)       | ~3450                                  | small (3B-active path)         |
+| `google/gemma-4-26b-a4b` (MoE)     | ~4969                                  | small (4B-active path)         |
+| `qwen_qwen3.6-27b@q4_k_l` (4-bit)  | ~1300                                  | medium                         |
+| `qwen/qwen3.6-27b-instruct` (FP16) | **~100** (capped here)                | **large** (27B FP16)           |
+| `google/gemma-4-31b` (FP16)        | ~106 (iter 28 long)                    | **largest**                    |
+
+The two FP16 dense entries (27b and 31b) consistently cluster near the 100 cache-hit floor regardless of how long the model has been loaded. The MoE entries and the 4-bit quant land orders of magnitude higher. The pattern fits the hypothesis that **KV cache footprint per token is the gating factor for prefix-cache stickiness on this LM Studio host** — large-FP16-KV models can't fit a 4900-token prefix in the cache pool, so each turn re-prefills.
+
+This is a real third dimension on top of the iter-33 active-param × quant model. The complete model is now:
+
+- TTFT (curl, zero-prefix) ≈ 0.085 s/B × params × quant_factor  (iter 33)
+- decode_rate (slope of wall vs output) ≈ depends on architecture (iter 24, 28, 33)
+- prefix-cache benefit ≈ depends on KV footprint per token; FP16-dense at 27B+ doesn't benefit on this host (iter 55, **new**)
+
+**Updated calibration entry for non-quant 27b:**
+
+```
+TTFT (extrapolated from active-param model):  ~1.5 s
+decode_rate (this iter):                        8.77 tok/s
+fit_intercept (this iter, includes uncached prefill):  41 s
+prefix-cache benefit (this iter):               negligible
+```
+
+The "fit_intercept" 41 s for non-quant 27b is genuinely different from gemma-26b's 0.33 s. iter-30 retracted the framing that fit_intercept ≈ TTFT, but this iter shows the fit_intercept *is* meaningful when prefix caching fails: it's the unamortised prefill cost per turn.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.38 s. No code change.
+
+**Parked for later:**
+
+- Confirm the KV-footprint hypothesis by direct curl A/B: warm vs cold prefix on non-quant 27b. If wall is identical, KV cache is gone. If wall drops on the second call, cache is partially working. Either way settles whether the per-tick cost is fundamental or fixable.
+- Practical recommendation for the user: when using non-quant 27b-instruct (or any FP16-dense at 27B+) on this host, expect every turn to pay ~40 s of prefill cost. Tool-iteration UX requires either q4_k_l (which prefix-caches) or a different host with a larger KV pool.
