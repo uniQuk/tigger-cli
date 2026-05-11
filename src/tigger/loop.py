@@ -353,6 +353,27 @@ def run(
                 "delta_chars\ttokens_per_sec\tcache_hit_estimate\t"
                 "apparent_prefill_tok_per_s\tmodel\n"
             )
+        # Iter 52: cron-driven cross-tick analysis. When TIGGER_PERF is a
+        # path and the file already has rows, peek the last row's `model`
+        # field and warn if it differs from this process's model. Helps
+        # explain wall_s spikes caused by silent model swaps between ticks.
+        if perf_log is None and perf_path is not None and perf_path.exists():
+            try:
+                lines = perf_path.read_text().splitlines()
+                if len(lines) >= 2:
+                    last_cols = lines[-1].split("\t")
+                    if last_cols and last_cols[-1] and last_cols[-1] != "model":
+                        prev_model = last_cols[-1]
+                        curr_model = ctx.config.model_slug or ctx.config.model
+                        if curr_model and prev_model != curr_model:
+                            sys.stderr.write(
+                                f"[perf] model changed since last TSV row: "
+                                f"{prev_model!r} → {curr_model!r} "
+                                f"(expect cold-load tax on the first turn)\n"
+                            )
+                            sys.stderr.flush()
+            except OSError:
+                pass
     perf_turn = 0
     # Cross-turn state for the new perf columns. Both start at 0 so the first
     # turn reports delta_chars == prompt_chars and cache_hit_estimate == 0

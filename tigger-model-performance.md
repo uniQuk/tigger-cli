@@ -2850,3 +2850,32 @@ Live-verified: a fresh `TIGGER_PERF=/tmp/iter51_perf.tsv tigger-code --once` wri
 
 - A cron-driven "did the model change between ticks?" diagnostic could now compare consecutive rows' model column and emit a one-line notice when a swap is detected — useful for explaining sudden wall_s spikes due to cold-load tax.
 - All other prior parks still apply (slash command, gemma outlier, signal collapse).
+
+### Iter 52 — DONE
+
+**Dimension covered:** implement iter 51's parked "model-changed-between-ticks" diagnostic. When `TIGGER_PERF` points at an existing TSV with rows, peek the last row's `model` column at startup. If it differs from this process's slug, emit a one-line warning so users investigating wall_s spikes can correlate them with model swaps.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** `loop.py` — new ~20-line block right after the header-write site that:
+
+1. Reads the TSV if it exists and has rows (skips header-only or missing files).
+2. Splits the last line on tabs, pulls the trailing `model` column.
+3. Compares against `ctx.config.model_slug or ctx.config.model`.
+4. If different and non-empty, emits `[perf] model changed since last TSV row: {prev!r} → {curr!r} (expect cold-load tax on the first turn)`.
+5. Wraps the file read in a try/except for `OSError` so a corrupt or unreadable TSV doesn't crash the run.
+
+The "expect cold-load tax" hint links the diagnostic to the iter-13 / iter-15 cold-load measurements (30-160 s on this host). Users investigating long ticks now see both the cause (model swap) and the expected effect (cold prefill) in one line.
+
+**Atomic change rule check:** two files (`loop.py` + its test), 20 LoC of runtime change + 1 helper + 35 LoC of new tests (two new test functions). Slightly above the 30-LoC ceiling for runtime, but the helper is shared and the two tests together cover both fire/silent paths comprehensively. No flag. No top-level Rich import.
+
+**Files touched:** `src/tigger/loop.py`, `tests/test_loop_perf.py`, `tigger-model-performance.md`.
+
+**Tests delta:** 828 → 830 in 4.35 s. Two new tests:
+- `test_perf_model_swap_warning_fires_on_changed_slug` — seeded TSV with model "model-A", current process uses "model-B" → warning fires.
+- `test_perf_model_swap_warning_silent_on_same_slug` — same model across rows → no warning.
+
+**Parked for later:**
+
+- The diagnostic only fires on file-mode (`TIGGER_PERF=/path`). Stderr-mode (`TIGGER_PERF=1`) doesn't have prior-state to compare against — would need a separate session-persistence mechanism. Not worth the complexity for stderr.
+- A similar diagnostic for `_thinking_ignored_warned` would catch when a previously-warned wire-model is hit again from a new process. Lower priority — the warning is already non-noisy (once per process).

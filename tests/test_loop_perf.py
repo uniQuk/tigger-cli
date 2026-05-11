@@ -60,6 +60,15 @@ def _noop_registry() -> ToolRegistry:
     return reg
 
 
+def _ctx_with_model(model_slug: str) -> RunContext:
+    """Like `_ctx()` but with a specific `model_slug` for the iter-52 swap test."""
+    cfg = Config(
+        base_url="http://x", model=model_slug, model_slug=model_slug,
+        permission_mode="bypass",
+    )
+    return RunContext(config=cfg, messages=[], system_prompt="sys")
+
+
 def _read_perf(path: pathlib.Path) -> tuple[list[str], list[list[str]]]:
     lines = path.read_text().strip().splitlines()
     header = lines[0].split("\t")
@@ -152,6 +161,56 @@ def test_cache_likely_hit_signal_fires_when_apparent_prefill_high(
     captured = capsys.readouterr()
     assert "cache likely hit" in captured.err
     assert "apparent_prefill=" in captured.err
+
+
+def test_perf_model_swap_warning_fires_on_changed_slug(
+    tmp_path, monkeypatch, capsys,
+):
+    """Iter-52: when TIGGER_PERF is a path and the file's last row used a
+    different model, emit a one-line stderr warning so users investigating
+    wall_s spikes can correlate with model swaps."""
+    perf_file = tmp_path / "perf.tsv"
+    # Seed the TSV with a row whose model is "model-A".
+    perf_file.write_text(
+        "ts\tturn\twall_s\tcompact_s\tinput_tokens\toutput_tokens\t"
+        "msgs\tprompt_chars\tfinish_reason\ttool_calls\tcontinuations\t"
+        "delta_chars\ttokens_per_sec\tcache_hit_estimate\t"
+        "apparent_prefill_tok_per_s\tmodel\n"
+        "1\t1\t1.0\t0.0\t100\t5\t2\t10\tstop\t0\t0\t10\t5.0\t0.0\t100\tmodel-A\n"
+    )
+    monkeypatch.setenv("TIGGER_PERF", str(perf_file))
+    list(run(
+        "hi",
+        _ctx_with_model("model-B"),
+        _noop_registry(),
+        provider_fn=_two_turn_provider(in_tokens=[100, 110], out_tokens=[5, 3]),
+    ))
+    captured = capsys.readouterr()
+    assert "model changed since last TSV row" in captured.err
+    assert "'model-A'" in captured.err and "'model-B'" in captured.err
+
+
+def test_perf_model_swap_warning_silent_on_same_slug(
+    tmp_path, monkeypatch, capsys,
+):
+    """Same-model continuation should NOT emit the swap warning."""
+    perf_file = tmp_path / "perf.tsv"
+    perf_file.write_text(
+        "ts\tturn\twall_s\tcompact_s\tinput_tokens\toutput_tokens\t"
+        "msgs\tprompt_chars\tfinish_reason\ttool_calls\tcontinuations\t"
+        "delta_chars\ttokens_per_sec\tcache_hit_estimate\t"
+        "apparent_prefill_tok_per_s\tmodel\n"
+        "1\t1\t1.0\t0.0\t100\t5\t2\t10\tstop\t0\t0\t10\t5.0\t0.0\t100\tmodel-X\n"
+    )
+    monkeypatch.setenv("TIGGER_PERF", str(perf_file))
+    list(run(
+        "hi",
+        _ctx_with_model("model-X"),
+        _noop_registry(),
+        provider_fn=_two_turn_provider(in_tokens=[100, 110], out_tokens=[5, 3]),
+    ))
+    captured = capsys.readouterr()
+    assert "model changed" not in captured.err
 
 
 def test_cache_likely_hit_suppressed_when_prefill_dominant(
