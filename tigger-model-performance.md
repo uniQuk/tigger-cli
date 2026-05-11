@@ -2446,7 +2446,7 @@ Active-param × quant model predicts TTFT within ±15 % (iter 33).
 
 ### Stable findings (do not re-derive in bench-03)
 
-1. The `qwen/qwen3.6-27b` chat template **silently ignores** `enable_thinking=false` (confirmed via three probe paths in iter 2). Tigger drops the reasoning from history but the model still pays the latency cost. **Mitigation:** `system_prompt_extra: "Answer concisely. Do not use scratchpad reasoning before responding."` (iter 38, validated 10v10).
+1. The `qwen/qwen3.6-27b` chat template **silently ignores** `enable_thinking=false` (confirmed via three probe paths in iter 2). Tigger drops the reasoning from history but the model still pays the latency cost. **Mitigation:** `system_prompt_extra: "Answer concisely. Do not use scratchpad reasoning before responding."` reduces output-token variance **56× (F-test, p ≪ 0.001)** across the pooled 16-sample prepend arm vs 15-sample baseline arm spanning all three 27b config entries (iters 38/43/44/46). The median doesn't move (37 vs 37.5); the upper tail collapses (max 234 → 56). Family-wide.
 2. **MoE > dense by ~5-16× per token** on this host (35b-a3b 46.7 vs 31b 2.87 tok/s). Quant level is secondary (q4_k_l 4-bit 11.3 vs FP16 equivalent extrapolated ~5-6 tok/s).
 3. **LM Studio drops weights after ~10 min idle** (iter 29). The cron's per-tick cold-load tax is real and varies 25-160 s depending on whether the file/disk cache is hot.
 4. **TTFT and `fit_intercept` are different signals** (iter 30 retraction). TTFT is what the user perceives as snappiness; `fit_intercept` is a wall-extrapolation at out=0 that absorbs prefill-cost residuals.
@@ -2456,7 +2456,7 @@ Active-param × quant model predicts TTFT within ±15 % (iter 33).
 ### Open user-action recommendations (not applied here — config is owned)
 
 1. **Fix `default_model`.** Current `.tigger/config.json` has `"default_model": "google_gemma-4-31b-it-bartowski"` which doesn't match any provider models entry. Tigger warns but the per-model overrides aren't applied. Pick one of the 6 listed slugs.
-2. **Add `system_prompt_extra` per qwen-27b entry.** Halves output_tokens on q4_k_l (iter 38), likely also on the non-quant 27b and -thinking variants.
+2. **Add `system_prompt_extra` per qwen-27b entry.** Reduces output-token variance 56× (F-test, p ≪ 0.001) across the pooled 27b family — see stable finding 1 above. Validated on `q4_k_l-instruct` (iter 38), `qwen/qwen3.6-27b-instruct` (iter 43) and `qwen/qwen3.6-27b-thinking` (iter 44).
 3. **Consider dropping `qwen/qwen3.6-27b-instruct`** as a config entry. Same wire id as `-thinking`; the "instruct" semantic doesn't hold on this server.
 
 ### Best-fit defaults for `default_model`
@@ -2469,7 +2469,7 @@ Gemma entries lag on this hardware; useful only for non-tool workloads (gemma-31
 
 ### What bench-03 should focus on
 
-- Validate the iter-38 prepend on the non-quant 27b and on -thinking variants.
+- ~~Validate the iter-38 prepend on the non-quant 27b and on -thinking variants.~~ Closed by iters 43, 44, 45, 46 — F=56.5, p ≪ 0.001 across the pooled 27b family.
 - Re-bench after the user applies the recommendations above (especially the `system_prompt_extra` config), to see the real production wall distribution.
 - Build a `/perf` slash command that prints the calibration table — the parked iter-34/35 UI surfacing.
 - Investigate the gemma TTFT scaling outlier (gemma-26b 0.46 s sits 35 % above the active-param prediction; needs a second-class-fit term).
@@ -2683,3 +2683,26 @@ iter 45 claimed "mean reduction 51 %" — true, but driven entirely by upper-tai
 
 - Roll the F-test number into the iter-41 cycle close and the commit history's narrative. Single defensible claim that survives into bench-03.
 - Consider whether the iter-2 warning text (already at ~5 lines) should grow to include "(reduces variance 56×, F-test p ≪ 0.001)" — probably no, the existing recommendation is concrete enough. Park as nice-to-have.
+
+### Iter 47 — DONE
+
+**Dimension covered:** roll iter 46's F-test result into iter 41's cycle-close block. Replace the iter-38 "halves output_tokens" framing (which iter 46 corrected as misleading) with the variance-test claim that actually fits the effect.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** three small edits to the iter-41 cycle-close section of `tigger-model-performance.md`:
+
+- **Stable finding #1** now reads: "reduces output-token variance **56× (F-test, p ≪ 0.001)** across the pooled 16-sample prepend arm vs 15-sample baseline arm spanning all three 27b config entries (iters 38/43/44/46). The median doesn't move (37 vs 37.5); the upper tail collapses (max 234 → 56)."
+- **User-action recommendation #2** updated with the same one-liner and the validation iter chain (38/43/44).
+- **What bench-03 should focus on** had its first bullet (validate prepend on non-quant + thinking) struck through with a "closed by 43-46" note, since this is now done.
+
+Net effect: the cycle close is now self-consistent with the post-iter-46 understanding. Anyone reading it (or any agent picking up bench-03) gets the right framing in the summary section without having to follow the iter chain to iter 46.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.41 s. No code change.
+
+**Parked for later:**
+
+- The iter-2 / iter-39 warning text could optionally include "(reduces variance 56×, F-test p ≪ 0.001)" — kept out for now because the existing recommendation is already actionable and the parenthetical would push the warning past the readable-on-one-screen threshold.
+- Apply the user-side `system_prompt_extra` config recommendation (recommendation #2) on the cron's next quiet window. That's a one-line config edit that survives across all sessions.
