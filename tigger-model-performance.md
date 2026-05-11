@@ -1860,3 +1860,49 @@ The 11 s "overhead" is the same artifact as iter-25's gemma-26b: a fresh-warm sh
 
 - Deep-warm reprobe of gemma-31b overhead (same pattern as iter 25 → 26). Should drop from 11 s into the ~0.5-1 s band, but the cold-load tax (157 s) means it's not feasible to fit in a single tick alongside the bench — needs a tick that starts with the model already loaded.
 - Now that the calibration table has all four entries, the iter-24-parked "cache_likely_hit" UI signal could be wired: `wall - overhead_model < (output_tokens / decode_rate_model) * 1.3` flags a likely cache hit. Atomic change, fits the 30-LoC rule. Hold for one more iter to validate the formula against the existing data.
+
+### Iter 28 — DONE
+
+**Dimension covered:** deep-warm reprobe of `google/gemma-4-31b` per iter 27's parked. Gemma-31b was still loaded; ran the same short + long pair as iter 27 to see overhead collapse like iter 26 did for gemma-26b.
+
+**Wall-clock used:** ~2m of 7m.
+
+**Bench numbers (gemma-31b, ~10 min after iter 27's cold load):**
+
+| sample | out | wall_s | t/s  | app_prefill |
+|--------|-----|--------|------|--------------|
+| short  | 40  | **13.96** (was 24.95 in iter 27) | 2.87 | **328** (was 183) |
+| long   | 124 | **43.06** (was 54.25 in iter 27) | 2.88 | 106 (was 84)      |
+
+Both outputs identical to iter 27 (correct). The model emitted the same 40 / 124 tokens both times (deterministic at this temperature).
+
+**Refit (deep-warm):**
+
+```
+b = (43.06 − 13.96) / (124 − 40) = 0.3464 s/tok ⇒ decode_rate = 2.89 tok/s
+a = 13.96 − 40·b                 = **0.10 s**   ⇒ overhead (deep-warm)
+```
+
+The pattern is now established across three independent models: a single deep-warm reprobe collapses the "first-warm" intercept by ~10-100× while the slope stays put. Decode rate moved 2.87 → 2.89 tok/s (~0.7 % drift); overhead moved 11.0 → 0.10 s (110× drop).
+
+**Calibration table — all rows now have deep-warm numbers:**
+
+| model                              | overhead | decode tok/s | app_prefill (cache hit) |
+|------------------------------------|----------|---------------|--------------------------|
+| `qwen/qwen3.6-35b-a3b` (MoE)       | 1.21 s   | **46.7**      | ~3450                    |
+| `qwen_qwen3.6-27b@q4_k_l` (dense)  | 1.14 s   | **11.3**      | ~600                     |
+| `google/gemma-4-26b-a4b` (MoE)     | 0.33 s   | **20.3**      | varies                   |
+| `google/gemma-4-31b` (dense)       | **0.10 s** | **2.89**    | varies                   |
+
+The **qwen-vs-gemma overhead split is now stark**: qwen ~1.15 s vs gemma 0.10-0.33 s. 4-10× difference per call. Both run on the same LM Studio host hitting the same KV cache, so the gap can only come from per-model fixed work — tokenizer, chat template, or the structured-output / tools-schema serialisation path. Worth investigating because that ~1 s qwen overhead applies to *every* turn the user sends to a qwen model — over a session of 30 turns that's 30 seconds of pure tax.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.43 s. No code change.
+
+**Parked for later:**
+
+- Investigate the qwen-vs-gemma overhead gap. Hypotheses to test: (a) jinja chat template render time differs (LM Studio caches compiled templates, but first compile is per-request?); (b) qwen's stricter sampler kwargs (`presence_penalty=1.5`) imply extra logit post-processing; (c) tigger sends different `extra_body` payload for qwen due to `chat_template_kwargs` — a curl-direct A/B with the same content but qwen vs gemma headers would isolate.
+- Now that all four rows are deep-warm-validated, the iter-24/27 parked `cache_likely_hit` UI signal is unblocked. Formula validation: 4 cases already in the log all satisfy `wall ≈ overhead + output_tokens/decode_rate`. The signal should fire when `wall < 1.3 × (overhead + output_tokens/decode_rate)` AND the prefix is unchanged from a recent turn.
