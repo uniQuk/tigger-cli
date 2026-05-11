@@ -2879,3 +2879,34 @@ The "expect cold-load tax" hint links the diagnostic to the iter-13 / iter-15 co
 
 - The diagnostic only fires on file-mode (`TIGGER_PERF=/path`). Stderr-mode (`TIGGER_PERF=1`) doesn't have prior-state to compare against — would need a separate session-persistence mechanism. Not worth the complexity for stderr.
 - A similar diagnostic for `_thinking_ignored_warned` would catch when a previously-warned wire-model is hit again from a new process. Lower priority — the warning is already non-noisy (once per process).
+
+### Iter 53 — DONE
+
+**Dimension covered:** live verification of the iter-52 model-swap diagnostic in production. Seeded a TSV with a row using `google/gemma-4-31b LMStudio`, then ran tigger with `--model qwen/qwen3.6-27b-instruct` and confirmed the warning fires with both slugs in the message.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** docs only. The seeded TSV:
+
+```
+... apparent_prefill_tok_per_s  model
+1000  1  1.0  0.0  100  5  2  10  stop  0  0  10  5.0  0.0  100  google/gemma-4-31b LMStudio
+```
+
+Production run with a different `--model` produced exactly:
+
+```
+[perf] model changed since last TSV row: 'google/gemma-4-31b LMStudio' → 'qwen/qwen3.6-27b-instruct' (expect cold-load tax on the first turn)
+```
+
+The notice is concise, names both slugs explicitly (single-quoted via `!r` so users can copy-paste them into a search), and links to the well-characterised cold-load cost behaviour observed in iters 13/15/27. Slug strings containing spaces (the gemma entries) survive intact through the round-trip — important because the user's config has `"google/gemma-4-31b LMStudio"` with whitespace inside the slug.
+
+**Atomic change rule check:** no code change this tick; the iter-52 implementation works as designed. This iter is the live-verification commit only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.38 s. No code change.
+
+**Parked for later:**
+
+- Nothing new. The pre-52 parks (slash command, gemma outlier, signal collapse) and iter-52's own park (_thinking_ignored cross-process tracking) all carry forward to bench-03 if the user opens a new cycle.
