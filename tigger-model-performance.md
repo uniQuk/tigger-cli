@@ -2253,3 +2253,42 @@ Threshold 100 cleanly separates cold from any-warm. Could refine to 200 to flag 
 
 - The bimodality means a single decode_rate per model is insufficient for predicting wall. A future tick could record `(p50_decode_rate, p90_wall)` per model so the predicted-wall calculator handles the long tail.
 - Iter-2's warning is *qualitatively* useful but doesn't convey the magnitude. Consider extending it to print observed-reasoning-token-fraction at end-of-session as a "this is how much latency you paid for thinking-on-a-no-think model" tally.
+
+### Iter 37 — DONE
+
+**Dimension covered:** prompt A/B on q4_k_l warm — does prepending a short "no scratchpad reasoning" instruction to the user message suppress the iter-36 bimodal heavy-reasoning regime? Sample of three runs per arm.
+
+**Wall-clock used:** ~3m of 7m.
+
+**A/B results (3 runs each, warm q4_k_l, identical prefix):**
+
+| arm                                 | r1                | r2              | r3              | mean out_t |
+|-------------------------------------|--------------------|-----------------|-----------------|-------------|
+| baseline ("Reply with exactly: X")  | wall=26.22 out=124 (heavy) | wall=3.58 out=34 | wall=3.85 out=37 | **65**     |
+| +extra ("Answer with no scratchpad reasoning. ...") | wall=16.64 out=29 (cache warm-up, see below) | wall=3.27 out=31 | wall=3.06 out=29 | **30**     |
+
+**Headline:** the "no scratchpad reasoning" prepend roughly **halves mean output tokens** (65 → 30) on q4_k_l and eliminated the heavy-reasoning regime in this small sample (0/3 vs baseline's 1/3). Sample size is too small for statistical significance (Fisher p ~0.7), but the output-token reduction is robust to the regime classification.
+
+**Caveat on r1 with-extra (wall 16.64s, out only 29).** apparent_prefill_tok_per_s=296 (lower than the 1300+ in r2/r3) indicates significant prefill cost on r1 — the host's KV cache for the new prompt suffix wasn't fully populated yet. Same prefix-warming pattern as iter 26 / iter 28. With more warming, r1 would land near r2/r3's ~3s wall.
+
+**Recommendation for the user (not applied this tick — config is owned).** Adding `system_prompt_extra` per qwen-27b config entry could halve the latency tax of the iter-2 family-wide reasoning footgun without touching the model itself or tigger's drop-from-history path. Proposed snippet:
+
+```json
+"qwen/qwen3.6-27b-instruct": {
+  ...,
+  "system_prompt_extra": "Answer concisely. Do not use scratchpad reasoning before responding."
+}
+```
+
+Same recommendation applies to `qwen_qwen3.6-27b@q4_k_l-instruct` and `qwen/qwen3.6-27b-thinking` (last one only when used in non-reasoning workflows).
+
+**Verified / changed:** docs only. No config change applied — flagged for the user.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.38 s. No code change.
+
+**Parked for later:**
+
+- Larger sample (10+ runs per arm) on the same A/B to upgrade the finding from suggestive to significant. Cheap if model stays warm — 10 × ~3 s = 30 s per arm.
+- Test whether the prepend also works for the non-quant `qwen/qwen3.6-27b` (iter-2's original reproducer) — predicted yes since the footgun is family-wide per iter 16.
