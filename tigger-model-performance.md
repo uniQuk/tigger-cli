@@ -2481,3 +2481,26 @@ Gemma entries lag on this hardware; useful only for non-tool workloads (gemma-31
 **Tests delta:** 827 → 827 in 4.38 s. No code change.
 
 **Parked for later:** all open items from prior iters carry forward into bench-03 if the user decides to spin a new cycle. This iter does not introduce new parks.
+
+### Iter 42 — TICK-ABORTED-BUDGET
+
+**Dimension covered:** attempted iter 38's parked "prepend on non-quant qwen/qwen3.6-27b" hypothesis test. Cold-swap from q4_k_l + 5 warm-warm runs with the iter-38 prepend.
+
+**Wall-clock used:** ~6m of 7m before abort. Cold-load alone took the full 240 s alarm with no return (iter-2 reproducer); a follow-up warm-ish r1 with a 60 s alarm also timed out with no perf line emitted.
+
+**What landed before abort:**
+
+- Wire-kwargs round-trip cleanly for non-quant: `model=qwen/qwen3.6-27b, temperature=0.7, top_p=0.8, presence_penalty=0, extra_body.chat_template_kwargs={enable_thinking:false, preserve_thinking:false}`. Same as iter 2.
+- Model is now loaded (LM Studio /v1/models lists `qwen/qwen3.6-27b` first), but the prefix KV-cache for the 4914-token system+tools wasn't populated yet — same warming-state pattern as iter 25 / iter 27.
+- One warm-ish r1 with the prepend also did not return in 60 s. Cannot distinguish "prepend doesn't work on non-quant" from "host is still warming KV cache".
+
+**Hypothesis status:** **inconclusive.** A future tick that starts with non-quant 27b already deep-warm (i.e. tick N+1 after this one, host still loaded) should fit the 5-run prepend probe in budget and resolve.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.39 s. No code change.
+
+**Parked for later:**
+
+- Re-attempt non-quant 27b prepend probe on the next tick — host should be warmer now.
+- iter-2's original "non-quant 27b doesn't finish in 240 s" finding holds at first warm; only the deep-warm state may differ. The iter-2 warning + iter-39 mitigation still apply unchanged.
