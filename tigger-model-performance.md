@@ -1814,3 +1814,49 @@ The iter-25 hypothesis is **vindicated**. Same model, same prefix, same prompts 
 
 - `google/gemma-4-31b` is the last empty calibration row. Iter-13 measured warm-warm ~18 s for out=52 — fit will pin it cleanly with one more short-output sample.
 - Investigate why qwen's overhead is 3-4× gemma's. Token-waste candidate: if it's tokenizer/template cost on the host side, there's no tigger fix; if it's something in tigger's `messages_to_openai` payload that's different per model, there might be.
+
+### Iter 27 — DONE
+
+**Dimension covered:** fill the last calibration row — `google/gemma-4-31b` (dense, FP16). Cold-swap from gemma-26b-a4b, two warm samples for the 2-point fit. Anticipates the iter-25-style "first-warm overhead inflated" trap; decode rate is the trustworthy half.
+
+**Wall-clock used:** ~5m of 7m. Cold-load alone was 157.78 s (gemma-31b is a 31B-param dense model; weights load takes the bulk).
+
+**Bench numbers (gemma-31b, fresh-warm post-cold-load):**
+
+| sample | out | wall_s | t/s  | app_prefill |
+|--------|-----|--------|------|--------------|
+| short  | 40  | 24.95  | 1.60 | 183          |
+| long   | 124 | 54.25  | 2.29 | 84           |
+
+Both outputs correct (short = "pong-iter27-short"; long = "1,2,…,30"). Short emitted 40 tokens for a 1-token-visible reply — gemma is verbose at the token level (likely end-of-turn / format tokens).
+
+**2-point fit:**
+
+```
+b = (54.25 − 24.95) / (124 − 40) = 0.349 s/tok ⇒ decode_rate = 2.87 tok/s
+a = 24.95 − 40·b                 = 11.0 s     ⇒ overhead (INFLATED)
+```
+
+The 11 s "overhead" is the same artifact as iter-25's gemma-26b: a fresh-warm short sample carries residual cold-prefill cost that the fit's intercept absorbs. Sanity check against iter-13's deep-warm 18.00 s @ out=52: solving `18 = a + 52·0.349` gives `a ≈ -0.14 s` — impossible, confirming the iter-13 host state and this tick's are different and incomparable as a 3-point fit. **Decode rate 2.87 tok/s is the trustworthy result** (matches iter-13's implied ~2.9 tok/s exactly).
+
+**Calibration table — all four rows now filled:**
+
+| model                              | overhead         | decode tok/s | app_prefill (cache hit) |
+|------------------------------------|------------------|---------------|--------------------------|
+| `qwen/qwen3.6-35b-a3b` (MoE)       | 1.21 s           | **46.7**      | ~3450                    |
+| `qwen_qwen3.6-27b@q4_k_l` (dense)  | 1.14 s           | **11.3**      | ~600                     |
+| `google/gemma-4-26b-a4b` (MoE)     | 0.33 s deep      | **20.3**      | varies                   |
+| `google/gemma-4-31b` (dense)       | 11 s (warming)   | **2.87**      | 84 (warming)             |
+
+**Headline:** decode-rate ratio across the four models spans **46.7 / 2.87 ≈ 16×**. The MoE-vs-dense axis is dominant (35b-a3b 46.7 vs 31b dense 2.87 = ~16×); the quant level is secondary (q4_k_l 11.3 vs 31b FP16 2.87 = ~4× faster despite the same parameter class).
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.38 s. No code change.
+
+**Parked for later:**
+
+- Deep-warm reprobe of gemma-31b overhead (same pattern as iter 25 → 26). Should drop from 11 s into the ~0.5-1 s band, but the cold-load tax (157 s) means it's not feasible to fit in a single tick alongside the bench — needs a tick that starts with the model already loaded.
+- Now that the calibration table has all four entries, the iter-24-parked "cache_likely_hit" UI signal could be wired: `wall - overhead_model < (output_tokens / decode_rate_model) * 1.3` flags a likely cache hit. Atomic change, fits the 30-LoC rule. Hold for one more iter to validate the formula against the existing data.
