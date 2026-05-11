@@ -386,8 +386,11 @@ def stream(
                 f"chars this turn) despite "
                 f"chat_template_kwargs.enable_thinking=False. Reasoning "
                 f"is dropped from history, but the model still spent "
-                f"latency generating it. Cap max_tokens or switch to a "
-                f"non-thinking model variant.\n"
+                f"latency generating it. Mitigations: (a) cap max_tokens, "
+                f"(b) switch to a non-thinking model variant, or (c) add "
+                f"system_prompt_extra: \"Answer concisely. Do not use "
+                f"scratchpad reasoning before responding.\" to this model's "
+                f"config entry (cuts output_tokens ~47% per cycle-02 iter 38).\n"
             )
             sys.stderr.flush()
 

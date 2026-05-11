@@ -2343,3 +2343,37 @@ A `feat(config)`-style PR could add this opportunistically; out of scope for a p
 
 - Test the prepend on `qwen/qwen3.6-27b-instruct` (non-quant, iter-2's original reproducer) and on `qwen/qwen3.6-27b-thinking` (predicted: also halves output, since same wire model). Each is one cold-swap + 10-run tick.
 - The 17 s baseline wall in this tick (vs 3.5 s in iter 36 / iter 19) reveals user-content cache matters as much as prefix cache. Worth a follow-up: characterise the "warm-warm vs deep-warm" gap as a function of input-suffix novelty.
+
+### Iter 39 — DONE
+
+**Dimension covered:** wire iter 38's actionable recommendation into the iter-2 warning that already fires for the 27b-family reasoning footgun. Atomic change: extend the existing one-shot stderr message with a third mitigation option (`system_prompt_extra` snippet) and the measured headline number ("cuts output_tokens ~47% per cycle-02 iter 38").
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** `src/tigger/provider.py` lines 383-394. The old warning offered two mitigations (cap max_tokens, switch model). The new warning offers three, with the third being the iter-37/38-validated snippet that doesn't require config restructuring or model swap. Users who hit the warning now get a copy-pasteable answer.
+
+Old text (mitigations clause):
+
+```
+Cap max_tokens or switch to a non-thinking model variant.
+```
+
+New text:
+
+```
+Mitigations: (a) cap max_tokens, (b) switch to a non-thinking model
+variant, or (c) add system_prompt_extra: "Answer concisely. Do not
+use scratchpad reasoning before responding." to this model's config
+entry (cuts output_tokens ~47% per cycle-02 iter 38).
+```
+
+**Atomic change rule check:** one file (`provider.py`), one string change, ~5 LoC added. Existing 5 tests for the warning (iter-3 originals + iter-3 verifiers) continue to pass — they assert on substrings ("qwen/qwen3.6-27b", "enable_thinking=False", "reasoning_content") all of which remain. No new test needed; the new text is suffix-additive.
+
+**Files touched:** `src/tigger/provider.py`, `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.37 s. No coverage change; existing substring assertions still satisfied.
+
+**Parked for later:**
+
+- Add an assertion in `test_warns_once_when_thinking_disabled_but_server_streams_reasoning` that the new "system_prompt_extra" recommendation text appears in the warning. Locks the iter-37/38 link in. Tiny test addition.
+- Live-test the new warning text by hitting q4_k_l from a fresh tigger session, verify the (a)(b)(c) mitigation block renders cleanly under the iter-2 indent. Skipped here to stay in budget.
