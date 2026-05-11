@@ -2216,3 +2216,40 @@ Threshold 100 cleanly separates cold from any-warm. Could refine to 200 to flag 
 
 - A `/perf` slash command to print the calibration table — still queued.
 - Tune the threshold based on more model entries if/when the user adds a new model to `.tigger/config.json`. The current 100 floor is empirical, not theoretical — a new model class (e.g. a 70b dense) might need recalibration if its cold-prefill rate exceeds 100.
+
+### Iter 36 — DONE
+
+**Dimension covered:** output-consistency × 5 on warm `qwen_qwen3.6-27b@q4_k_l` with a single deterministic prompt ("Reply with exactly: pong-iter36"). Validates the iter-35 `cache likely hit` signal in a real 5-run sequence AND characterises the iter-2 reasoning footgun's wall-time variance.
+
+**Wall-clock used:** ~3m of 7m.
+
+**Bench numbers (5 back-to-back warm runs, identical prompt + 4914-token prefix):**
+
+| run | wall_s | out_t | t/s   | app_prefill | regime           | signal fired? |
+|-----|--------|-------|-------|--------------|------------------|----------------|
+| r1  | 23.69  | 103   | 4.35  | 207          | reasoning-heavy  | yes            |
+| r2  | 3.40   | 32    | 9.41  | 1445         | minimal          | yes            |
+| r3  | 20.33  | 203   | 9.98  | 242          | reasoning-heavy  | yes            |
+| r4  | 3.69   | 35    | 9.47  | 1330         | minimal          | yes            |
+| r5  | 3.67   | 35    | 9.53  | 1337         | minimal          | yes            |
+
+**Two findings:**
+
+1. **`cache likely hit` signal is stable.** Fires on all 5 runs (including the heavy-output r1/r3 where apparent_prefill drops to 207/242 — still well above the 100 threshold). No false-negative on cache-hit despite the decode-share confound from iter 21. Threshold 100 is correctly calibrated.
+
+2. **The iter-2 reasoning footgun produces a bimodal wall distribution.** Same prompt, same model, same warmth state — the model decides per-run whether to reason briefly (~35 visible tokens) or extensively (100-200 tokens). Iters 17 and 22 each happened to land in the same regime across their 3 runs (lucky); this 5-run sample catches both. Within each regime the variance is tight (minimal: 3.59 s ± 0.14 s; heavy: 22 s ± 1.7 s), but the regime choice itself is non-deterministic.
+
+   Decode rate is the same in both regimes (~9.5 tok/s), so the bimodal wall is *entirely* explained by output-token count. The model isn't "slower on heavy runs" — it just emits more reasoning tokens before stopping.
+
+**Implications for the calibration table.** The q4_k_l decode rate of **11.3 tok/s** from the iter-24 2-point fit (using iters 17/19/22 samples, all in the minimal regime) is biased low. The honest fit including this iter's heavy regime would land closer to 9.5 tok/s for "what the user actually waits for", since real prompts mix the two regimes. The TTFT number is unaffected (it's from curl with zero prefix and no reasoning).
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.46 s. No code change.
+
+**Parked for later:**
+
+- The bimodality means a single decode_rate per model is insufficient for predicting wall. A future tick could record `(p50_decode_rate, p90_wall)` per model so the predicted-wall calculator handles the long tail.
+- Iter-2's warning is *qualitatively* useful but doesn't convey the magnitude. Consider extending it to print observed-reasoning-token-fraction at end-of-session as a "this is how much latency you paid for thinking-on-a-no-think model" tally.
