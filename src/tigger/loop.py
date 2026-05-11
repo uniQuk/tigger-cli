@@ -326,16 +326,24 @@ def run(
         else:
             perf_path = pathlib.Path(perf_env).expanduser()
             perf_path.parent.mkdir(parents=True, exist_ok=True)
-        # One-shot caveat about cache_hit_estimate. Most local OpenAI-compatible
-        # servers (vLLM, SGLang, LM Studio) report `prompt_tokens` as the full
-        # prefill count regardless of how many tokens were served from the
-        # prefix cache, which makes our delta-based heuristic unreliable.
-        # Treat `wall_s / output_tokens` and the `[perf] prefill-dominant`
-        # warning as the authoritative signals.
+        # One-shot caveat. Two perf columns lie in non-obvious ways:
+        #   - cache_hit_estimate compares input_tokens across turns, so it's
+        #     always 0.000 in single-shot --once (no prior turn). Useful
+        #     only on multi-turn sessions.
+        #   - apparent_prefill_tok_per_s = input_tokens / wall_s. When the
+        #     host serves prefix from KV cache, this rockets above the
+        #     model's decode rate. But it's also a "decode-share" gauge: a
+        #     tiny output on a big prefix reads high regardless of cache
+        #     state, and a big output on a cached prefix can read low. Read
+        #     alongside output_tokens and tokens_per_sec to disambiguate.
+        # The cleanest mental model is wall = TTFT_model + output/decode_rate.
+        # TTFT and decode_rate vary by model and quant on the same host (see
+        # tigger-model-performance.md for the bench-02 calibration table).
         sys.stderr.write(
-            "[perf] note: cache_hit_estimate is heuristic — local OpenAI-compatible "
-            "servers report full prompt_tokens regardless of prefix-cache hits. "
-            "Trust wall_s/output_tokens and prefill-dominant warnings.\n"
+            "[perf] note: cache_hit_estimate is multi-turn-only; "
+            "apparent_prefill_tok_per_s is decode-share-dependent. "
+            "Read both alongside tokens_per_sec and output_tokens. "
+            "wall ≈ TTFT_model + output_tokens/decode_rate is the cleanest model.\n"
         )
         sys.stderr.flush()
         if perf_log is None and perf_path is not None and not perf_path.exists():

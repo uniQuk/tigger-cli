@@ -2138,3 +2138,41 @@ Errors are ±15 % — the model captures the main signal. Not perfect (gemma-26b
 
 - Wire the `cache_likely_hit` UI signal. With TTFT and decode_rate per-model now known, the signal can fire when `wall - TTFT_model < 1.3 · output_tokens / decode_rate_model` AND the prefix repeats from a recent turn. ~25 LoC + paired test, fits the atomic rule. Best target for iter 34+.
 - Document the TTFT / fit_intercept distinction in tigger's `--once` output (or `/perf` slash command) so users don't read iter-29-style "qwen has higher overhead" from the bare `[perf]` line.
+
+### Iter 34 — DONE
+
+**Dimension covered:** acting on iter 33's second parked item — rewrite the one-shot `[perf] note:` line in `loop.py` to reflect the cycle's findings. Users running `TIGGER_PERF=1` should see at-a-glance how to read the two ambiguous columns (`cache_hit_estimate`, `apparent_prefill_tok_per_s`) and what mental model to use for `wall`.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** `loop.py` lines 329-347. The old note only flagged `cache_hit_estimate` as heuristic; the new one names both ambiguous columns and supplies the cleaner `wall = TTFT_model + output_tokens/decode_rate` framing.
+
+Old text (one line):
+
+```
+[perf] note: cache_hit_estimate is heuristic — local OpenAI-compatible
+servers report full prompt_tokens regardless of prefix-cache hits.
+Trust wall_s/output_tokens and prefill-dominant warnings.
+```
+
+New text (one line, two sentences):
+
+```
+[perf] note: cache_hit_estimate is multi-turn-only; apparent_prefill_tok_per_s
+is decode-share-dependent. Read both alongside tokens_per_sec and
+output_tokens. wall ≈ TTFT_model + output_tokens/decode_rate is the cleanest
+model.
+```
+
+Live-verified: a fresh `TIGGER_PERF=1 tigger-code --once "ping"` against q4_k_l prints the new note exactly as expected.
+
+**Atomic change rule check:** one file (`loop.py`), comment + string change, ~12 LoC delta. No new test required — no runtime behaviour changed (it's a printed string, not a parsed value, and no existing test pinned the prior wording per `grep -n` on `tests/test_loop_perf.py`).
+
+**Files touched:** `src/tigger/loop.py`, `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.40 s. No code-path change.
+
+**Parked for later:**
+
+- Iter-33's `cache_likely_hit` UI signal is still the next high-value code change. Now that the `[perf] note:` line names the right mental model, the signal can be wired without confusing users about what it's correcting.
+- A small `/perf` slash command that prints the calibration table (TTFT, decode_rate per active model) would close the loop end-to-end for the user. Out of scope for one tick; park.
