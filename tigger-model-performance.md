@@ -2452,6 +2452,7 @@ Active-param × quant model predicts TTFT within ±15 % (iter 33).
 4. **TTFT and `fit_intercept` are different signals** (iter 30 retraction). TTFT is what the user perceives as snappiness; `fit_intercept` is a wall-extrapolation at out=0 that absorbs prefill-cost residuals.
 5. **q4_k_l output_token distribution is bimodal** without the iter-38 prepend: ~30 % of turns enter a heavy-reasoning regime (~100-230 tokens) regardless of prompt content (iter 36).
 6. **Prefix-cache hits** show up as `apparent_prefill_tok_per_s > 100` on this host (cold-prefill 50-90, deep-warm 500-3500). Threshold 100 is the iter-35 signal floor.
+7. **Prefix-cache stickiness degrades with KV footprint** (iters 55-57). Small KVs (MoE/quant entries) hit cache reliably on prefix-match — different user-content suffixes still benefit. Large KVs (FP16 dense @ 27B+) overflow this host's cache pool: cache only engages on full-conversation-match. Practical impact: non-quant 27b and gemma-31b pay ~40 s of prefill on every fresh user-content turn; q4_k_l and the MoE entries amortise that cost across runs.
 
 ### Open user-action recommendations (not applied here — config is owned)
 
@@ -2464,6 +2465,8 @@ Active-param × quant model predicts TTFT within ±15 % (iter 33).
 For interactive CLI use (TTFT-sensitive): `qwen/qwen3.6-35b-a3b`. Fastest snappiness (0.30 s) and decode (46.7 tok/s).
 
 For longer reasoning workloads where per-token quality matters more than snappiness: `qwen_qwen3.6-27b@q4_k_l-instruct` with the iter-38 prepend.
+
+For batch / repeat-prompt workloads (same input fired multiple times): `qwen/qwen3.6-27b-instruct` works fine — its full-match cache (stable finding 7) makes repeat runs cheap (~3 s warm) even though every fresh-content turn pays ~40 s prefill.
 
 Gemma entries lag on this hardware; useful only for non-tool workloads (gemma-31b decode 2.87 tok/s makes tool-call iteration painful).
 
@@ -3102,3 +3105,29 @@ This now reconciles all three measurements:
 
 - The "KV-pool-budget-vs-prefix-size threshold" is implicitly somewhere between ~600 tokens (gemma-26b 4577 prefix hits cache cleanly) and ~4900 tokens (non-quant 27b 4900 doesn't). Could be pinned with one curl A/B/A probe per model at intermediate sizes — but it's a host-config question, not a tigger one. Park as low-priority.
 - Iter 56's "methodology note about identical prompts" is now redundant — the iter-57 synthesis makes the policy/size distinction clearer than a methodology note would.
+
+### Iter 58 — DONE
+
+**Dimension covered:** fold the iter 55-57 finding ("prefix-cache stickiness degrades with KV footprint") into the iter-41 cycle-close as a new stable finding. The arc — hypothesised, retracted, partially vindicated, fully synthesised — landed in iter 57, so adding it to the canonical summary now keeps the cycle-close self-consistent for bench-03.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** two edits to the iter-41 block:
+
+1. **New stable finding #7** added to the "do not re-derive in bench-03" list:
+
+   > Prefix-cache stickiness degrades with KV footprint (iters 55-57). Small KVs hit cache on prefix-match. Large KVs (FP16 dense @ 27B+) overflow this host's pool and degrade to full-conversation-match. Practical impact: non-quant 27b and gemma-31b pay ~40 s of prefill on every fresh-content turn; q4_k_l and MoE entries amortise.
+
+2. **New best-fit-defaults sub-recommendation** for batch / repeat-prompt workloads — non-quant 27b is fine when prompts repeat (e.g. compaction passes), bad when each turn has fresh content.
+
+The cycle-close now has **7 stable findings** + **3 user-action recommendations** + **3 best-fit-default sub-recommendations**. Self-consistent and standalone-readable.
+
+**Atomic change rule check:** docs only, ~9 LoC added across two edits. No code or test change.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.41 s. No code change.
+
+**Parked for later:**
+
+- The KV-pool-budget-vs-prefix-size threshold pinning from iter 57's park still applies if a future bench-03 wants to map the boundary precisely. Not on the critical path for any decision currently in flight.
