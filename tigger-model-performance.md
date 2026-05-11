@@ -1906,3 +1906,47 @@ The **qwen-vs-gemma overhead split is now stark**: qwen ~1.15 s vs gemma 0.10-0.
 
 - Investigate the qwen-vs-gemma overhead gap. Hypotheses to test: (a) jinja chat template render time differs (LM Studio caches compiled templates, but first compile is per-request?); (b) qwen's stricter sampler kwargs (`presence_penalty=1.5`) imply extra logit post-processing; (c) tigger sends different `extra_body` payload for qwen due to `chat_template_kwargs` — a curl-direct A/B with the same content but qwen vs gemma headers would isolate.
 - Now that all four rows are deep-warm-validated, the iter-24/27 parked `cache_likely_hit` UI signal is unblocked. Formula validation: 4 cases already in the log all satisfy `wall ≈ overhead + output_tokens/decode_rate`. The signal should fire when `wall < 1.3 × (overhead + output_tokens/decode_rate)` AND the prefix is unchanged from a recent turn.
+
+### Iter 29 — DONE
+
+**Dimension covered:** isolated test of iter 28's hypothesis (c) — does the presence of `chat_template_kwargs` in the request payload add per-call overhead on the LM Studio host? Direct curl A/B on the warm `google/gemma-4-31b`: identical minimal content, baseline (no template kwargs) vs `chat_template_kwargs:{enable_thinking:false}`.
+
+**Wall-clock used:** ~3m of 7m.
+
+**Curl A/B results (gemma-4-31b, max_tokens=10, deep-warm host):**
+
+```
+Payload A (baseline — no chat_template_kwargs):
+  r1 wall=16.33  ← cold (gemma had been idle ~10 min since iter 28, host ejected weights)
+  r2 wall= 2.29  ← warm steady state
+  r3 wall= 2.28
+
+Payload B (with chat_template_kwargs:{enable_thinking:false}):
+  r1 wall=2.31
+  r2 wall=2.31
+  r3 wall=2.30
+```
+
+**Hypothesis (c) refuted.** With or without the `chat_template_kwargs` field, gemma-31b returns in 2.30 s deep-warm. The 1.15 s qwen overhead is **NOT** from the extra payload field.
+
+**Side observations:**
+
+1. **LM Studio drops weights from RAM after idle.** The baseline r1 at 16.33 s is the host re-warming gemma-31b weights after they got ejected during the ~10 min between iter 28 and this tick. The full cold-load was 158 s in iter 27 — so this is a partial re-warm (probably the lighter parts of the model are still around or the OS page cache still has the file). Worth noting for the cron's "what's loaded" prediction: model warmth decays with idle time, and the decay schedule is not exposed in `/v1/models`.
+
+2. **Curl-baseline overhead (~0.5 s) ≠ tigger 2-point fit overhead (0.10 s).** The curl request has ~0 input tokens; the tigger turn has ~4576. With a fully populated KV cache for the 4576-token prefix, prefill is fast but not free. The fit's intercept extrapolates `wall` at `output_tokens = 0` — that's not the same as "request returns instantly". The fit overhead is a useful number for predicting `wall` given output size; it's not a literal per-call latency floor.
+
+**Remaining hypotheses for the qwen-gap (not tested this tick):**
+
+- **(a) Jinja template render time.** Qwen3.6's template handles tool calls, thinking, multi-step roles, and conditional sections. Gemma's is much simpler. LM Studio recompiles a template if its `chat_template_kwargs` set differs from the last call, or re-renders it for every request even with the same kwargs — either path could be a per-call cost. Future tick: curl-direct two models with the same content, average 5 runs each, after both are deep-warm — only difference is the model id.
+- **(b) Sampler kwargs.** Qwen entries ship `presence_penalty=1.5`; gemma ships 0.0. Presence penalty requires a per-step pass over the entire vocab to subtract the penalty from logits of tokens seen this turn. That's per-token cost, not per-call — so it should show up as lower `decode_rate`, not higher overhead. The calibration table shows the opposite (qwen 35b-a3b decode 46.7 tok/s vs gemma-31b 2.87 — qwen is faster per token). Hypothesis (b) doesn't fit.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.40 s. No code change.
+
+**Parked for later:**
+
+- Test hypothesis (a) — direct-curl gemma-4-31b vs qwen/qwen3.6-35b-a3b with identical content (after both are deep-warm). Cost: one cold-swap (~30-60 s for the second model), so split across two ticks: load both, then A/B in the third tick.
+- The cache_likely_hit UI signal remains unblocked but unimplemented. Wire it up when the qwen-overhead investigation has either landed an explanation or been parked as "host-side, not actionable".
