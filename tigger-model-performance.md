@@ -2999,3 +2999,59 @@ The "fit_intercept" 41 s for non-quant 27b is genuinely different from gemma-26b
 
 - Confirm the KV-footprint hypothesis by direct curl A/B: warm vs cold prefix on non-quant 27b. If wall is identical, KV cache is gone. If wall drops on the second call, cache is partially working. Either way settles whether the per-tick cost is fundamental or fixable.
 - Practical recommendation for the user: when using non-quant 27b-instruct (or any FP16-dense at 27B+) on this host, expect every turn to pay ~40 s of prefill cost. Tool-iteration UX requires either q4_k_l (which prefix-caches) or a different host with a larger KV pool.
+
+### Iter 56 — DONE (RETRACTS iter 55's KV-footprint hypothesis)
+
+**Dimension covered:** confirm/refute the iter-55 KV-footprint hypothesis with two probes — a direct curl A/B on warm non-quant 27b, and an *identical-prompt* tigger-side replay.
+
+**Wall-clock used:** ~3m of 7m.
+
+**Probe 1 — direct curl, identical small payload × 4:**
+
+```
+r1 wall=3.43  (warm-ish)
+r2 wall=2.43  (cache benefit kicked in)
+r3 wall=2.41
+r4 wall=2.43
+```
+
+Small-prefix cache works fine — 29 % wall drop r1→r2, stable thereafter. Doesn't yet probe the 4900-token case.
+
+**Probe 2 — tigger-side, IDENTICAL prompt × 3 (full prefix = 4923 tokens):**
+
+| run | wall_s | out_t | t/s   | app_prefill |
+|-----|--------|-------|-------|--------------|
+| r1  | 44.95  | 28    | 0.62  | 110          |
+| r2  | **3.39**  | 28    | **8.26**  | **1451**         |
+| r3  | **3.37**  | 28    | 8.31  | 1461         |
+
+**iter-55's KV-footprint hypothesis is wrong.** r2/r3 show non-quant 27b *does* prefix-cache when the full prompt is identical (wall collapse 45 → 3.4 s, app_prefill 110 → 1451 — 13× drop, well into the deep-warm regime characterised in iter 19).
+
+**Corrected root cause for iter 55's "stuck at 110 apparent_prefill":**
+
+iter 55 (and iters 43, 38) sent **different** prompt suffixes per run (`pong-55-short`, `pong-55-long`, …). On this LM Studio host + this model, the prefix cache requires the **full prompt** to match, not just the system+tools prefix. The 4900-token shared prefix didn't engage cache because the user-content delta invalidated it.
+
+This is *different* behaviour from gemma-26b-a4b (iter 14 r3/r4 hit deep-warm with *different* prompt suffixes — see iter 14 raw data). So the cache-match policy varies by model on this host. **Two possible mechanisms** for the difference (not measured this tick):
+
+1. **Cache match granularity**: LM Studio caches whole-conversation hashes for non-quant 27b but per-token-prefix for MoE/quant.
+2. **Cache size**: Even though small payloads work (probe 1), the 4900-token FP16-27b KV may exceed the per-conversation cache budget while still living in a "full-conversation-hash" addressable store.
+
+Either way, the practical user-recommendation from iter 55 is **softened**: non-quant 27b is fine for repeat-prompt workloads (e.g. compaction passes that re-send the same content), and slow only when each turn has fresh user content. q4_k_l remains the recommended interactive choice because its cache engages on prefix match alone.
+
+**Headline math, corrected:**
+
+- non-quant 27b decode_rate: **~8.3 tok/s** (deep-warm, iter-56 r2/r3: 28 tok / 3.4 s)
+- non-quant 27b prefix-cache: **works**, but on *full-prompt* match — not prefix match.
+
+This **closes the iter-55 retraction**. The iter-33 active-param × quant TTFT model + iter-24 decode-rate model still hold for non-quant 27b. No third dimension needed.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.49 s. No code change.
+
+**Parked for later:**
+
+- Measure cache-match policy directly: send a prompt with `prefix + suffix_A` then `prefix + suffix_B`. If r2 hits cache, policy is prefix-match. If r2 is cold, policy is full-match. One curl A/B settles it for each model.
+- The iter-55 → iter-56 retraction shows the importance of using *identical* prompts when measuring deep-warm decode rates. Update the perf-loop methodology section if/when one exists — for now the warning lives in this iter block.
