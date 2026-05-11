@@ -143,9 +143,87 @@ def test_read_invalid_offset_returns_error(monkeypatch, tmp_path):
 def test_read_no_offset_no_marker_back_compat(monkeypatch, tmp_path):
     r, p = _read_setup(monkeypatch, tmp_path)
     out = r.execute("read", {"path": str(p)}).output
-    # Plain read still returns raw content with no marker prefix.
+    # Plain read on a small file still returns raw content with no marker
+    # prefix. Auto-pagination only kicks in for files above the default
+    # page size.
     assert not out.startswith("[lines ")
     assert out.startswith("line1\n")
+
+
+def test_read_auto_pages_large_file(monkeypatch, tmp_path):
+    r, p = _read_setup(monkeypatch, tmp_path, n_lines=2500)
+    out = r.execute("read", {"path": str(p)}).output
+    # Plain read on a >2000-line file auto-pages: returns a header with the
+    # total line count and a continuation hint pointing at the next offset.
+    assert out.startswith("[lines 1-2000 of 2500 ")
+    assert "auto-paged" in out
+    assert "offset=2001" in out
+    assert "500 lines remaining" in out
+    # First and last line of the page are present; line 2001 is not.
+    assert "line1\n" in out
+    assert "line2000\n" in out
+    assert "line2001\n" not in out
+
+
+def test_read_explicit_offset_signals_partial(monkeypatch, tmp_path):
+    r, p = _read_setup(monkeypatch, tmp_path, n_lines=20)
+    out = r.execute("read", {"path": str(p), "offset": 1, "limit": 5}).output
+    # Explicit slice that doesn't reach EOF gets a partial marker so the
+    # model knows to continue. Auto-paged wording is reserved for the
+    # implicit-default path.
+    assert out.startswith("[lines 1-5 of 20 ")
+    assert "partial" in out
+    assert "offset=6" in out
+    assert "auto-paged" not in out
+
+
+def test_per_tool_max_output_bytes_override(monkeypatch, tmp_path):
+    # Tools can opt into a larger byte cap than the global default. `read`
+    # uses this so the user's "summarize a 200KB file" workflow doesn't
+    # require 6-8 round-trips at 32KB-per-page.
+    from tigger.types import ToolDef, ToolResult
+
+    big_output = "x" * (40 * 1024)
+    big_tool = ToolDef(
+        name="big",
+        description="",
+        parameters={"type": "object", "properties": {}},
+        func=lambda args: big_output,
+        max_output_bytes=64 * 1024,
+    )
+    small_tool = ToolDef(
+        name="small",
+        description="",
+        parameters={"type": "object", "properties": {}},
+        func=lambda args: big_output,
+        # No override → falls back to global 32KB.
+    )
+    r = ToolRegistry()
+    r.register(big_tool)
+    r.register(small_tool)
+    big_out = r.execute("big", {}).output
+    small_out = r.execute("small", {}).output
+    # The 64KB-cap tool returns the full 40KB output untouched.
+    assert "truncated" not in big_out
+    assert len(big_out) == 40 * 1024
+    # The default-cap tool gets chopped at 32KB with the matching marker.
+    assert "[output truncated at 32KB]" in small_out
+
+
+def test_read_byte_budget_trims_long_lines(monkeypatch, tmp_path):
+    # 100 lines × 1KB each = 100KB; soft budget is 28KB so the page should
+    # trim to roughly 28 lines and emit a partial marker with the next offset.
+    monkeypatch.chdir(tmp_path)
+    p = tmp_path / "wide.txt"
+    p.write_text("".join("x" * 1023 + "\n" for _ in range(100)))
+    r = ToolRegistry()
+    register_all(r)
+    out = r.execute("read", {"path": str(p), "offset": 1, "limit": 100}).output
+    assert out.startswith("[lines 1-")
+    # The page must stay under the 32KB tool-output cap so the trailing
+    # marker stays attached.
+    assert "[output truncated at 32KB]" not in out
+    assert "partial" in out or "auto-paged" in out
 
 
 def test_write_refuses_existing_file(monkeypatch, tmp_path):

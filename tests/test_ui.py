@@ -148,6 +148,24 @@ def test_extract_preview_read():
     assert _extract_preview("read", {"path": "/foo/bar/baz.py"}) == "baz.py"
 
 
+def test_extract_preview_read_with_offset_and_limit():
+    # Slice notation matches _read's inclusive header (lines start-end), so a
+    # user/operator skimming the TUI can correlate the preview with the tool
+    # output verbatim.
+    out = _extract_preview("read", {"path": "f.py", "offset": 10, "limit": 20})
+    assert out == "f.py [10-29]"
+
+
+def test_extract_preview_read_with_offset_only():
+    out = _extract_preview("read", {"path": "f.py", "offset": 100})
+    assert out == "f.py [100-]"
+
+
+def test_extract_preview_read_with_limit_only():
+    out = _extract_preview("read", {"path": "f.py", "limit": 50})
+    assert out == "f.py [1-50]"
+
+
 def test_extract_preview_grep():
     assert _extract_preview("grep", {"pattern": "load_config"}) == '"load_config"'
 
@@ -662,6 +680,37 @@ def test_summarize_tool_output_empty_returns_empty():
     from tigger.ui import _summarize_tool_output
     assert _summarize_tool_output("read", "") == ""
     assert _summarize_tool_output("read", "\n\n") == ""
+
+
+def test_summarize_tool_output_flags_partial_read():
+    # When _read returns a slice that doesn't reach EOF, the summary
+    # annotates "partial" so an operator watching the TUI can tell the
+    # model only got part of the file.
+    from tigger.ui import _summarize_tool_output
+    body = "\n".join(["x"] * 500)
+    out = f"[lines 1-500 of 3478 from foo.md]\n{body}"
+    s = _summarize_tool_output("read", out)
+    assert s.endswith(", partial")
+    assert s.startswith("501 lines")  # 1 header line + 500 body lines
+
+
+def test_summarize_tool_output_flags_byte_truncated():
+    # The byte-level 32KB cap (a backstop for non-read tools) gets surfaced
+    # as ", truncated" in the summary so it's visible in the TUI.
+    from tigger.ui import _summarize_tool_output
+    body = "\n".join(["x"] * 100) + "\n[output truncated at 32KB]"
+    s = _summarize_tool_output("bash", body)
+    assert s.endswith(", truncated")
+
+
+def test_summarize_tool_output_no_partial_when_full_file():
+    # _read header where end == total → not partial, no suffix.
+    from tigger.ui import _summarize_tool_output
+    body = "\n".join(["x"] * 50)
+    out = f"[lines 1-50 of 50 from foo.md]\n{body}"
+    s = _summarize_tool_output("read", out)
+    assert "partial" not in s
+    assert "truncated" not in s
 
 
 def test_tool_end_attaches_summary_to_buffered_entry(monkeypatch):

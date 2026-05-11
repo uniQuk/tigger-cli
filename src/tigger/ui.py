@@ -657,7 +657,19 @@ def Spinner(start: float, token_counter: list[int] | None = None):
 def _extract_preview(name: str, args: dict) -> str:
     """Return a concise human-readable preview string for a tool call."""
     if name == "read" and "path" in args:
-        return pathlib.PurePosixPath(args["path"]).name
+        base = pathlib.PurePosixPath(args["path"]).name
+        offset = args.get("offset")
+        limit = args.get("limit")
+        if offset is None and limit is None:
+            return base
+        # Slice notation matching _read's inclusive header: lines start-end.
+        start_n = offset if isinstance(offset, int) else 1
+        start = str(start_n)
+        if isinstance(limit, int):
+            end = str(start_n + limit - 1)
+        else:
+            end = ""
+        return f"{base} [{start}-{end}]"
     if name == "glob" and "pattern" in args:
         return args["pattern"]
     if name == "grep" and "pattern" in args:
@@ -771,18 +783,31 @@ def _render_indented_block(text: str) -> list[str]:
     return [f"      [dim]{line}[/dim]" for line in text.splitlines()]
 
 
+_READ_HEADER_RE = re.compile(r"^\[lines (\d+)-(\d+) of (\d+) ")
+
+
 def _summarize_tool_output(name: str, output: str) -> str:
     """Build a short Claude-style output summary for the buffered tool flush.
 
     For multi-line output, returns ``"N lines"``. For a single short line,
     returns the truncated line itself. Returns ``""`` when there's nothing
-    worth showing.
+    worth showing. Appends ``, truncated`` / ``, partial`` when the tool
+    output signals it was capped or paginated.
     """
     if not output:
         return ""
     output = output.rstrip("\n")
     if not output:
         return ""
+    # Detect truncation/pagination signals before we strip the line set.
+    byte_truncated = "[output truncated at 32KB]" in output
+    partial_suffix = ""
+    if name == "read":
+        m = _READ_HEADER_RE.match(output)
+        if m and int(m.group(2)) < int(m.group(3)):
+            partial_suffix = ", partial"
+    if byte_truncated:
+        partial_suffix = ", truncated"
     lines = output.split("\n")
     n = len(lines)
     if n == 1:
@@ -791,10 +816,10 @@ def _summarize_tool_output(name: str, output: str) -> str:
             return ""
         return first if len(first) <= 60 else first[:57] + "..."
     if name == "grep":
-        return f"{n} matches"
+        return f"{n} matches{partial_suffix}"
     if name == "glob":
-        return f"{n} files"
-    return f"{n} lines"
+        return f"{n} files{partial_suffix}"
+    return f"{n} lines{partial_suffix}"
 
 
 def _entry_with_summary(preview: str, summary: str) -> str:

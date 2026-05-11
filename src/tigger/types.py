@@ -138,6 +138,12 @@ class ToolDef:
     func: Callable[[dict], str]
     read_only: bool = False
     tier: str = "eager"                     # "eager" | "lazy" | "disabled"
+    # Per-tool override for the byte cap applied to tool output. `None` falls
+    # back to the registry's default (32KB). `read` overrides this upward
+    # because the user explicitly requested a file and paging through it in
+    # 32KB chunks creates an N-round-trip cost that grows quadratically with
+    # context size on each turn.
+    max_output_bytes: int | None = None
 
 
 @dataclass

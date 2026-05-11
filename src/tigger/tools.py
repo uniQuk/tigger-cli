@@ -16,6 +16,23 @@ from tigger.types import ToolDef, ToolResult
 
 _32KB = 32 * 1024
 
+# Default page size for `read` when neither offset nor limit is specified.
+# Files larger than this auto-paginate so the model gets a header showing the
+# total line count and a clear continuation handle on the first call.
+_READ_DEFAULT_LIMIT = 2000
+
+# `read` gets a larger byte cap than other tools because the user explicitly
+# requested the file. Paging a 200KB markdown file in 32KB chunks costs 6-8
+# round-trips, and each turn pays prefill on accumulating context — so the
+# real wall time grows roughly quadratically. 96KB lets typical text files
+# (avg 60 bytes/line × 2000 lines = 120KB) usually finish in 1-2 reads.
+_READ_MAX_OUTPUT_BYTES = 96 * 1024
+
+# Soft byte budget for a single `read` page — kept under the hard cap so the
+# trailing header note stays attached even when individual lines are long.
+# Pages that exceed this get trimmed line-by-line inside _read.
+_READ_SOFT_BYTES = 92 * 1024
+
 # Exact directory names to exclude.
 _DEFAULT_EXCLUDES = {".git", "node_modules", ".venv", "__pycache__"}
 # Suffix patterns — any path part ending with one of these is excluded.
@@ -180,8 +197,10 @@ class ToolRegistry:
         except Exception as exc:
             output = f"Error: {exc}"
             error = True
-        if len(output) > _32KB:
-            output = output[:_32KB] + "\n[output truncated at 32KB]"
+        cap = tool.max_output_bytes if tool.max_output_bytes is not None else _32KB
+        if len(output) > cap:
+            kb = cap // 1024
+            output = output[:cap] + f"\n[output truncated at {kb}KB]"
         return ToolResult(output=output, error=error)
 
 
@@ -202,8 +221,6 @@ def _read(args: dict) -> str:
     text = safe.read_text(errors="replace")
     offset = args.get("offset")
     limit = args.get("limit")
-    if offset is None and limit is None:
-        return text
     # 1-based offset semantics — matches Claude Code's read tool. Out-of-range
     # offset returns a marker rather than empty so the model knows the file
     # was shorter than expected.
@@ -218,12 +235,54 @@ def _read(args: dict) -> str:
         return f"Error: 'limit' must be >= 0, got {limit_i}"
     lines = text.splitlines(keepends=True)
     total = len(lines)
+
+    # Back-compat: plain `read(path)` on a small file returns raw text with no
+    # header. Large files auto-paginate so the model learns the total size and
+    # gets a clear continuation handle instead of silent byte-cap truncation.
+    if offset is None and limit is None:
+        if total <= _READ_DEFAULT_LIMIT:
+            return text
+        limit_i = _READ_DEFAULT_LIMIT
+        auto_paged = True
+    else:
+        auto_paged = False
+
     start = offset_i - 1
     if start >= total:
         return f"[file has {total} lines; requested offset {offset_i} is past end]"
     end = total if limit_i is None else min(start + limit_i, total)
+
+    # Trim the page line-by-line if its byte size would blow past the soft
+    # budget — keeps the trailing header note attached instead of getting
+    # chopped mid-line by the generic 32KB cap in ToolRegistry.execute.
     sliced = "".join(lines[start:end])
-    return f"[lines {start + 1}-{end} of {total} from {args['path']}]\n{sliced}"
+    if len(sliced) > _READ_SOFT_BYTES:
+        running = 0
+        cut = start
+        for i in range(start, end):
+            ln = len(lines[i])
+            if running + ln > _READ_SOFT_BYTES and cut > start:
+                break
+            running += ln
+            cut = i + 1
+        end = cut
+        sliced = "".join(lines[start:end])
+
+    header = f"[lines {start + 1}-{end} of {total} from {args['path']}]"
+    if end < total:
+        remaining = total - end
+        if auto_paged:
+            header += (
+                f"\n[auto-paged: file exceeds default {_READ_DEFAULT_LIMIT}-line page. "
+                f"To read the next chunk, call again with offset={end + 1} "
+                f"({remaining} lines remaining).]"
+            )
+        else:
+            header += (
+                f"\n[partial: {remaining} more lines. "
+                f"Continue with offset={end + 1}.]"
+            )
+    return f"{header}\n{sliced}"
 
 
 _GLOB_MAX_RESULTS = 200
@@ -473,10 +532,12 @@ def register_all(registry: ToolRegistry, *, memory_path: pathlib.Path | None = N
     registry.register(ToolDef(
         name="read",
         description=(
-            "Read the contents of a file. Optionally pass `offset` (1-based "
-            "starting line) and `limit` (max lines) to read a slice without "
-            "loading the whole file — prefer this for large files to keep "
-            "the prompt small."
+            "Read the contents of a file. Files over 2000 lines auto-paginate "
+            "to the first 2000 lines and return a header showing the total "
+            "line count plus the offset to use for the next chunk. Pass "
+            "`offset` (1-based starting line) and `limit` (max lines) to "
+            "fetch a specific range. Output is also capped at 96KB as a "
+            "byte-level backstop."
         ),
         parameters={
             "type": "object",
@@ -495,6 +556,7 @@ def register_all(registry: ToolRegistry, *, memory_path: pathlib.Path | None = N
         },
         func=_read,
         read_only=True,
+        max_output_bytes=_READ_MAX_OUTPUT_BYTES,
     ))
     registry.register(ToolDef(
         name="glob",
