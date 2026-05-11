@@ -3055,3 +3055,50 @@ This **closes the iter-55 retraction**. The iter-33 active-param × quant TTFT m
 
 - Measure cache-match policy directly: send a prompt with `prefix + suffix_A` then `prefix + suffix_B`. If r2 hits cache, policy is prefix-match. If r2 is cold, policy is full-match. One curl A/B settles it for each model.
 - The iter-55 → iter-56 retraction shows the importance of using *identical* prompts when measuring deep-warm decode rates. Update the perf-loop methodology section if/when one exists — for now the warning lives in this iter block.
+
+### Iter 57 — DONE (iter 55 partially vindicated)
+
+**Dimension covered:** direct A/B/A cache-policy probe on warm non-quant 27b using small-prefix curl payloads. Settles whether iter-56's "needs full match" finding is policy or size-dependent.
+
+**Wall-clock used:** ~2m of 7m.
+
+**Probe design:** three back-to-back curl calls, same system prompt (~50-token "helpful assistant ... lorem ipsum"), varying user content:
+
+```
+A1 user="A"     wall=3.99   (initial warming)
+B2 user="B"     wall=2.43   (different user content)
+A3 user="A"     wall=2.42   (back to original)
+```
+
+**Result: B2 ≈ A3.** With a small prefix, the cache **engages on prefix match** (system + tools), not full-prompt match — B2 hits the same warm state as A3 despite the user content differing.
+
+**Synthesised with iter 55/56:**
+
+| prefix size | match policy observed | wall delta on user-content change |
+|-------------|----------------------|------------------------------------|
+| ~50 tokens (this iter)     | prefix-match works   | none (2.43 vs 2.42)                |
+| ~4900 tokens (iter 55)     | full-match required  | huge (3.4 vs 45)                   |
+
+**The cache policy doesn't differ between probes — the cache capacity does.** Small prefixes (and the small KV they imply) fit comfortably in LM Studio's prefix-cache pool, where the cache key is the prefix-token-hash, so any matching prefix wins. The non-quant 27b 4900-token KV (FP16 × 27B = ~13 GB of KV state for the full prompt) overflows the cache budget, so on each new turn LM Studio can't keep both the prior conversation's KV and the new one — it evicts the prior, and the only way to hit cache is to send the *exact same conversation* as the last one (likely because LM Studio falls back to a whole-conversation hash as the eviction key when prefix-cache runs out of room).
+
+**Iter 55's KV-footprint hypothesis is partially vindicated.** The original framing ("FP16 dense @ 27B+ can't cache") was too strong, but the underlying observation — that KV size determines cache stickiness — was correct. The corrected statement:
+
+> Prefix caching engages on every model when the cached prefix fits in the host's KV pool. For models where the prefix exceeds the pool budget (FP16 dense @ 27B+ on this host), the cache degrades to whole-conversation-match and benefits only repeat-identical prompts.
+
+This now reconciles all three measurements:
+- gemma-26b-a4b (small KV per token): prefix-match always works (iter 14 r3/r4 hit deep-warm with different suffixes)
+- q4_k_l (medium KV): prefix-match works (iters 17/19/22 hit deep-warm with different suffixes)
+- non-quant 27b (large KV): full-match required for the 4900-token tigger prefix; prefix-match works for tiny payloads (this iter)
+
+**Updated practical recommendation:** non-quant 27b is **fine** for interactive use where prompts stay similar (compaction, retry on same input), but every fresh user-content turn pays ~40 s of prefill. q4_k_l remains the right interactive choice; non-quant 27b for batch / repeat workloads.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.38 s. No code change.
+
+**Parked for later:**
+
+- The "KV-pool-budget-vs-prefix-size threshold" is implicitly somewhere between ~600 tokens (gemma-26b 4577 prefix hits cache cleanly) and ~4900 tokens (non-quant 27b 4900 doesn't). Could be pinned with one curl A/B/A probe per model at intermediate sizes — but it's a host-config question, not a tigger one. Park as low-priority.
+- Iter 56's "methodology note about identical prompts" is now redundant — the iter-57 synthesis makes the policy/size distinction clearer than a methodology note would.
