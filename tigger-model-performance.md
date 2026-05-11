@@ -2407,3 +2407,77 @@ If a future change drops the snippet from `provider.py`, this test catches it be
 
 - The iter-39 recommendation is now test-locked. The remaining outstanding measurement is iter 38's parked "non-quant 27b A/B" (predicted: also halves with the prepend, since the footgun is family-wide). One cold-swap + 10-run tick.
 - Cycle is at iter 40. The headline outcomes (calibration table complete, cache-hit signal wired, footgun mitigated, warning carries actionable advice) form a natural closing summary for the cycle — a future tick could write a "## Cycle close" block before bench-03 begins.
+
+### Iter 41 — DONE
+
+**Dimension covered:** cycle-close summary. Findings are stable across the last ~10 iters (no contradictions, no major retractions). Synthesise the 40-tick run into something a fresh agent or human can read in 5 minutes to know the state of play before bench-03 starts.
+
+**Wall-clock used:** ~2m of 7m.
+
+---
+
+## Cycle close — bench-02 (iters 1-41, 40 substantive)
+
+### Headline outcomes
+
+| outcome                                                  | iter(s)              | code change?           |
+|----------------------------------------------------------|----------------------|------------------------|
+| Wire-kwargs round-trip verified for all 6 model entries  | 1, 3, 7, 12, 15      | no                     |
+| `default_model` mismatch surfaced with UserWarning       | 2                    | yes (520f381)          |
+| `enable_thinking=false` footgun on qwen 27b-family — surfaced | 2, 16, 36       | yes (47cbee8, 2559082) |
+| Footgun mitigation discovered + measured (-47 % out_t)   | 37, 38               | docs only              |
+| Mitigation snippet wired into iter-2 warning             | 39                   | yes (373a0de)          |
+| Snippet locked against regression                        | 40                   | yes (a287e54)          |
+| Cross-process KV-cache signal designed                   | 18                   | yes (490aade)          |
+| `[perf] note:` rewritten to teach the right mental model | 34                   | yes (c3df5ea)          |
+| `cache likely hit` UI signal wired + validated 5/5       | 35, 36               | yes (31ab815)          |
+| Full per-model calibration table (TTFT, decode, fit_int) | 23-33                | docs only              |
+
+### Final calibration (warm-cache, this LM Studio host)
+
+| model                              | TTFT (curl) | decode tok/s | fit_intercept | predicted wall @ out=50 |
+|------------------------------------|---------------|---------------|----------------|---------------------------|
+| `qwen/qwen3.6-35b-a3b` (MoE, 3B)   | 0.30 s        | 46.7          | 1.21 s         | 2.28 s                    |
+| `google/gemma-4-26b-a4b` (MoE, ~4B)| 0.46 s        | 20.3          | 0.33 s         | 2.80 s                    |
+| `qwen_qwen3.6-27b@q4_k_l` (4-bit dense) | 1.14 s   | 11.3          | 1.14 s         | 5.57 s                    |
+| `google/gemma-4-31b` (FP16 dense)  | 2.30 s        | 2.87          | 0.10 s         | 17.42 s                   |
+
+Active-param × quant model predicts TTFT within ±15 % (iter 33).
+
+### Stable findings (do not re-derive in bench-03)
+
+1. The `qwen/qwen3.6-27b` chat template **silently ignores** `enable_thinking=false` (confirmed via three probe paths in iter 2). Tigger drops the reasoning from history but the model still pays the latency cost. **Mitigation:** `system_prompt_extra: "Answer concisely. Do not use scratchpad reasoning before responding."` (iter 38, validated 10v10).
+2. **MoE > dense by ~5-16× per token** on this host (35b-a3b 46.7 vs 31b 2.87 tok/s). Quant level is secondary (q4_k_l 4-bit 11.3 vs FP16 equivalent extrapolated ~5-6 tok/s).
+3. **LM Studio drops weights after ~10 min idle** (iter 29). The cron's per-tick cold-load tax is real and varies 25-160 s depending on whether the file/disk cache is hot.
+4. **TTFT and `fit_intercept` are different signals** (iter 30 retraction). TTFT is what the user perceives as snappiness; `fit_intercept` is a wall-extrapolation at out=0 that absorbs prefill-cost residuals.
+5. **q4_k_l output_token distribution is bimodal** without the iter-38 prepend: ~30 % of turns enter a heavy-reasoning regime (~100-230 tokens) regardless of prompt content (iter 36).
+6. **Prefix-cache hits** show up as `apparent_prefill_tok_per_s > 100` on this host (cold-prefill 50-90, deep-warm 500-3500). Threshold 100 is the iter-35 signal floor.
+
+### Open user-action recommendations (not applied here — config is owned)
+
+1. **Fix `default_model`.** Current `.tigger/config.json` has `"default_model": "google_gemma-4-31b-it-bartowski"` which doesn't match any provider models entry. Tigger warns but the per-model overrides aren't applied. Pick one of the 6 listed slugs.
+2. **Add `system_prompt_extra` per qwen-27b entry.** Halves output_tokens on q4_k_l (iter 38), likely also on the non-quant 27b and -thinking variants.
+3. **Consider dropping `qwen/qwen3.6-27b-instruct`** as a config entry. Same wire id as `-thinking`; the "instruct" semantic doesn't hold on this server.
+
+### Best-fit defaults for `default_model`
+
+For interactive CLI use (TTFT-sensitive): `qwen/qwen3.6-35b-a3b`. Fastest snappiness (0.30 s) and decode (46.7 tok/s).
+
+For longer reasoning workloads where per-token quality matters more than snappiness: `qwen_qwen3.6-27b@q4_k_l-instruct` with the iter-38 prepend.
+
+Gemma entries lag on this hardware; useful only for non-tool workloads (gemma-31b decode 2.87 tok/s makes tool-call iteration painful).
+
+### What bench-03 should focus on
+
+- Validate the iter-38 prepend on the non-quant 27b and on -thinking variants.
+- Re-bench after the user applies the recommendations above (especially the `system_prompt_extra` config), to see the real production wall distribution.
+- Build a `/perf` slash command that prints the calibration table — the parked iter-34/35 UI surfacing.
+- Investigate the gemma TTFT scaling outlier (gemma-26b 0.46 s sits 35 % above the active-param prediction; needs a second-class-fit term).
+
+---
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.38 s. No code change.
+
+**Parked for later:** all open items from prior iters carry forward into bench-03 if the user decides to spin a new cycle. This iter does not introduce new parks.
