@@ -2447,7 +2447,7 @@ Active-param × quant model predicts TTFT within ±15 % (iter 33).
 ### Stable findings (do not re-derive in bench-03)
 
 1. The `qwen/qwen3.6-27b` chat template **silently ignores** `enable_thinking=false` (confirmed via three probe paths in iter 2). Tigger drops the reasoning from history but the model still pays the latency cost. **Mitigation:** `system_prompt_extra: "Answer concisely. Do not use scratchpad reasoning before responding."` reduces output-token variance **56× (F-test, p ≪ 0.001)** across the pooled 16-sample prepend arm vs 15-sample baseline arm spanning all three 27b config entries (iters 38/43/44/46). The median doesn't move (37 vs 37.5); the upper tail collapses (max 234 → 56). Family-wide.
-2. **MoE > dense by ~5-16× per token** on this host (35b-a3b 46.7 vs 31b 2.87 tok/s). Quant level is secondary (q4_k_l 4-bit 11.3 vs FP16 equivalent extrapolated ~5-6 tok/s).
+2. **MoE > dense by ~5-16× per token** on this host (35b-a3b 46.7 vs 31b 2.87 tok/s). Quant level is secondary and smaller than predicted: q4_k_l 4-bit measured 11.3 tok/s vs non-quant FP16 27b measured 8.3 tok/s (iter 56 deep-warm) — a 1.36× quant speedup, not the ~2× a naive bytes-per-weight argument would predict.
 3. **LM Studio drops weights after ~10 min idle** (iter 29). The cron's per-tick cold-load tax is real and varies 25-160 s depending on whether the file/disk cache is hot.
 4. **TTFT and `fit_intercept` are different signals** (iter 30 retraction). TTFT is what the user perceives as snappiness; `fit_intercept` is a wall-extrapolation at out=0 that absorbs prefill-cost residuals.
 5. **q4_k_l output_token distribution is bimodal** without the iter-38 prepend: ~30 % of turns enter a heavy-reasoning regime (~100-230 tokens) regardless of prompt content (iter 36).
@@ -3131,3 +3131,25 @@ The cycle-close now has **7 stable findings** + **3 user-action recommendations*
 **Parked for later:**
 
 - The KV-pool-budget-vs-prefix-size threshold pinning from iter 57's park still applies if a future bench-03 wants to map the boundary precisely. Not on the critical path for any decision currently in flight.
+
+### Iter 59 — DONE
+
+**Dimension covered:** correction to cycle-close stable finding #2. Iter 56 measured non-quant 27b deep-warm decode at 8.3 tok/s — the iter-41 finding said "FP16 equivalent extrapolated ~5-6 tok/s", which is now empirically too pessimistic. Update with the real number.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** stable finding #2 in the iter-41 cycle close now reads:
+
+> Quant level is secondary and smaller than predicted: q4_k_l 4-bit measured **11.3** tok/s vs non-quant FP16 27b measured **8.3** tok/s (iter 56 deep-warm) — a **1.36×** quant speedup, not the ~2× a naive bytes-per-weight argument would predict.
+
+**Why the prediction was off.** The bytes-per-weight intuition assumes memory bandwidth dominates decode. In practice, decode also pays for: dequantisation logic (Q4_K_L's grouped quant requires per-block scale/zero unpacking), attention compute on the KV state (which is *not* quantised — both models store FP16 KV here), and overhead per layer. The Q4 weight-bandwidth saving is real but it competes against the dequant cost and the unchanged KV-pass cost, so the realised speedup is well below 2×.
+
+Practical takeaway: **don't choose a smaller quant expecting big decode-rate gains** on this hardware. The ~36 % difference (q4_k_l vs FP16 27b) means q4_k_l's 11 tok/s edge over non-quant's 8 tok/s is worth taking for interactive use, but it's not transformative. The bigger lever is MoE-vs-dense (16× on this cycle's data), then iter-38 prepend (variance suppression).
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.42 s. No code change.
+
+**Parked for later:**
+
+- Nothing new. The iter-41 cycle close now has 7 stable findings, all empirically backed.
