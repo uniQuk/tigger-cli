@@ -1992,3 +1992,52 @@ The fit-intercept `a` for qwen ended up at 1.21 s on the 4576-token prefix becau
 
 - Rename "overhead" → "fit_intercept" in the iter-23/24/25/26/27/28 calibration table the next time it's edited. Or add a column with the curl-measured TTFT alongside.
 - Closer comparison: 5-run mean of curl wall for each of the 4 model entries, deep-warm, with consistent payload. Closes the calibration table's "what's the TTFT per model" question once and for all. ~3 min per model × 4 = several ticks, but each tick can do one model.
+
+### Iter 31 — DONE
+
+**Dimension covered:** calibration-table reorganisation per iter 30's retraction. The previous "overhead" column conflated two different things; relabel it and add a separate TTFT column with the curl-measured values we have. Also: take one more curl measurement on the currently-warm `qwen/qwen3.6-35b-a3b` to confirm iter 30's number with a larger sample.
+
+**Wall-clock used:** ~3m of 7m.
+
+**Re-measure qwen TTFT (warm-on-arrival, 5 runs):**
+
+```
+qwen/qwen3.6-35b-a3b, max_tokens=10, single user msg:
+  r1 wall=0.31  r2 wall=0.29  r3 wall=0.29  r4 wall=0.29  r5 wall=0.30
+  mean=0.296s  σ≈0.008s
+```
+
+Tight cluster. Iter 30's 0.29 s wasn't a fluke. Combined with iter 29 / 30 gemma (mean 2.30 s), the two TTFTs are an order of magnitude apart and reproducible.
+
+**Calibration table — relabelled and with new TTFT column:**
+
+| model                              | curl TTFT (mean) | fit_intercept | decode tok/s | wall = fit_int + b·out |
+|------------------------------------|--------------------|----------------|---------------|------------------------|
+| `qwen/qwen3.6-35b-a3b` (MoE)       | **0.30 s** (5 runs) | 1.21 s         | **46.7**      | 1.21 + 0.0214·out      |
+| `qwen_qwen3.6-27b@q4_k_l` (dense)  | TBD                | 1.14 s         | **11.3**      | 1.14 + 0.0885·out      |
+| `google/gemma-4-26b-a4b` (MoE)     | TBD                | 0.33 s         | **20.3**      | 0.33 + 0.0493·out      |
+| `google/gemma-4-31b` (dense)       | **2.30 s** (3 runs) | 0.10 s         | **2.87**      | 0.10 + 0.346·out       |
+
+**Reading the table now:** TTFT (curl wall for a tiny payload) and `fit_intercept` (extrapolated `wall` at `out=0` on a 4576-token prefix) are **independent** signals. TTFT is what the user pays before the first character lands. `fit_intercept` is a fit-math artifact. Future ticks: if a "perceived snappiness" gauge is needed, use TTFT; if predicting `wall` from `out`, use `fit_intercept + b·out`.
+
+**Predicted total wall for typical CLI use** (input=4576-prefix, out=50):
+
+| model                              | predicted wall_s | dominant term       |
+|------------------------------------|------------------|---------------------|
+| `qwen/qwen3.6-35b-a3b`            | 2.28             | fit_intercept       |
+| `qwen_qwen3.6-27b@q4_k_l`         | 5.57             | mixed               |
+| `google/gemma-4-26b-a4b`          | 2.80             | decode              |
+| `google/gemma-4-31b`              | 17.4             | decode              |
+
+For interactive CLI work, qwen-35b-a3b and gemma-26b-a4b are the only viable choices — both finish under 3 s on a 50-token reply with a warm cache.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.41 s. No code change.
+
+**Parked for later:**
+
+- Fill the q4_k_l and gemma-26b TTFT cells (each costs one cold-swap + 5-run curl in a single tick).
+- The "wire the cache_likely_hit UI signal" parked item from iters 24-29 can now be formulated cleanly: it should fire when `wall - TTFT < 1.3 · output_tokens / decode_rate` AND the prefix is unchanged from a recent turn. Wait until the TTFT column is full.
