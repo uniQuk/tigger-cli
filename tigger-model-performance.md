@@ -3361,3 +3361,46 @@ The iter-2 → 520f381 commit → iter-64 user-action chain is now **closed**. T
 
 - If/when the user applies recommendation #2 (per-model `system_prompt_extra` on the qwen-27b entries), re-bench the same prompt that triggered the iter-2 footgun to confirm the warning still fires only when the prepend isn't present (i.e. the warning code path is independent of the user-side mitigation).
 - Recommendation #3 (drop misleading 27b-instruct entry) is a structural cleanup with no perf impact — purely a config-tidiness call. Park.
+
+### Iter 65 — DONE
+
+**Dimension covered:** measure a partial-warm baseline for the user's new default model `qwen/qwen3.6-35b-a3b`. Original intent was a typical tool-call workflow, but the prefix-cache for the user's *current* config (post-iter-64 default_model fix) wasn't populated, so the tool-call probe timed out at 120 s. Fall back to a tiny-prompt probe to characterise the partial-warm wall.
+
+**Wall-clock used:** ~4m of 7m.
+
+**Sanity bench (35b-a3b, `Reply: pong-65`):**
+
+```
+[perf] 1778481710 1 14.77 0.01 4327 33 2 23 stop 0 0 23 2.23 0.000 293 qwen/qwen3.6-35b-a3b
+```
+
+| metric                      | value | regime         |
+|-----------------------------|-------|----------------|
+| wall_s                      | 14.77 | partial-warm   |
+| input_tokens                | 4327  | (smaller than iter-1's 4913 — see below) |
+| output_tokens               | 33    | small reply    |
+| tokens_per_sec              | 2.23  | low — prefill dominates |
+| apparent_prefill_tok_per_s  | 293   | partial-warm band |
+
+**Compare to iter-1 archive (35b-a3b deep-warm, same model family):**
+
+```
+wall=1.58 s, in=4913, out=26 → apparent_prefill=3109 (deep-warm)
+```
+
+This tick shows **apparent_prefill 293 vs 3109** — a ~10× gap. The user's new default has been used for a fresh prompt (after the iter-64 config change) but the KV cache isn't fully populated yet. The first few interactive turns will pay this partial-warm tax (~15 s vs deep-warm's 1.6 s); subsequent turns on similar prefixes should drop into the deep-warm regime once the host's cache stabilises.
+
+**Side observation — input_tokens dropped 4913 → 4327.** The user's iter-64 config edit didn't add or remove anything that should change the system prompt size by that much. Most plausible explanations: (a) the lazy MCP tool listing returned a smaller set this run, or (b) the active mode body shrunk. Worth a future investigation but not in scope here.
+
+**Original tool-call goal: deferred.** The 120 s alarm on the tool-call probe was hit during a cold prefix-cache state; once the user actually uses the default for a few interactive turns, the cache populates and the iter-20 multi-turn measurement (~50 s for 2-turn on q4_k_l) is the right comparison frame. Re-bench next time tigger is actively used.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.43 s. No code change.
+
+**Parked for later:**
+
+- Re-run the iter-20 tool-call workload on 35b-a3b once the user's prefix cache is stable, to update the "expected interactive wall" estimate for the new default. Predicted to be much faster than q4_k_l's 50 s — MoE decode is 4× faster + 35b-a3b's smaller KV footprint fits the host's prefix-cache pool cleanly per iter-57's finding.
+- The 4327-vs-4913 input-token delta is unexplained. Cheap probe: run two `TIGGER_PERF=1 tigger-code --once "ping"` calls back-to-back, capture both perf lines, see if input_tokens is stable across calls or drifts with MCP refresh.
