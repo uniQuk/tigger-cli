@@ -2377,3 +2377,33 @@ entry (cuts output_tokens ~47% per cycle-02 iter 38).
 
 - Add an assertion in `test_warns_once_when_thinking_disabled_but_server_streams_reasoning` that the new "system_prompt_extra" recommendation text appears in the warning. Locks the iter-37/38 link in. Tiny test addition.
 - Live-test the new warning text by hitting q4_k_l from a fresh tigger session, verify the (a)(b)(c) mitigation block renders cleanly under the iter-2 indent. Skipped here to stay in budget.
+
+### Iter 40 — DONE
+
+**Dimension covered:** test hardening for iter 39. Add two assertions to `test_warns_once_when_thinking_disabled_but_server_streams_reasoning` to lock the iter-37/38 mitigation snippet against future regression — substring check on `system_prompt_extra` and `Answer concisely`. Tiny, atomic, test-only.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Verified / changed:** `tests/test_provider_wire.py` adds two assertions at the end of the iter-3 warning test:
+
+```python
+# Iter 40: lock the iter-39 mitigation snippet — the system_prompt_extra
+# recommendation links the warning to the iter-38 measured -47% headline
+# so users have a copy-pasteable fix, not just an abstract "switch model"
+# advisory.
+assert "system_prompt_extra" in captured.err
+assert "Answer concisely" in captured.err
+```
+
+If a future change drops the snippet from `provider.py`, this test catches it before merge.
+
+**Atomic change rule check:** one file (`tests/test_provider_wire.py`), 5 LoC added (3 lines of comment + 2 assertions). No runtime code change. Fits well under the 30-LoC ceiling.
+
+**Files touched:** `tests/test_provider_wire.py`, `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.36 s. Same test count; coverage tightened on the existing iter-3 warning test.
+
+**Parked for later:**
+
+- The iter-39 recommendation is now test-locked. The remaining outstanding measurement is iter 38's parked "non-quant 27b A/B" (predicted: also halves with the prepend, since the footgun is family-wide). One cold-swap + 10-run tick.
+- Cycle is at iter 40. The headline outcomes (calibration table complete, cache-hit signal wired, footgun mitigated, warning carries actionable advice) form a natural closing summary for the cycle — a future tick could write a "## Cycle close" block before bench-03 begins.

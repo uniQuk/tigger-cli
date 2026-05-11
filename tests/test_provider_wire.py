@@ -262,6 +262,12 @@ def test_warns_once_when_thinking_disabled_but_server_streams_reasoning(capsys):
     # dropped from history. "thinking..." is 11 chars → ~2 tok.
     assert "11 chars" in captured.err
     assert "this turn" in captured.err
+    # Iter 40: lock the iter-39 mitigation snippet — the system_prompt_extra
+    # recommendation links the warning to the iter-38 measured -47% headline
+    # so users have a copy-pasteable fix, not just an abstract "switch model"
+    # advisory.
+    assert "system_prompt_extra" in captured.err
+    assert "Answer concisely" in captured.err
 
     # Second call with the same wire-model must NOT re-warn.
     chunks_second = [
