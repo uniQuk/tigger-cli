@@ -1950,3 +1950,45 @@ Payload B (with chat_template_kwargs:{enable_thinking:false}):
 
 - Test hypothesis (a) — direct-curl gemma-4-31b vs qwen/qwen3.6-35b-a3b with identical content (after both are deep-warm). Cost: one cold-swap (~30-60 s for the second model), so split across two ticks: load both, then A/B in the third tick.
 - The cache_likely_hit UI signal remains unblocked but unimplemented. Wire it up when the qwen-overhead investigation has either landed an explanation or been parked as "host-side, not actionable".
+
+### Iter 30 — DONE
+
+**Dimension covered:** direct-curl A/B for the iter-28 "qwen overhead gap" — cold-load `qwen/qwen3.6-35b-a3b`, then measure minimal-content curl wall, compare to iter 29's gemma-31b curl baseline. Same payload shape on both, minus the per-model fields.
+
+**Wall-clock used:** ~2m of 7m.
+
+**Curl wall (qwen/qwen3.6-35b-a3b, max_tokens=10, single user msg):**
+
+```
+r1 wall=26.62  ← cold-load
+r2 wall=0.30   ← warm
+r3 wall=0.28
+r4 wall=0.29
+```
+
+**Side-by-side with iter 29's gemma-31b:**
+
+| model        | curl warm-warm wall_s | curl cold wall_s |
+|--------------|------------------------|-------------------|
+| `qwen/qwen3.6-35b-a3b` | **0.29** | 26.62 |
+| `google/gemma-4-31b`  | **2.30** | 16.33 (re-warm from idle eject) |
+
+**Qwen is ~8× faster at the LM Studio level**, not slower. This **reverses** the iter-28 interpretation. The 1.21 s "qwen overhead" from the iter-23/24 2-point fit was a *fit-intercept artifact*, not a per-call latency floor. Two distinct quantities got conflated:
+
+1. **TTFT (time-to-first-token):** what the host actually pays before decode begins. The curl numbers show qwen TTFT ≪ gemma TTFT (0.29 s vs 2.30 s).
+2. **Fit intercept `a` from `wall = a + b·out`:** a math construct that absorbs everything not linearly scaling with output tokens *across the two samples observed*. Includes prefill cost on a partially-warm KV cache, first-token slow-start, expert-routing first-step cost, etc.
+
+The fit-intercept `a` for qwen ended up at 1.21 s on the 4576-token prefix because qwen's `b` (decode time per token) is so small (0.021 s/tok) that any residual prefill cost dominates the intercept. Gemma's `b` is 0.35 s/tok → 16× larger → the intercept is starved of residual to absorb, so `a` looks tiny.
+
+**Headline:** qwen wins end-to-end on this host. Higher decode rate (46.7 vs 2.87 tok/s) AND lower TTFT (0.29 vs 2.30 s). The iter-28 "stark qwen-vs-gemma overhead gap" finding is retracted. The 2-point fit's intercept is not a useful proxy for per-call latency and should not be reported as "overhead" in future ticks; rename it to `fit_intercept` to avoid the trap.
+
+**Verified / changed:** docs only. The calibration table's existing "overhead" column should be re-labelled in a future tick to make this clearer.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.40 s. No code change.
+
+**Parked for later:**
+
+- Rename "overhead" → "fit_intercept" in the iter-23/24/25/26/27/28 calibration table the next time it's edited. Or add a column with the curl-measured TTFT alongside.
+- Closer comparison: 5-run mean of curl wall for each of the 4 model entries, deep-warm, with consistent payload. Closes the calibration table's "what's the TTFT per model" question once and for all. ~3 min per model × 4 = several ticks, but each tick can do one model.
