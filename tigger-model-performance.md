@@ -2771,3 +2771,48 @@ if apparent_prefill > 100 and not prefill_dominant: …  # cache_hit line
 
 - The iter-48 followup "collapse two signals into one decision tree" is now half-done — they're no longer simultaneous, but they're still independent code paths. A future tick could unify them under a single `[perf]` line that emits `hit`/`cold`/`dominated` exclusively. Lower priority now that the contradiction is gone.
 - Iter-48 noted "iter-13 cold-load gemma-31b case would now emit apparent_prefill≈57 tok/s in the prefill-dominant line". After this iter that's still true — but cache_likely_hit would NOT fire (correctly), since 57 < 100 anyway.
+
+### Iter 50 — DONE
+
+**Dimension covered:** live verification of the iter-49 suppression in production + half-century cycle milestone note.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Live perf line on warm non-quant 27b with prepend (same setup as iter 49):**
+
+```
+[perf] 1778472547 1 43.96 0.01 4920 28 2 73 stop 0 0 73 0.64 0.000 112
+[perf] prefill-dominant turn 1: wall=44.0s out=28tok delta_chars=73 apparent_prefill=112tok/s
+```
+
+**Only one `[perf]` warning line.** Compared to iter 49's same-setup run which emitted both `prefill-dominant` and `cache likely hit` (apparent_prefill=113), this run shows only the prefill-dominant line. The cache-likely-hit message is correctly suppressed because prefill-dominant fired first. The user sees ONE consistent diagnostic ("your prefill ran at 112 tok/s, which dominated wall") rather than two contradictory-looking ones.
+
+**Half-century milestone (cycle 02, iter 50 of [open]):**
+
+The cycle has shipped **11 code-side commits**:
+
+```
+520f381  fix(config)     warn when default_model has no matching provider entry
+47cbee8  fix(provider)   warn when server ignores enable_thinking=False
+2559082  fix(provider)   surface thinking-token cost in iter-2 warning
+f394123  fix(bash)       surface non-zero exit codes
+490aade  perf(loop)      add apparent_prefill_tok_per_s column
+c3df5ea  docs(loop)      rewrite [perf] note to teach the model
+31ab815  feat(loop)      cache_likely_hit signal fires at app_prefill > 100
+373a0de  fix(provider)   extend iter-2 warning with iter-38 recommendation
+a287e54  test(provider)  lock iter-39 snippet against regression
+09e8bce  ux(loop)        thread apparent_prefill into prefill-dominant warning
+72676c0  fix(loop)       suppress cache_likely_hit when prefill-dominant fired
+```
+
+Plus 38 docs-only `perf(bench):` commits documenting measurements. The 11 code changes collectively transformed the perf-line layer from "one cache_hit_estimate that lies in --once mode" (cycle start) to "a coherent four-signal diagnostic (cache_hit_estimate, apparent_prefill_tok_per_s, prefill-dominant, cache_likely_hit) where each fires for one well-defined condition and they no longer overlap" (now).
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 828 → 828 in 4.45 s. No code change.
+
+**Parked for later:**
+
+- Nothing new this tick. The pre-50 parked items still apply — collapse-to-single-line, /perf slash command, gemma TTFT outlier deep-dive.
