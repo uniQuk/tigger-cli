@@ -120,6 +120,65 @@ def test_perf_apparent_prefill_signals_cache_hit(tmp_path, monkeypatch):
     assert float(rows[0][apparent_idx]) >= 1000.0
 
 
+def test_cache_likely_hit_signal_fires_when_apparent_prefill_high(
+    tmp_path, monkeypatch, capsys,
+):
+    """Iter-35: emit `[perf] cache likely hit` when apparent_prefill_tok_per_s
+    exceeds 100 tok/s — empirically impossible without prefix caching on
+    local hardware."""
+    perf_file = tmp_path / "perf.tsv"
+    monkeypatch.setenv("TIGGER_PERF", str(perf_file))
+
+    import tigger.loop as loop_mod
+    real_mono = loop_mod.time.monotonic
+    counter = {"n": 0}
+
+    def fake_mono() -> float:
+        counter["n"] += 1
+        return real_mono() + (1.0 if counter["n"] >= 4 else 0.0)
+
+    monkeypatch.setattr(loop_mod.time, "monotonic", fake_mono)
+    list(run(
+        "hi",
+        _ctx(),
+        _noop_registry(),
+        provider_fn=_two_turn_provider(in_tokens=[5000, 5000], out_tokens=[10, 10]),
+    ))
+    captured = capsys.readouterr()
+    assert "cache likely hit" in captured.err
+    assert "apparent_prefill=" in captured.err
+
+
+def test_cache_likely_hit_signal_silent_on_cold_prefill(
+    tmp_path, monkeypatch, capsys,
+):
+    """Cold-prefill scenario: 500-token prompt taking ~90s wall ⇒
+    apparent_prefill ≈ 5.6 tok/s, well below the 100 threshold. Signal
+    must NOT fire on either of the two turns."""
+    perf_file = tmp_path / "perf.tsv"
+    monkeypatch.setenv("TIGGER_PERF", str(perf_file))
+
+    import tigger.loop as loop_mod
+    real_mono = loop_mod.time.monotonic
+    counter = {"n": 0}
+
+    def fake_mono() -> float:
+        counter["n"] += 1
+        # Advance 30s on every call so every wall spans ~90s — emulates a
+        # cold-prefill regime where wall is dominated by prompt processing.
+        return real_mono() + 30.0 * counter["n"]
+
+    monkeypatch.setattr(loop_mod.time, "monotonic", fake_mono)
+    list(run(
+        "hi",
+        _ctx(),
+        _noop_registry(),
+        provider_fn=_two_turn_provider(in_tokens=[500, 500], out_tokens=[10, 10]),
+    ))
+    captured = capsys.readouterr()
+    assert "cache likely hit" not in captured.err
+
+
 def test_perf_first_turn_cache_hit_zero(tmp_path, monkeypatch):
     perf_file = tmp_path / "perf.tsv"
     monkeypatch.setenv("TIGGER_PERF", str(perf_file))

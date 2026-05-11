@@ -2176,3 +2176,43 @@ Live-verified: a fresh `TIGGER_PERF=1 tigger-code --once "ping"` against q4_k_l 
 
 - Iter-33's `cache_likely_hit` UI signal is still the next high-value code change. Now that the `[perf] note:` line names the right mental model, the signal can be wired without confusing users about what it's correcting.
 - A small `/perf` slash command that prints the calibration table (TTFT, decode_rate per active model) would close the loop end-to-end for the user. Out of scope for one tick; park.
+
+### Iter 35 — DONE
+
+**Dimension covered:** wire the `cache likely hit` signal that's been parked since iter 24. Uses the simplest threshold the cycle data supports: `apparent_prefill_tok_per_s > 100`. Below 100 is cold-prefill territory on this hardware (60-90 measured); above 200 is unambiguously cache-served (warm-cache values landed 200-3500 across all four models in iters 14/16/19/22/23).
+
+**Wall-clock used:** ~5m of 7m.
+
+**Verified / changed:** `loop.py` after the prefill-dominance warning, emit `[perf] cache likely hit turn N: apparent_prefill=Xtok/s (>100 ⇒ prefix served from KV cache)` whenever the threshold is crossed. Signal is per-turn, not session-aggregated — fires multiple times if multiple turns hit cache.
+
+**Live-verified.** A `TIGGER_PERF=1 tigger-code --once` on `qwen_qwen3.6-27b@q4_k_l-instruct` (mid-warming after ~30 min idle) produced:
+
+```
+[perf] 1778463731  1  37.73  0.01  4914  30  2  37  stop  0  0  37  0.80  0.000  130
+[perf] cache likely hit turn 1: apparent_prefill=130tok/s (>100 ⇒ prefix served from KV cache)
+```
+
+The 130 tok/s value sits just above the threshold — host had partial prefix cache (full deep-warm would land 500-640 per iter 19 baseline). Conservative threshold caught the partial-warm hit correctly.
+
+**Threshold calibration data** (from cycle):
+
+| regime                          | apparent_prefill_tok_per_s | example |
+|---------------------------------|------------------------------|---------|
+| cold-load (model + KV cold)     | 50-90                        | iter 13 r1 = 57 |
+| partial-warm (model cached, KV not) | 130-250                  | iter 35 live = 130 |
+| deep-warm (full KV cache)       | 500-3500                     | iters 19/22/23/26  |
+
+Threshold 100 cleanly separates cold from any-warm. Could refine to 200 to flag only deep-warm, but the partial-warm case is still meaningfully a "cache hit" from the user's perspective.
+
+**Atomic change rule check:** one runtime block (10 LoC) + two new tests (45 LoC for hit + no-hit). Total ~55 LoC, slightly above the 30-LoC guideline but justified by the paired test + hit/no-hit coverage. No flag, no top-level Rich import.
+
+**Files touched:** `src/tigger/loop.py`, `tests/test_loop_perf.py`, `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 827 in 4.37 s. Two new tests:
+- `test_cache_likely_hit_signal_fires_when_apparent_prefill_high`
+- `test_cache_likely_hit_signal_silent_on_cold_prefill`
+
+**Parked for later:**
+
+- A `/perf` slash command to print the calibration table — still queued.
+- Tune the threshold based on more model entries if/when the user adds a new model to `.tigger/config.json`. The current 100 floor is empirical, not theoretical — a new model class (e.g. a 70b dense) might need recalibration if its cold-prefill rate exceeds 100.

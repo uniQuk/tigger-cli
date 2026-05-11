@@ -538,6 +538,18 @@ def run(
                     f"delta_chars={delta_chars}\n"
                 )
                 sys.stderr.flush()
+            # Cache-likely-hit signal: apparent_prefill > 100 tok/s is empirically
+            # impossible without prefix caching on local hardware (cold prefill
+            # tops out ~60-90 tok/s in the bench-02 calibration; warm cache hits
+            # land 200-3500). Threshold 100 cleanly separates the two regimes.
+            # Does NOT fire when output dominates wall (decode-share confound).
+            if apparent_prefill_tok_per_s > 100:
+                sys.stderr.write(
+                    f"[perf] cache likely hit turn {perf_turn}: "
+                    f"apparent_prefill={apparent_prefill_tok_per_s:.0f}tok/s "
+                    f"(>100 ⇒ prefix served from KV cache)\n"
+                )
+                sys.stderr.flush()
             last_prompt_chars = prompt_chars
             last_input_tokens = local_tokens
 
