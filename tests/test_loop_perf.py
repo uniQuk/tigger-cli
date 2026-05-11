@@ -77,15 +77,20 @@ def test_perf_header_includes_new_columns(tmp_path, monkeypatch):
         provider_fn=_two_turn_provider(in_tokens=[100, 110], out_tokens=[5, 3]),
     ))
     header, rows = _read_perf(perf_file)
-    assert header[-4:] == [
+    assert header[-5:] == [
         "delta_chars",
         "tokens_per_sec",
         "cache_hit_estimate",
         "apparent_prefill_tok_per_s",
+        "model",
     ]
     assert len(rows) == 2
     # Every row has the same number of columns as the header.
     assert all(len(r) == len(header) for r in rows)
+    # Iter 51: model column populates for every row so cross-tick analysis
+    # can group by model without parsing the [perf] kwargs line.
+    model_idx = header.index("model")
+    assert all(r[model_idx] for r in rows)
 
 
 def test_perf_apparent_prefill_signals_cache_hit(tmp_path, monkeypatch):

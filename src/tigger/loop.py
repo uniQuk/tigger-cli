@@ -351,7 +351,7 @@ def run(
                 "ts\tturn\twall_s\tcompact_s\tinput_tokens\toutput_tokens\t"
                 "msgs\tprompt_chars\tfinish_reason\ttool_calls\tcontinuations\t"
                 "delta_chars\ttokens_per_sec\tcache_hit_estimate\t"
-                "apparent_prefill_tok_per_s\n"
+                "apparent_prefill_tok_per_s\tmodel\n"
             )
     perf_turn = 0
     # Cross-turn state for the new perf columns. Both start at 0 so the first
@@ -509,6 +509,14 @@ def run(
             # decode rate is the clean cache-hit signature; a high value with
             # a tiny `output_tokens` only tells you "decode didn't dominate".
             apparent_prefill_tok_per_s = local_tokens / max(wall, 0.001)
+            # Cross-tick analysis: the cron writes many ticks into the same
+            # TSV (when TIGGER_PERF is a path). Without a model column the
+            # only way to group rows by model is to correlate timestamps
+            # against git history — annoying. Emit the user-facing slug if
+            # available, falling back to the wire id.
+            model_id = (
+                ctx.config.model_slug or ctx.config.model or "-"
+            ).replace("\t", " ")
             row = (
                 f"{int(time.time())}\t{perf_turn}\t{wall:.2f}\t"
                 f"{compact_elapsed:.2f}\t{local_tokens}\t"
@@ -517,7 +525,8 @@ def run(
                 f"{len(assistant_msg.tool_calls)}\t{continuations}\t"
                 f"{delta_chars}\t{tokens_per_sec:.2f}\t"
                 f"{cache_hit_estimate:.3f}\t"
-                f"{apparent_prefill_tok_per_s:.0f}\n"
+                f"{apparent_prefill_tok_per_s:.0f}\t"
+                f"{model_id}\n"
             )
             if perf_log is not None:
                 perf_log.write(f"[perf] {row}")

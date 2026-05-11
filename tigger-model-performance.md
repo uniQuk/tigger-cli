@@ -2816,3 +2816,37 @@ Plus 38 docs-only `perf(bench):` commits documenting measurements. The 11 code c
 **Parked for later:**
 
 - Nothing new this tick. The pre-50 parked items still apply — collapse-to-single-line, /perf slash command, gemma TTFT outlier deep-dive.
+
+### Iter 51 — DONE
+
+**Dimension covered:** atomic UX — add `model` column to the perf TSV so the cron's accumulated rows can be grouped by model without parsing the `[perf] outgoing kwargs:` startup line. Identifier the cycle has needed since iter 18 introduced cross-tick analysis.
+
+**Wall-clock used:** ~2m of 7m.
+
+**Verified / changed:** `loop.py` — header gains `\tmodel` and each row appends `ctx.config.model_slug or ctx.config.model or "-"` (with tab-escape for safety on model ids containing tabs). The slug is the user-facing name from `.tigger/config.json`; falls back to the wire id when the slug isn't from a known config entry.
+
+```python
+model_id = (
+    ctx.config.model_slug or ctx.config.model or "-"
+).replace("\t", " ")
+row = f"... {apparent_prefill_tok_per_s:.0f}\t{model_id}\n"
+```
+
+Header now reads (last five columns):
+
+```
+delta_chars  tokens_per_sec  cache_hit_estimate  apparent_prefill_tok_per_s  model
+```
+
+Live-verified: a fresh `TIGGER_PERF=/tmp/iter51_perf.tsv tigger-code --once` writes the header with `model` as the trailing column.
+
+**Atomic change rule check:** two files (`loop.py` + its test), ~10 LoC of runtime change + 4 LoC of test additions. Fits comfortably under the 30-LoC ceiling. No flag. No new top-level Rich import.
+
+**Files touched:** `src/tigger/loop.py`, `tests/test_loop_perf.py`, `tigger-model-performance.md`.
+
+**Tests delta:** 828 → 828 in 4.40 s. Existing `test_perf_header_includes_new_columns` updated to expect 5 trailing columns (was 4) and a new assertion that the model field populates non-empty for every row.
+
+**Parked for later:**
+
+- A cron-driven "did the model change between ticks?" diagnostic could now compare consecutive rows' model column and emit a one-line notice when a swap is detected — useful for explaining sudden wall_s spikes due to cold-load tax.
+- All other prior parks still apply (slash command, gemma outlier, signal collapse).
