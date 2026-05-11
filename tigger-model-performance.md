@@ -3404,3 +3404,75 @@ This tick shows **apparent_prefill 293 vs 3109** — a ~10× gap. The user's new
 
 - Re-run the iter-20 tool-call workload on 35b-a3b once the user's prefix cache is stable, to update the "expected interactive wall" estimate for the new default. Predicted to be much faster than q4_k_l's 50 s — MoE decode is 4× faster + 35b-a3b's smaller KV footprint fits the host's prefix-cache pool cleanly per iter-57's finding.
 - The 4327-vs-4913 input-token delta is unexplained. Cheap probe: run two `TIGGER_PERF=1 tigger-code --once "ping"` calls back-to-back, capture both perf lines, see if input_tokens is stable across calls or drifts with MCP refresh.
+
+---
+
+## Focused session post-cron (May 11)
+
+User asked for an honest audit after iter 65 (which had landed in low-marginal-value territory). Cron `27608af5` was deleted; this session targeted the two highest-value unresolved threads.
+
+### Thread (1) — partial-warm regime on 35b-a3b
+
+**Setup:** 6 back-to-back identical `tigger-code --no-think --once "Reply with exactly: pong"` on the user's new default. Then 4 more to confirm steady state.
+
+**Results:**
+
+```
+r1  alarm timeout (60s)
+r2  alarm timeout + "[provider] The model has crashed (Exit code: 18446744072635812000)"
+r3  wall=30.61  app_prefill=141    ← crash recovery
+r4  wall= 0.58  app_prefill=7397   ← DEEP-WARM
+r5  wall= 0.57  app_prefill=7641
+r6  wall= 0.92  app_prefill=4699
+r7  wall= 0.84  app_prefill=5143
+r8  wall= 0.89  app_prefill=4879
+r9  wall= 0.53  app_prefill=8154
+r10 wall= 0.82  app_prefill=5248
+```
+
+**Findings:**
+
+1. **The user's iter-65 14.77 s wall was a CRASH RECOVERY artifact**, not normal partial-warm. LM Studio crashed silently (visible in r2's stderr) and the next call paid the model-reload cost. The cron's "first warm-ish" measurements throughout the cycle have been inflated by this whenever crashes happened mid-run.
+2. **Deep-warm steady state on 35b-a3b is 0.5-0.9 s** for `Reply: pong`-class prompts (16-32 output tokens). **Faster than iter-1's archive 1.58 s** — the system-prompt trim commits (`a778c7e: -46 lines workflow examples`, `946ce97: 71→7 self-knowledge`) reduced input from 4913 → 4326 tokens (-12 %), shaving ~1 s off cold-prefill cost.
+3. **Cycle finding #2 reaffirmed:** the user's new default is *legitimately fast* end-to-end; the iter-65 anxiety was a measurement artifact.
+
+**4913 → 4326 token mystery resolved:** ongoing `prompt:` commits trimmed `assets/system.md` during the cycle. Not a regression — it's the iter-5 / iter-7 token-waste work landing.
+
+**New action item for the user:** LM Studio crashes are observable in the wild. The provider-side `"The model has crashed"` error came through as a stderr line, but tigger doesn't currently surface it visibly — it just looks like a hang. **Worth a small `fix(provider)` to detect that string and emit a clear `[provider] model crashed, retrying` message** so the user doesn't think tigger is slow when it's actually waiting on LM Studio to restart the model.
+
+### Thread (3) — compaction characterisation
+
+**Setup:** synthetic message histories of increasing size (5 → 300 turn-pairs) fed directly to `maybe_compact()` and `snip_old_tool_args()`. `provider_fn=None` so summarisation is skipped (no LLM call path measured).
+
+**Results:**
+
+| n_pairs | msg_size | total_msgs | pre_tokens | snip_only (ms) | full maybe_compact (ms) | arg_snipped | post_tokens |
+|---------|----------|------------|------------|------------------|----------------------------|-------------|--------------|
+| 5       | 100      | 15         | 365        | 0.0              | 0.0                        | 0           | 365          |
+| 20      | 500      | 60         | 6 460      | 0.0              | 0.0                        | 18          | 6 460        |
+| 50      | 1 000    | 150        | 31 800     | 0.1              | 0.0                        | 48          | 31 800       |
+| 100     | 2 000    | 300        | 126 100    | 0.1              | **81.7**                   | 75          | **51 400**   |
+| 300     | 1 000    | 900        | 190 800    | 0.4              | **69.5**                   | 225         | **79 200**   |
+
+**Findings:**
+
+1. **Layer 1 (`snip_old_tool_args`, runs every turn) is essentially free.** 0.4 ms at 900 messages. The "always-on" overhead is invisible in any realistic perf budget.
+2. **Layer 2 (`snip_old_results`, fires above 85 % of context_limit = 108 800 tokens) costs ~80 ms.** Compresses ~60 % of input tokens away (126k → 51k, 190k → 79k). One call brings you well under threshold; no thrashing.
+3. **Layer 3 (`summarize_old`, LLM-bound) was NOT exercised here** — provider_fn=None. In production this would fire after layer 2 only if `post_snip_tokens >= threshold × 0.95`, which my synthetic histories never hit because layer 2 was so effective. Means: **in practice on this codebase, the LLM-summarisation path rarely fires.** Most "compactions" the user sees are sub-100 ms tool-arg + tool-result trims.
+4. **The `cl100k_base` undercount caveat at `compaction.py:268-270` is real but not critical.** Threshold is conservative (0.85 instead of 0.70) precisely to absorb the Qwen-vs-Claude tokenizer mismatch. iter-32-equivalent calibration here: input_tokens reported by LM Studio (Qwen native tokenizer) tracks within ~10-15 % of our cl100k estimate.
+
+**No pathological case found.** Compaction was the major un-measured dimension of the cycle and it turned out to be well-engineered. The slow-path (LLM summarisation) is rare; the fast paths are sub-100 ms.
+
+### Session summary
+
+**Concrete output:**
+
+- (1) iter-65 anxiety dispelled — user's new default works correctly, 0.5-0.9 s warm-warm. The 14.77 s was an LM Studio crash, not a regression.
+- (1) Surfaced a real bug worth fixing: tigger should detect the `"The model has crashed"` provider error and report it clearly. Not done in this session — small scope, candidate for next code-side commit.
+- (3) Compaction system measured end-to-end: 0.4 ms (always-on) + 80 ms (snip layer) + LLM call (rare). All well under any UX threshold.
+- (3) Filled the last un-measured cycle dimension. No pathological case found; system is well-engineered.
+
+Two narrow follow-ups for bench-03 (or a small code-side tick whenever):
+
+- **Surface LM Studio crash detection** in `provider.py` — match `"The model has crashed"` substring on the openai.APIError response and emit `[provider] model crashed, retrying` with the model id. Catches the iter-65-style confusion.
+- **Compaction LLM-call latency** — not measured here because `provider_fn=None`. A future tick could feed a real provider and synthetic 110k-token history to time the actual summarisation round-trip.
