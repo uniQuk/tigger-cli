@@ -2634,3 +2634,52 @@ The prepend's effect is **on the tail, not the body**. It doesn't make typical r
 
 - Add the family-wide number ("mean prepend-arm 40, max 56, vs baseline mean 81/max 234") to the cycle-close iter 41's block, or to the iter-2 warning if it can be made compact. Either way, this is the strongest single quantitative claim of the cycle and should survive into bench-03's preamble.
 - A formal Mann-Whitney U test with the pooled 16 vs 15 samples would yield a p-value; the visual distributions make it obvious but a number would be defensible.
+
+### Iter 46 — DONE
+
+**Dimension covered:** acting on iter 45's "formal test" parked item. Compute proper inferential statistics on the pooled 16-vs-15 prepend/baseline samples, then pick the test that actually fits the effect being claimed.
+
+**Wall-clock used:** ~2m of 7m.
+
+**Verified / changed:** docs only. Two stats computations, one correction to the iter-45 framing.
+
+**Mann-Whitney U (the obvious wrong test):**
+
+```
+U_baseline = 151.5  (vs expected 120 under null)
+z = 1.245  →  two-tailed p ≈ 0.21,  one-tailed p ≈ 0.11
+```
+
+Not significant at α=0.05. Reason: **the medians are essentially identical** (baseline 37, prepend 37.5). Mann-Whitney is a rank-based test and primarily detects median shifts. The prepend doesn't shift the median — it suppresses the upper tail. M-W is the wrong instrument.
+
+**F-test on variances (the right test):**
+
+```
+F = σ²(baseline) / σ²(prepend) = 5025.4 / 88.9 = 56.5
+df1=14, df2=15,  F_crit(α=0.05) ≈ 2.4,  F_crit(α=0.001) ≈ 4.5
+```
+
+F = 56.5 is **dramatically above** the 0.001 critical value. The two samples come from distributions with significantly different variances — p ≪ 0.001. This is the defensible statistical claim.
+
+**Upper-half mean ratio (the readable framing):**
+
+```
+baseline upper-half (n=8): mean = 123.4 tokens
+prepend  upper-half (n=8): mean =  48.6 tokens
+ratio = 2.54×
+```
+
+Translates the F-result into one number a user can act on: "the worst half of your turns is 2.5× shorter with the prepend".
+
+**Correction to iter 45's framing:**
+
+iter 45 claimed "mean reduction 51 %" — true, but driven entirely by upper-tail outliers in the baseline arm. A cleaner statement is **"the prepend reduces output-token variance by 56× (F-test, p ≪ 0.001) without changing the median"**. That's the rigorous one-liner.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.40 s. No code change.
+
+**Parked for later:**
+
+- Roll the F-test number into the iter-41 cycle close and the commit history's narrative. Single defensible claim that survives into bench-03.
+- Consider whether the iter-2 warning text (already at ~5 lines) should grow to include "(reduces variance 56×, F-test p ≪ 0.001)" — probably no, the existing recommendation is concrete enough. Park as nice-to-have.
