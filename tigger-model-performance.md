@@ -2580,3 +2580,57 @@ All three 27b configs converge to ~35-43 mean out_t under the prepend, regardles
 
 - The 3 iterations of 35/35.7/43 across q4_k_l, non-quant, and -thinking sample sizes 3-10 hint at a real family-wide constant. A combined statistical analysis (33 measurements pooled) would strengthen the headline before bench-03 closes.
 - Document the "prepend > template flag" finding in the iter-2 warning text or in CLAUDE.md so future agents don't re-derive it.
+
+### Iter 45 — DONE
+
+**Dimension covered:** pooled statistical analysis of the iter-38 prepend's effect on `qwen/qwen3.6-27b`-family output_tokens. 16 measurements across three config slugs vs ~13 baseline measurements (iter 36 + iter 38 baseline arm). Closes the prepend-validation thread with a single family-wide number.
+
+**Wall-clock used:** ~3m of 7m.
+
+**Pooled prepend-arm data (n=16):**
+
+```
+q4_k_l-instruct (iter 38, n=10): 31  48  31  30  48  50  56  53  48  35
+qwen-27b-instruct (iter 43, n=3): 32  33  40
+qwen-27b-thinking (iter 44, n=3): 46  31  30
+```
+
+```
+mean = 39.5  median = 37.5  σ = 8.7  min = 30  max = 56  range = 26
+```
+
+Tight unimodal distribution. No outliers above 56. **σ/mean = 22 %**, considered well-controlled.
+
+**Pooled baseline-arm data (n=15, q4_k_l only — the only entry where baseline returns):**
+
+```
+iter 36 (n=5):        103  32  203  34  35
+iter 38 baseline (n=10): 32  80  34  27  183  34  37  234  37  110
+```
+
+```
+mean = 81.0  median = 37  σ = 70.7  min = 27  max = 234  range = 207
+```
+
+**Bimodal**: median 37 (concentrated near the prepend mean) and a heavy upper tail (5 of 15 samples ≥ 80, max 234). σ/mean = 87 %.
+
+**Family-wide effect-size (Mann-Whitney U, eyeballed from the medians + ranges):**
+
+- median(baseline) = 37, median(prepend) = 37.5 — essentially identical for the "minimal" baseline regime.
+- mean(baseline) = 81, mean(prepend) = 40 → 51 % reduction in mean.
+- max(baseline) = 234, max(prepend) = 56 → 4.2× tail reduction.
+
+The prepend's effect is **on the tail, not the body**. It doesn't make typical replies shorter — it suppresses the bimodal heavy regime that bumps 30-40 % of baseline turns to 80-234 tokens. From a user-perceived-latency perspective, the prepend bounds upper-tail wall (iter 38: 37 s → 19 s) while leaving median wall roughly intact.
+
+**Non-quant 27b baseline was uncatchable.** iter-2's 240 s alarm + iter-43's discussion confirm: baseline non-quant 27b-instruct does NOT return in practical time, so a paired baseline-arm sample for it doesn't exist on this cycle. The prepend made the non-quant *usable at all*, which is more dramatic than the q4_k_l finding (which was already usable — prepend just bounds the tail).
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.42 s. No code change.
+
+**Parked for later:**
+
+- Add the family-wide number ("mean prepend-arm 40, max 56, vs baseline mean 81/max 234") to the cycle-close iter 41's block, or to the iter-2 warning if it can be made compact. Either way, this is the strongest single quantitative claim of the cycle and should survive into bench-03's preamble.
+- A formal Mann-Whitney U test with the pooled 16 vs 15 samples would yield a p-value; the visual distributions make it obvious but a number would be defensible.
