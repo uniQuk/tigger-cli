@@ -3190,3 +3190,59 @@ The four models cluster k around 0.085 ± 0.015. The gemma-26b outlier disappear
 **Parked for later:**
 
 - Nothing new. iter-32's gemma TTFT outlier is now resolved; iter-33's active-param × quant TTFT model fits all four rows when active-param counts are inferred rather than read from model names.
+
+### Iter 61 — DONE
+
+**Dimension covered:** regression check that the iter-18 → iter-52 chain of perf-layer changes didn't perturb the actual wire kwargs going to LM Studio. The signal-layer churn was extensive (new TSV column, new stderr lines, new diagnostics, suppression rules) — confirm the kwargs payload is untouched.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Wire-kwargs dump (non-quant 27b, this tick):**
+
+```json
+{
+  "model": "qwen/qwen3.6-27b",
+  "temperature": 0.7,
+  "stream": true,
+  "top_p": 0.8,
+  "presence_penalty": 0,
+  "extra_body": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repetition_penalty": 1,
+    "chat_template_kwargs": {
+      "enable_thinking": false,
+      "preserve_thinking": false
+    }
+  },
+  "stream_options": {"include_usage": true},
+  "_messages_count": 2,
+  "_tools_count": 13
+}
+```
+
+**Compare to iter 2 baseline (same config slug, before all iter-18+ changes):**
+
+| field                                | iter 2 | iter 61 | match |
+|--------------------------------------|--------|---------|-------|
+| `model`                              | `qwen/qwen3.6-27b` | `qwen/qwen3.6-27b` | ✓ |
+| `temperature`                        | 0.7    | 0.7     | ✓     |
+| `top_p`                              | 0.8    | 0.8     | ✓     |
+| `presence_penalty`                   | 0      | 0       | ✓     |
+| `extra_body.top_k`                   | 20     | 20      | ✓     |
+| `extra_body.min_p`                   | 0.0    | 0.0     | ✓     |
+| `extra_body.repetition_penalty`      | 1      | 1       | ✓     |
+| `extra_body.chat_template_kwargs`    | `{enable_thinking:false, preserve_thinking:false}` | same | ✓ |
+| `stream_options.include_usage`       | true   | true    | ✓     |
+
+**Result:** zero regression. All 9 wire fields round-trip bit-for-bit identical across the 6 intermediate perf-layer commits. The provider-side payload is invariant; only the stderr/TSV emission changed.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.38 s. No code change.
+
+**Parked for later:**
+
+- Nothing new. The cycle is at a natural plateau — every dimension covered, all parked items resolved, wire kwargs verified-stable. Future ticks before bench-03 will be incremental polish.
