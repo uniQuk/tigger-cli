@@ -149,6 +149,42 @@ def test_cache_likely_hit_signal_fires_when_apparent_prefill_high(
     assert "apparent_prefill=" in captured.err
 
 
+def test_cache_likely_hit_suppressed_when_prefill_dominant(
+    tmp_path, monkeypatch, capsys,
+):
+    """Iter-49: when prefill-dominant fires AND apparent_prefill > 100
+    (partial-warm cases), the cache-likely-hit line is suppressed — the
+    prefill-dominant warning already carries the apparent_prefill rate,
+    so emitting both reads as a contradiction."""
+    perf_file = tmp_path / "perf.tsv"
+    monkeypatch.setenv("TIGGER_PERF", str(perf_file))
+
+    import tigger.loop as loop_mod
+    real_mono = loop_mod.time.monotonic
+    counter = {"n": 0}
+
+    def fake_mono() -> float:
+        counter["n"] += 1
+        # Monotonic offset grows by 30s per call, so each turn's wall is ~90s
+        # (4 monotonic calls per turn). With in=15000 and out=3:
+        #   wall/out = 90/3 = 30 > 1.5 → prefill-dominant fires.
+        #   apparent_prefill = 15000/90 ≈ 167 > 100 → cache-likely-hit
+        #   threshold met. Both conditions true; only prefill-dominant should
+        #   print after the iter-49 suppression rule.
+        return real_mono() + counter["n"] * 30.0
+
+    monkeypatch.setattr(loop_mod.time, "monotonic", fake_mono)
+    list(run(
+        "hi",
+        _ctx(),
+        _noop_registry(),
+        provider_fn=_two_turn_provider(in_tokens=[15000, 15000], out_tokens=[3, 3]),
+    ))
+    captured = capsys.readouterr()
+    assert "prefill-dominant" in captured.err
+    assert "cache likely hit" not in captured.err
+
+
 def test_cache_likely_hit_signal_silent_on_cold_prefill(
     tmp_path, monkeypatch, capsys,
 ):

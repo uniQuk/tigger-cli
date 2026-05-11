@@ -2733,3 +2733,41 @@ Tests: extended `test_perf_warning_fires_on_prefill_dominant_turn` with an asser
 
 - Both prefill-related signals (prefill-dominant warning + cache likely hit) now carry the same numeric field. A future tick could collapse them into one decision tree per turn ("hit / cold / dominated") with a single line — currently they fire independently and can both appear on the same turn.
 - The iter-13 cold-load case for gemma-31b had ratio wall/out=79.56/46=1.73 (>1.5) AND delta_chars=79 (<4096) → the new line would fire with apparent_prefill≈57 tok/s. That gives the user a concrete "cold prefill" diagnostic on the very turn where they're least sure what's happening.
+
+### Iter 49 — DONE
+
+**Dimension covered:** live-verify iter 48 + atomic UX fix surfaced by the verification. Running a fresh `--once` on warm non-quant 27b produced both `prefill-dominant` AND `cache likely hit` lines on the same turn — which reads as a contradiction even though both are technically firing on valid conditions (apparent_prefill=113 sits in the partial-warm band).
+
+**Wall-clock used:** ~2m of 7m.
+
+**The double-fire from the live verify:**
+
+```
+[perf] 1778471944 1 43.39 0.00 4920 28 2 73 stop 0 0 73 0.65 0.000 113
+[perf] prefill-dominant turn 1: wall=43.4s out=28tok delta_chars=73 apparent_prefill=113tok/s
+[perf] cache likely hit turn 1: apparent_prefill=113tok/s (>100 ⇒ prefix served from KV cache)
+```
+
+`wall/out = 43.4/28 = 1.55 > 1.5` (triggers prefill-dominant); `apparent_prefill = 113 > 100` (triggers cache-likely-hit). Both fire, but the user reads "prefill dominated my wall" + "cache hit served the prefix" as two contradictory claims.
+
+**Verified / changed:** `loop.py` — suppress `cache likely hit` when `prefill-dominant` already fired. Reasoning: the prefill-dominant line already carries the apparent_prefill rate (added in iter 48), so dropping cache_likely_hit in this overlap is information-preserving. Code refactor extracts the prefill-dominance condition into a boolean variable used by both branches.
+
+```python
+prefill_dominant = (
+    wall / max(assistant_msg.output_tokens, 1) > 1.5
+    and delta_chars < 4096
+)
+if prefill_dominant: …  # warning line
+if apparent_prefill > 100 and not prefill_dominant: …  # cache_hit line
+```
+
+**Atomic change rule check:** two files (`loop.py` + its test), 9 LoC of runtime change + 30 LoC of new test. No flag. No top-level Rich import. Test count grows by 1.
+
+**Files touched:** `src/tigger/loop.py`, `tests/test_loop_perf.py`, `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 828 in 4.35 s. New test `test_cache_likely_hit_suppressed_when_prefill_dominant` exercises the partial-warm overlap and asserts only `prefill-dominant` prints.
+
+**Parked for later:**
+
+- The iter-48 followup "collapse two signals into one decision tree" is now half-done — they're no longer simultaneous, but they're still independent code paths. A future tick could unify them under a single `[perf]` line that emits `hit`/`cold`/`dominated` exclusively. Lower priority now that the contradiction is gone.
+- Iter-48 noted "iter-13 cold-load gemma-31b case would now emit apparent_prefill≈57 tok/s in the prefill-dominant line". After this iter that's still true — but cache_likely_hit would NOT fire (correctly), since 57 < 100 anyway.

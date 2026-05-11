@@ -531,10 +531,11 @@ def run(
             # adds apparent_prefill to the line so the user sees the actual
             # prefill rate that triggered the warning (cold prefill tops out
             # ~60-90 tok/s on local hardware per the bench-02 calibration).
-            if (
+            prefill_dominant = (
                 wall / max(assistant_msg.output_tokens, 1) > 1.5
                 and delta_chars < 4096
-            ):
+            )
+            if prefill_dominant:
                 sys.stderr.write(
                     f"[perf] prefill-dominant turn {perf_turn}: "
                     f"wall={wall:.1f}s out={assistant_msg.output_tokens}tok "
@@ -547,7 +548,12 @@ def run(
             # tops out ~60-90 tok/s in the bench-02 calibration; warm cache hits
             # land 200-3500). Threshold 100 cleanly separates the two regimes.
             # Does NOT fire when output dominates wall (decode-share confound).
-            if apparent_prefill_tok_per_s > 100:
+            # Iter 49: suppress when prefill-dominant already fired — partial-
+            # cache cases (apparent_prefill 100-200, wall still long) used to
+            # emit both lines simultaneously, which reads as a contradiction.
+            # The prefill-dominant line carries the same rate, so dropping
+            # cache_likely_hit here is information-preserving.
+            if apparent_prefill_tok_per_s > 100 and not prefill_dominant:
                 sys.stderr.write(
                     f"[perf] cache likely hit turn {perf_turn}: "
                     f"apparent_prefill={apparent_prefill_tok_per_s:.0f}tok/s "
