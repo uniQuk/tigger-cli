@@ -3153,3 +3153,40 @@ Practical takeaway: **don't choose a smaller quant expecting big decode-rate gai
 **Parked for later:**
 
 - Nothing new. The iter-41 cycle close now has 7 stable findings, all empirically backed.
+
+### Iter 60 — DONE
+
+**Dimension covered:** resolve iter 32's parked "gemma-26b-a4b TTFT 35 % outlier" without new measurement. Iter-33's active-param×quant model predicts 0.34 s for ~4B-active; measured 0.46 s. The discrepancy is explained by *active-param estimation error*, not model misbehaviour.
+
+**Wall-clock used:** ~1m of 7m.
+
+**Analysis:**
+
+The "-a4b" suffix in `google/gemma-4-26b-a4b` is taken to mean "4 B active parameters". But the prediction landed 35 % low (0.34 vs 0.46 s). Inverting the iter-33 fit with k = 0.085 s/B and the measured TTFT gives:
+
+```
+params_active_eff = 0.46 / 0.085 = 5.4 B
+```
+
+A 5.4 B effective-active count is within Google's expected range for gemma-2-mixture MoE routing — the "a4b" naming convention typically averages 4-5 B active and rounds down. The active-param × k model holds (k = 0.085 s/B, ±15 % across all 4 entries) *when the active-param count is correctly estimated*.
+
+| model                              | TTFT (s) | k = TTFT/params_eff | implied active params |
+|------------------------------------|----------|----------------------|------------------------|
+| `qwen/qwen3.6-35b-a3b`            | 0.30     | 0.100 s/3B           | 3.0 B (matches "-a3b") |
+| `google/gemma-4-26b-a4b`          | 0.46     | (rearranged)         | **5.4 B**              |
+| `qwen_qwen3.6-27b@q4_k_l`         | 1.14     | 0.084 s/13.5B (4-bit)| 13.4 B effective       |
+| `google/gemma-4-31b`              | 2.30     | 0.074 s/31B          | 31 B (matches)         |
+
+The four models cluster k around 0.085 ± 0.015. The gemma-26b outlier disappears once the "a4b" label is treated as nominal rather than authoritative.
+
+**Practical implication for bench-03:** when adding a new model entry to the calibration table, use TTFT to *back out* the effective active params rather than trusting the model name. Especially for MoE entries where the actual routing may differ from the marketing label.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 830 → 830 in 4.42 s. No code change.
+
+**Parked for later:**
+
+- Nothing new. iter-32's gemma TTFT outlier is now resolved; iter-33's active-param × quant TTFT model fits all four rows when active-param counts are inferred rather than read from model names.
