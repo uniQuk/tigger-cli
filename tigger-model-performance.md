@@ -1768,3 +1768,49 @@ Three of four rows now populated. MoE decode-rate ordering: 35b-a3b (46.7) > 26b
 
 - Re-fit gemma-26b-a4b's overhead on a deeply-warm tick (start with the model already loaded by a previous tick, then 2 samples). Should bring `a` back to the ~1.1 s host floor.
 - `google/gemma-4-31b` row is the last empty cell — same cold-swap + 2-sample procedure as this tick. Iter 13 hinted decode is ~3 tok/s; the fit will pin it.
+
+### Iter 26 — DONE
+
+**Dimension covered:** acting on iter 25's parked re-fit. Gemma-26b-a4b was still loaded from iter 25 and had ~10 min more warming time. Re-run the same short + long samples to see if `a` drops back to the ~1.1 s host floor.
+
+**Wall-clock used:** ~2m of 7m.
+
+**Bench numbers (gemma-26b-a4b, deeply-warm now):**
+
+| sample | out | wall_s | t/s   | app_prefill |
+|--------|-----|--------|-------|--------------|
+| short  | 12  | **0.92** (was 3.67 in iter 25) | 13.03 | **4969** (was 1248) |
+| long   | 85  | **4.52** (was 7.45 in iter 25) | 18.81 | 1014 (was 616)      |
+
+Outputs identical to iter 25 (correct on both).
+
+**Re-fit (deeply warm):**
+
+```
+b = (4.52 − 0.92) / (85 − 12) = 0.0493 s/tok ⇒ decode_rate = 20.3 tok/s
+a = 0.92 − 12·b              = 0.33 s        ⇒ overhead
+```
+
+The iter-25 hypothesis is **vindicated**. Same model, same prefix, same prompts — overhead collapsed from 3.05 s → 0.33 s in 10 minutes. The 2.7 s gap was real prefill cost being amortised as the host's KV-cache hot path got fully populated. Decode rate moved only 19.3 → 20.3 tok/s (~5%), exactly as iter 25 predicted ("slope is robust").
+
+**Updated calibration table:**
+
+| model                              | overhead   | decode tok/s | app_prefill (cache hit) |
+|------------------------------------|------------|---------------|--------------------------|
+| `qwen/qwen3.6-35b-a3b` (MoE)       | 1.21 s     | **46.7**      | ~3450                    |
+| `qwen_qwen3.6-27b@q4_k_l` (dense)  | 1.14 s     | **11.3**      | ~600                     |
+| `google/gemma-4-26b-a4b` (MoE)     | **0.33 s** | **20.3**      | ~1014 - 4969 (warming)   |
+| `google/gemma-4-31b` (dense)       | —          | —             | —                        |
+
+**Notable:** gemma-26b's 0.33 s overhead is *lower* than the qwen models' ~1.15 s. Three plausible causes (not investigated this tick): (a) gemma tokenizer is faster than qwen's; (b) gemma chat template is simpler; (c) MoE expert routing in 35b-a3b adds overhead absent in dense models — but then q4_k_l (dense) should also be lower, and it isn't. (a) or (b) is the more likely root.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 825 → 825 in 4.41 s. No code change.
+
+**Parked for later:**
+
+- `google/gemma-4-31b` is the last empty calibration row. Iter-13 measured warm-warm ~18 s for out=52 — fit will pin it cleanly with one more short-output sample.
+- Investigate why qwen's overhead is 3-4× gemma's. Token-waste candidate: if it's tokenizer/template cost on the host side, there's no tigger fix; if it's something in tigger's `messages_to_openai` payload that's different per model, there might be.
