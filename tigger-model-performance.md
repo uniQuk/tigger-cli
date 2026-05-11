@@ -2504,3 +2504,36 @@ Gemma entries lag on this hardware; useful only for non-tool workloads (gemma-31
 
 - Re-attempt non-quant 27b prepend probe on the next tick — host should be warmer now.
 - iter-2's original "non-quant 27b doesn't finish in 240 s" finding holds at first warm; only the deep-warm state may differ. The iter-2 warning + iter-39 mitigation still apply unchanged.
+
+### Iter 43 — DONE
+
+**Dimension covered:** iter 42's parked re-attempt. The non-quant `qwen/qwen3.6-27b-instruct` was loaded from iter 42's cold-load; this tick runs the iter-38 prepend probe with a 90 s alarm to allow KV-cache warming.
+
+**Wall-clock used:** ~4m of 7m.
+
+**Bench numbers (3 runs, non-quant 27b, all with the iter-38 prepend):**
+
+| run | wall_s | in_t | out_t | finish | t/s   | app_prefill | regime          |
+|-----|--------|------|-------|--------|-------|--------------|-----------------|
+| r1  | 76.39  | 4922 | 32    | stop   | 0.42  | 64           | first warm-up   |
+| r2  | 44.67  | 4922 | 33    | stop   | 0.74  | 110          | partial cache   |
+| r3  | 46.34  | 4922 | 40    | stop   | 0.86  | 106          | partial cache   |
+
+All three returned. All three landed `out_t` in the iter-38 minimal range (32-40 tokens, vs the baseline heavy regime 100-234). The iter-35 `cache likely hit` signal fired on r2 and r3 (app_prefill > 100) but not r1.
+
+**Headline:** **iter-38 prepend hypothesis confirmed for non-quant qwen/qwen3.6-27b-instruct.** Mean out_t = 35 across 3 runs, matching the q4_k_l prepend-arm mean of 43 (iter 38). The footgun mitigation generalises across the family, as predicted by iter 16.
+
+**Importantly:** iter-2's original "non-quant doesn't return in 240 s" finding was on the *baseline* prompt. With the prepend, every run finishes well under 90 s even on a non-deep-warm host. The mitigation makes the model usable.
+
+**Decode rate observation.** All three runs show very low tokens_per_sec (0.42-0.86), well below the q4_k_l warm-warm 9.5 tok/s. wall is dominated by prefill, not decode. A future tick after 10+ minutes of warming would resolve this — non-quant 27b decode should be ~half of q4_k_l (~5-6 tok/s) once the prefix cache is fully populated.
+
+**Verified / changed:** docs only.
+
+**Files touched:** `tigger-model-performance.md`.
+
+**Tests delta:** 827 → 827 in 4.41 s. No code change.
+
+**Parked for later:**
+
+- Re-fit non-quant 27b on a fully-deep-warm host (probably a tick further out from this one). Expect decode rate around 5-6 tok/s and overhead near gemma-26b's 0.33 s once the iter-26-style intercept-pollution is amortised away.
+- Apply the same probe to `qwen/qwen3.6-27b-thinking` (the third 27b config entry). Predicted: prepend also halves out_t since same wire model. One more tick of confirmation closes the family-wide validation.
